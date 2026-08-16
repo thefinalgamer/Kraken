@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tierFor, bar, trend, flag, ordinal, memberCard } from '../shared/ui.mjs';
+import {
+  tierFor, trend, flag, ordinal, memberCard, configureEmoji,
+} from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
   // Two members, the state right now
@@ -35,17 +37,6 @@ test('tiers never invert — a better rank is never a worse tier', () => {
       last = v;
     }
   }
-});
-
-test('completion bar', () => {
-  assert.equal(bar(0), '░░░░░░░░░░');
-  assert.equal(bar(100), '██████████');
-  assert.equal(bar(70.22), '███████░░░');
-  assert.equal(bar(70.22).length, 10);
-  // never breaks on rubbish input
-  assert.equal(bar(null).length, 10);
-  assert.equal(bar(-5), '░░░░░░░░░░');
-  assert.equal(bar(999), '██████████');
 });
 
 test('trend arrows', () => {

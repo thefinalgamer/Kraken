@@ -170,13 +170,6 @@ export const ordinal = (v) => {
   return `${i}${['th', 'st', 'nd', 'rd'][i % 10] || 'th'}`;
 };
 
-/** Block-character progress bar. Turns a percentage into something you feel. */
-export function bar(percent, width = 10) {
-  const p = Math.max(0, Math.min(100, Number(percent) || 0));
-  const filled = Math.round((p / 100) * width);
-  return '█'.repeat(filled) + '░'.repeat(width - filled);
-}
-
 /** Movement since the member's last update. Empty when they haven't moved. */
 export function trend(rank, prevRank) {
   if (!rank || !prevRank || rank === prevRank) return '';
@@ -218,7 +211,7 @@ export function memberCard(m, { total = 0, highlight = false } = {}) {
         [
           `### ${position} · ${country ? `${country} ` : ''}${who}`,
           trophyLine(m),
-          `**Completion** \`${bar(m.completion)}\` ${pct(m.completion)}\n` +
+          `**Completion** ${pct(m.completion)}\n` +
             `**Points** ${n(m.points)}\n` +
             `-# ${tierEmoji(tier)} ${tierName} tier`,
         ],

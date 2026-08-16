@@ -210,13 +210,17 @@ export function memberCard(m, { total = 0, highlight = false } = {}) {
 
   return container(
     [
+      // EXACTLY THREE text blocks. A Section accepts 1-3 components and Discord
+      // rejects the entire message if you send a fourth — which surfaces to the
+      // member as "Kraken didn't respond in time", with no clue as to why.
+      // Anything extra has to be folded into one of these three, not appended.
       section(
         [
           `### ${position} · ${country ? `${country} ` : ''}${who}`,
           trophyLine(m),
           `**Completion** \`${bar(m.completion)}\` ${pct(m.completion)}\n` +
-            `**Points** ${n(m.points)}`,
-          `-# ${tierEmoji(tier)} ${tierName} tier`,
+            `**Points** ${n(m.points)}\n` +
+            `-# ${tierEmoji(tier)} ${tierName} tier`,
         ],
         thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
       ),

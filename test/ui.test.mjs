@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tierFor, bar, trend, flag, ordinal } from '../shared/ui.mjs';
+import { tierFor, bar, trend, flag, ordinal, memberCard } from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
   // Two members, the state right now
@@ -71,4 +71,48 @@ test('ordinals survive the awkward numbers', () => {
   assert.equal(ordinal(13), '13th');
   assert.equal(ordinal(21), '21st');
   assert.equal(ordinal(112), '112th');
+});
+
+test('member card respects Discord component limits', () => {
+  const card = memberCard(
+    {
+      discord_id: '1', psn_online_id: 'th3finalgamer--', country: 'GB',
+      rank: 1, prev_rank: 3, platinum: 212, gold: 944, silver: 2232,
+      bronze: 7534, completion: 70.22, points: 137474, avatar_url: null,
+    },
+    { total: 2 },
+  );
+
+  const section = card.components.find((c) => c.type === 9);
+  assert.ok(section, 'card should contain a Section');
+  assert.ok(
+    section.components.length <= 3,
+    `Section accepts 1-3 components, got ${section.components.length} — ` +
+      'Discord rejects the whole message and the member sees "did not respond in time"',
+  );
+  assert.ok(section.components.length >= 1);
+
+  // Container: max 10 children
+  assert.ok(card.components.length <= 10);
+
+  // 4000 characters across all TextDisplays in a message
+  const chars = JSON.stringify(card).length;
+  assert.ok(chars < 4000, `card is ${chars} chars`);
+});
+
+test('every tier renders without throwing', () => {
+  for (const total of [1, 2, 30, 300]) {
+    for (const rank of [1, 2, 15, 50, 299]) {
+      if (rank > total) continue;
+      const card = memberCard(
+        { discord_id: 'x', psn_online_id: 'someone', country: null, rank,
+          prev_rank: null, platinum: 1, gold: 2, silver: 3, bronze: 4,
+          completion: 50, points: 100, avatar_url: null },
+        { total },
+      );
+      const section = card.components.find((c) => c.type === 9);
+      assert.ok(section.components.length <= 3, `rank ${rank}/${total}`);
+      assert.ok(typeof card.accent_color === 'number');
+    }
+  }
 });

@@ -436,9 +436,19 @@ async function recomputeMemberPoints(accountId) {
 function rollUp(summary, titles, pointsByGame) {
   const earned = summary?.earnedTrophies ?? {};
   const completed = titles.filter((t) => (t.progress ?? 0) === 100).length;
-  const completion = titles.length
-    ? titles.reduce((n, t) => n + (t.progress ?? 0), 0) / titles.length
-    : 0;
+
+  // Completion is TROPHY-WEIGHTED: earned / (earned + unearned), across every
+  // game. Averaging the per-game percentages instead would treat a 5-trophy
+  // indie and a 90-trophy JRPG as equally important, and produce a number about
+  // a point higher than the one members see on PSNProfiles. Matching their
+  // formula means nobody has to argue about which figure is right.
+  let earnedTotal = 0;
+  let definedTotal = 0;
+  for (const t of titles) {
+    earnedTotal += sumTrophies(t.earnedTrophies);
+    definedTotal += sumTrophies(t.definedTrophies);
+  }
+  const completion = definedTotal ? (earnedTotal / definedTotal) * 100 : 0;
 
   let points = 0;
   for (const p of pointsByGame.values()) points += p;

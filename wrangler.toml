@@ -1,0 +1,30 @@
+name = "platinum-intel"
+main = "worker/src/index.mjs"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# The Discord interactions endpoint. Free tier is 100,000 requests/day — a few
+# hundred members running slash commands uses a rounding error of that.
+#
+# Note the heavy work does NOT live here: a full trophy scan makes hundreds of
+# outbound calls and the free tier caps a Worker at 50 per invocation, so
+# /update dispatches to GitHub Actions instead.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "platinum-intel"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# Public, non-secret configuration. Secrets go in via `wrangler secret put`.
+LEADERBOARD_PAGE_SIZE = "10"
+
+# Set this to a Discord role id to gate /register during the soft launch.
+# Only members with the role can join the board; leave empty to open it up.
+HUNTER_ROLE_ID = ""
+
+# Secrets required (set with: wrangler secret put NAME)
+#   DISCORD_PUBLIC_KEY      - from the Discord app's General Information page
+#   DISCORD_APPLICATION_ID  - same page
+#   GITHUB_TOKEN            - fine-grained PAT with "Contents: read and write"
+#   GITHUB_REPO             - e.g. "martin/platinum-intel"

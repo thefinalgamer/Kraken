@@ -1,0 +1,25 @@
+{
+  "name": "platinum-intel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Nahasis rebuild — PSN trophy leaderboard bot for the Platinum Intel Discord",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "setup": "node setup.mjs",
+    "scan": "node jobs/scan.mjs",
+    "fallback": "node jobs/fallback.mjs",
+    "register-commands": "node jobs/register-commands.mjs",
+    "db:init": "wrangler d1 execute platinum-intel --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute platinum-intel --local --file=schema.sql",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "psn-api": "^2.11.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

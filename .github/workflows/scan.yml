@@ -20,10 +20,13 @@ on:
         required: true
 
 concurrency:
-  # One scan at a time per member (a double /update is a no-op), but different
-  # members scan in parallel.
-  group: scan-${{ github.event.client_payload.discord_id || inputs.discord_id }}
+  # One scan at a time SERVER-WIDE. Every scan logs in as the same PSN account,
+  # so parallel jobs each get their own rate limiter and collectively blow past
+  # Sony's limit. queue: max keeps the others waiting in order rather than
+  # letting GitHub cancel all but the most recent.
+  group: psn-scan
   cancel-in-progress: false
+  queue: max
 
 jobs:
   scan:

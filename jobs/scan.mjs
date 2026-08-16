@@ -246,7 +246,32 @@ async function scanMember(psn, member, updateNo) {
     )
     .slice(0, STALE_REFRESH_BUDGET);
 
-  const toScan = [...changed, ...staleOnly];
+  // Self-heal. A scan that dies partway can leave a game recorded in
+  // member_games with no matching rows in `trophies` — progress saved, rarity
+  // never written. Those games then score zero forever, because they are
+  // neither "changed" nor "stale" and nothing would ever look at them again.
+  // Points quietly collapse and no error is raised anywhere.
+  const orphans = await db.query(
+    `SELECT mg.np_comm_id
+       FROM member_games mg
+       LEFT JOIN trophies t ON t.np_comm_id = mg.np_comm_id
+      WHERE mg.psn_account_id = ? AND mg.earned_total > 0
+      GROUP BY mg.np_comm_id
+     HAVING COUNT(t.trophy_id) = 0`,
+    [accountId],
+  );
+  const orphanIds = new Set(orphans.map((r) => r.np_comm_id));
+  const repairs = gameRows.filter(
+    (t) =>
+      orphanIds.has(t.npCommunicationId) &&
+      !changedIds.has(t.npCommunicationId) &&
+      !staleOnly.some((s) => s.npCommunicationId === t.npCommunicationId),
+  );
+  if (repairs.length) {
+    console.log(`  repairing ${repairs.length} games with missing rarity data`);
+  }
+
+  const toScan = [...changed, ...staleOnly, ...repairs];
   const deferred = stale.size - changedIds.size - staleOnly.length;
 
   const estimateMinutes = Math.max(1, Math.ceil(toScan.length / (psn.limiter.max / 15)));

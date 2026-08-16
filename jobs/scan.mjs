@@ -147,7 +147,20 @@ async function scanMember(psn, member, updateNo) {
     completed: member.completed,
   };
 
-  const [summary, titles] = [await psn.summary(accountId), await psn.titles(accountId)];
+  const summary = await psn.summary(accountId);
+  const titles = await psn.titles(accountId);
+
+  // Sanity check. If the summary says this member owns trophies but their game
+  // list comes back empty, something is wrong with the request rather than with
+  // the account — fail loudly instead of quietly writing a card full of zeroes.
+  const summaryTrophies = sumTrophies(summary?.earnedTrophies);
+  if (summaryTrophies > 0 && titles.length === 0) {
+    throw new Error(
+      `${member.psn_online_id} has ${summaryTrophies} trophies but PSN returned no games. ` +
+        `The trophy summary call worked and the titles call did not, so this is a request ` +
+        `problem, not a private profile.`,
+    );
+  }
 
   const priorRows = await db.query(
     'SELECT np_comm_id, earned_total, progress, points, scanned_at FROM member_games WHERE psn_account_id = ?',
@@ -221,7 +234,7 @@ async function scanMember(psn, member, updateNo) {
 async function refreshGameDefinitions(psn, title) {
   let defs;
   try {
-    defs = await psn.titleTrophies(title.npCommunicationId, title.npServiceName);
+    defs = await psn.titleTrophies(title.npCommunicationId, title.trophyTitlePlatform);
   } catch (err) {
     if (err instanceof PsnPrivateError) return; // delisted / region-locked
     throw err;
@@ -267,7 +280,7 @@ async function refreshGameDefinitions(psn, title) {
 async function rescanMemberGame(psn, accountId, title, was) {
   let earned;
   try {
-    earned = await psn.earnedForTitle(accountId, title.npCommunicationId, title.npServiceName);
+    earned = await psn.earnedForTitle(accountId, title.npCommunicationId, title.trophyTitlePlatform);
   } catch (err) {
     if (err instanceof PsnPrivateError) return null;
     throw err;

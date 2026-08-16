@@ -52,6 +52,15 @@ export class RateLimiter {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * PSN splits its trophy endpoints across two "services". PS5 titles live on the
+ * newer one and must send NO npServiceName; everything older (PS3, PS4, Vita)
+ * must send "trophy". Sending the raw value from the title object doesn't work —
+ * PS5 titles report "trophy2", which these endpoints reject.
+ */
+const serviceNameFor = (platform = '') =>
+  String(platform).includes('PS5') ? undefined : 'trophy';
+
 export class PsnClient {
   /**
    * @param {object} opts
@@ -165,11 +174,12 @@ export class PsnClient {
     const all = [];
     let offset = 0;
     for (;;) {
-      const page = await this.#call(getUserTitles, { accountId }, { limit: 800, offset });
-      all.push(...(page.trophyTitles ?? []));
-      if (all.length >= (page.totalItemCount ?? all.length)) break;
-      if (!page.trophyTitles?.length) break;
-      offset += page.trophyTitles.length;
+      const page = await this.#call(getUserTitles, accountId, { limit: 800, offset });
+      const batch = page?.trophyTitles ?? [];
+      all.push(...batch);
+      const total = page?.totalItemCount ?? all.length;
+      if (!batch.length || all.length >= total) break;
+      offset += batch.length;
     }
     return all;
   }
@@ -179,26 +189,26 @@ export class PsnClient {
    * Identical for every member, so this is cached globally and fetched once
    * per game rather than once per member per game.
    */
-  async titleTrophies(npCommunicationId, npServiceName) {
+  async titleTrophies(npCommunicationId, platform) {
     const res = await this.#call(
       getTitleTrophies,
       npCommunicationId,
       'all',
-      { npServiceName },
+      { npServiceName: serviceNameFor(platform) },
     );
-    return res.trophies ?? [];
+    return res?.trophies ?? [];
   }
 
   /** Which trophies in a game this specific member has earned. */
-  async earnedForTitle(accountId, npCommunicationId, npServiceName) {
+  async earnedForTitle(accountId, npCommunicationId, platform) {
     const res = await this.#call(
       getUserTrophiesEarnedForTitle,
-      { accountId },
+      accountId,
       npCommunicationId,
       'all',
-      { npServiceName },
+      { npServiceName: serviceNameFor(platform) },
     );
-    return res.trophies ?? [];
+    return res?.trophies ?? [];
   }
 }
 

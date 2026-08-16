@@ -13,7 +13,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "platinum-intel"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "44d2a77b-cded-4a63-af05-dc43da8aaed6"
 
 [vars]
 # Public, non-secret configuration. Secrets go in via `wrangler secret put`.
@@ -21,7 +21,7 @@ LEADERBOARD_PAGE_SIZE = "10"
 
 # Set this to a Discord role id to gate /register during the soft launch.
 # Only members with the role can join the board; leave empty to open it up.
-HUNTER_ROLE_ID = ""
+HUNTER_ROLE_ID = "1538606682039648327"
 
 # Secrets required (set with: wrangler secret put NAME)
 #   DISCORD_PUBLIC_KEY      - from the Discord app's General Information page

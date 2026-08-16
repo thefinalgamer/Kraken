@@ -29,9 +29,22 @@
 import { D1 } from './lib/d1.mjs';
 import { PsnClient, PsnPrivateError } from './lib/psn.mjs';
 import { trophyPoints, explainDelta } from '../shared/scoring.mjs';
-import { postUpdateResult, postMovements, warnTokenExpiry } from './lib/discord.mjs';
+import {
+  postUpdateResult,
+  postUpdateFailure,
+  postMovements,
+  warnTokenExpiry,
+} from './lib/discord.mjs';
 
 const GAME_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Most stale-rarity refreshes allowed in a single update. Games the member has
+ * actually played are never subject to this — they're always scanned. This only
+ * caps the background job of keeping rarity current, so no single update can
+ * balloon back to first-scan length.
+ */
+const STALE_REFRESH_BUDGET = Number(process.env.STALE_REFRESH_BUDGET) || 150;
 
 const env = process.env;
 const db = new D1({
@@ -113,6 +126,11 @@ async function main() {
     if (status === 'private') {
       await db.run('UPDATE members SET last_scan_ok = 0 WHERE discord_id = ?', [discordId]);
     }
+
+    // Tell the member, in Discord, before the job dies. Otherwise their
+    // "queued" message sits there forever and the bot just looks broken.
+    await postUpdateFailure({ member, updateNo, error: err, interactionToken });
+
     throw err;
   }
 }
@@ -195,19 +213,56 @@ async function scanMember(psn, member, updateNo) {
     );
     for (const r of cached) freshness.set(r.np_comm_id, r.refreshed_at);
   }
-  const staleGames = gameRows.filter((t) => (freshness.get(t.npCommunicationId) ?? 0) < cutoff);
-
-  console.log(
-    `${member.psn_online_id}: ${titles.length} games — ` +
-      `${staleGames.length} rarity refreshes, ${needsEarnedScan.length} progress rescans`,
+  const stale = new Set(
+    gameRows.filter((t) => (freshness.get(t.npCommunicationId) ?? 0) < cutoff)
+      .map((t) => t.npCommunicationId),
   );
 
-  for (const t of staleGames) await refreshGameDefinitions(psn, t);
+  // ONE call per game, not two. The user-earned endpoint returns every trophy
+  // in the title — earned or not — each carrying trophyEarnedRate and
+  // trophyRare. So it answers "what did they earn" and "how rare is it" at the
+  // same time, and the separate definitions call is redundant.
+  //
+  // A game needs that call if the member's earned count moved (their progress
+  // changed) or the cached rarity has gone stale (the world moved). Everything
+  // else is answered from the database for free.
+  const changedIds = new Set(needsEarnedScan.map((t) => t.npCommunicationId));
+  const changed = gameRows.filter((t) => changedIds.has(t.npCommunicationId));
+
+  // Stale rarity is refreshed on a BUDGET, oldest first.
+  //
+  // Without this, a member's whole library goes stale on the same day — 14 days
+  // after their first scan — and every fortnightly update costs as much as the
+  // first one did. Capping it means updates stay in the 2-3 minute range
+  // forever, and rarity rolls through the library a slice at a time instead.
+  //
+  // Popular games are kept fresh for nothing by other members' scans; this
+  // budget really only matters for titles a single member owns.
+  const staleOnly = gameRows
+    .filter((t) => !changedIds.has(t.npCommunicationId) && stale.has(t.npCommunicationId))
+    .sort(
+      (a, b) =>
+        (freshness.get(a.npCommunicationId) ?? 0) - (freshness.get(b.npCommunicationId) ?? 0),
+    )
+    .slice(0, STALE_REFRESH_BUDGET);
+
+  const toScan = [...changed, ...staleOnly];
+  const deferred = stale.size - changedIds.size - staleOnly.length;
+
+  const estimateMinutes = Math.max(1, Math.ceil(toScan.length / (psn.limiter.max / 15)));
+  console.log(
+    `${member.psn_online_id}: ${titles.length} games — ${toScan.length} to scan ` +
+      `(${changed.length} changed, ${staleOnly.length} stale rarity` +
+      (deferred > 0 ? `, ${deferred} deferred to next update` : '') +
+      `) — roughly ${estimateMinutes} min`,
+  );
 
   const changelog = [];
-  for (const t of needsEarnedScan) {
-    const entry = await rescanMemberGame(psn, accountId, t, prior.get(t.npCommunicationId));
+  let done = 0;
+  for (const t of toScan) {
+    const entry = await scanGame(psn, accountId, t, prior.get(t.npCommunicationId));
     if (entry) changelog.push(entry);
+    if (++done % 50 === 0) console.log(`  ${done}/${toScan.length} games`);
   }
 
   // Recompute every game's points from stored ids against current rarity.
@@ -232,31 +287,43 @@ async function scanMember(psn, member, updateNo) {
   return { before, after: totals, delta, changelog, gamesChanged: changelog.length };
 }
 
-/** Fetch and cache a game's trophy list + worldwide earn rates. One call, shared by everyone. */
-async function refreshGameDefinitions(psn, title) {
-  let defs;
+/**
+ * Scan one game for one member, in a single PSN call.
+ *
+ * `getUserTrophiesEarnedForTitle` returns EVERY trophy in the title, whether
+ * earned or not, and each one carries trophyEarnedRate and trophyRare. That
+ * single response therefore populates three things at once: the shared game
+ * record, the shared rarity data, and this member's earned list. The separate
+ * getTitleTrophies call this used to make was pure duplication.
+ */
+async function scanGame(psn, accountId, title, was) {
+  let trophies;
   try {
-    defs = await psn.titleTrophies(title.npCommunicationId, title.trophyTitlePlatform);
+    trophies = await psn.earnedForTitle(
+      accountId,
+      title.npCommunicationId,
+      title.trophyTitlePlatform,
+    );
   } catch (err) {
-    if (err instanceof PsnPrivateError) return; // delisted / region-locked
+    if (err instanceof PsnPrivateError) return null; // delisted or region-locked
     throw err;
   }
+  if (!trophies.length) return null;
 
-  const rows = defs.map((d) => [
-    title.npCommunicationId,
-    d.trophyId,
-    d.trophyName ?? null,
-    d.trophyDetail ?? null,
-    d.trophyType ?? null,
-    d.trophyIconUrl ?? null,
-    d.trophyHidden ? 1 : 0,
-    d.trophyEarnedRate != null ? Number(d.trophyEarnedRate) : null,
-    d.trophyEarnedRate != null ? trophyPoints(Number(d.trophyEarnedRate)) : 0,
-  ]);
+  const rated = trophies.map((t) => ({
+    id: t.trophyId,
+    type: t.trophyType ?? null,
+    hidden: t.trophyHidden ? 1 : 0,
+    rate: t.trophyEarnedRate != null ? Number(t.trophyEarnedRate) : null,
+    points: t.trophyEarnedRate != null ? trophyPoints(Number(t.trophyEarnedRate)) : 0,
+    earned: Boolean(t.earned),
+  }));
 
+  // -- shared game record ---------------------------------------------------
   await db.run(
     `INSERT OR REPLACE INTO games
-       (np_comm_id, np_service_name, title, platform, icon_url, trophy_count, has_platinum, max_points, refreshed_at)
+       (np_comm_id, np_service_name, title, platform, icon_url,
+        trophy_count, has_platinum, max_points, refreshed_at)
      VALUES (?,?,?,?,?,?,?,?,?)`,
     [
       title.npCommunicationId,
@@ -264,59 +331,67 @@ async function refreshGameDefinitions(psn, title) {
       title.trophyTitleName,
       title.trophyTitlePlatform ?? null,
       title.trophyTitleIconUrl ?? null,
-      defs.length,
-      defs.some((d) => d.trophyType === 'platinum') ? 1 : 0,
-      rows.reduce((n, r) => n + (r[8] || 0), 0),
+      rated.length,
+      rated.some((t) => t.type === 'platinum') ? 1 : 0,
+      rated.reduce((n, t) => n + t.points, 0),
       Date.now(),
     ],
   );
 
-  await db.batchInsert(
-    'trophies',
-    ['np_comm_id', 'trophy_id', 'name', 'detail', 'type', 'icon_url', 'hidden', 'earned_rate', 'points'],
-    rows,
-  );
-}
-
-/** Re-read which trophies this member has earned in one game. */
-async function rescanMemberGame(psn, accountId, title, was) {
-  let earned;
-  try {
-    earned = await psn.earnedForTitle(accountId, title.npCommunicationId, title.trophyTitlePlatform);
-  } catch (err) {
-    if (err instanceof PsnPrivateError) return null;
-    throw err;
+  // -- shared rarity --------------------------------------------------------
+  // ON CONFLICT rather than INSERT OR REPLACE, because this endpoint doesn't
+  // return trophy names — replacing would wipe any names /game has since
+  // filled in.
+  const cols = ['np_comm_id', 'trophy_id', 'type', 'hidden', 'earned_rate', 'points'];
+  const perChunk = D1.chunkSize(cols.length);
+  for (let i = 0; i < rated.length; i += perChunk) {
+    const slice = rated.slice(i, i + perChunk);
+    await db.run(
+      `INSERT INTO trophies (${cols.join(',')})
+       VALUES ${slice.map(() => '(?,?,?,?,?,?)').join(',')}
+       ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
+         type = excluded.type,
+         hidden = excluded.hidden,
+         earned_rate = excluded.earned_rate,
+         points = excluded.points`,
+      slice.flatMap((t) => [
+        title.npCommunicationId, t.id, t.type, t.hidden, t.rate, t.points,
+      ]),
+    );
   }
 
-  const earnedIds = earned.filter((t) => t.earned).map((t) => t.trophyId);
-  const counts = sumByType(earned);
+  // -- this member's progress ----------------------------------------------
+  const mine = rated.filter((t) => t.earned);
+  const earnedIds = mine.map((t) => t.id);
+  const counts = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+  for (const t of mine) if (counts[t.type] !== undefined) counts[t.type]++;
   const progress = title.progress ?? 0;
+  const points = mine.reduce((n, t) => n + t.points, 0);
 
   await db.run(
     `INSERT OR REPLACE INTO member_games
        (psn_account_id, np_comm_id, progress, earned_total,
         earned_platinum, earned_gold, earned_silver, earned_bronze,
         earned_ids, points, last_played_at, scanned_at)
-     VALUES (?,?,?,?,?,?,?,?,?,COALESCE((SELECT points FROM member_games WHERE psn_account_id=? AND np_comm_id=?),0),?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       accountId, title.npCommunicationId, progress, earnedIds.length,
       counts.platinum, counts.gold, counts.silver, counts.bronze,
-      JSON.stringify(earnedIds),
-      accountId, title.npCommunicationId,
+      JSON.stringify(earnedIds), points,
       title.lastUpdatedDateTime ? Date.parse(title.lastUpdatedDateTime) : null,
       Date.now(),
     ],
   );
 
   const gained = earnedIds.length - (was?.earned_total ?? 0);
-  const kind = !was ? 'new' : progress === 100 && was.progress !== 100 ? 'completed' : 'progress';
+  if (was && gained === 0 && was.progress === progress) return null; // rarity-only refresh
 
   return {
     np_comm_id: title.npCommunicationId,
     title: title.trophyTitleName,
-    kind,
+    kind: !was ? 'new' : progress === 100 && was.progress !== 100 ? 'completed' : 'progress',
     trophies_gained: gained,
-    points_gained: 0, // filled in by recomputeMemberPoints
+    points_gained: Math.max(0, points - (was?.points ?? 0)),
     progress_from: was?.progress ?? 0,
     progress_to: progress,
   };

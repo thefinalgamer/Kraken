@@ -71,6 +71,68 @@ export async function postUpdateResult({ member, result, interactionToken }) {
 }
 
 /**
+ * Tell the member their update failed.
+ *
+ * Without this a failed scan leaves the "queued" message sitting there forever
+ * and the member has no idea anything went wrong — they just assume the bot is
+ * broken and stop using it. A failure they can see and act on is worth far more
+ * than a silent one buried in the Actions log.
+ */
+export async function postUpdateFailure({ member, updateNo, error, interactionToken }) {
+  const isPrivate = error?.name === 'PsnPrivateError' || /not readable|private/i.test(error?.message ?? '');
+  const notFound = /No PSN account called/i.test(error?.message ?? '');
+
+  let body;
+  if (isPrivate) {
+    body =
+      `## Couldn't read your trophies\n\n` +
+      `**${member.psn_online_id}**'s trophy list isn't public, so PlayStation won't let ` +
+      `Kraken see it.\n\n` +
+      `**On your console:** Settings → Users and Accounts → Privacy → Trophies → **Anyone**\n` +
+      `**On the web:** account settings on playstation.com, same option\n\n` +
+      `Then run \`/update\` again. Nothing else needs doing.`;
+  } else if (notFound) {
+    body =
+      `## No such PSN account\n\n` +
+      `I couldn't find a PlayStation account called **${member.psn_online_id}**.\n\n` +
+      `Check the spelling against your profile — it has to match exactly — and run ` +
+      `\`/register\` again.`;
+  } else {
+    body =
+      `## Update failed\n\n` +
+      `Something went wrong scanning **${member.psn_online_id}**. This is a fault at ` +
+      `Kraken's end, not yours.\n\n` +
+      `\`\`\`\n${String(error?.message ?? 'Unknown error').slice(0, 300)}\n\`\`\`\n` +
+      `Your existing stats are untouched. Try \`/update\` again in a few minutes — if it ` +
+      `keeps failing, flag it to a mod.`;
+  }
+
+  const payload = message([
+    container(
+      [
+        text(body),
+        text(`-# Update No. ${updateNo} · ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC`),
+      ],
+      COLOR.red,
+    ),
+  ]);
+
+  try {
+    if (interactionToken) {
+      await rest(
+        `/webhooks/${env.DISCORD_APPLICATION_ID}/${interactionToken}/messages/@original`,
+        { method: 'PATCH', body: payload, useBotToken: false },
+      );
+    } else if (env.DISCORD_UPDATES_CHANNEL_ID) {
+      await rest(`/channels/${env.DISCORD_UPDATES_CHANNEL_ID}/messages`, { body: payload });
+    }
+  } catch (err) {
+    // Never let the error-reporter mask the original error.
+    console.error('Could not post the failure card:', err.message);
+  }
+}
+
+/**
  * The per-game changelog.
  *
  * The old bot posted one message per game — RabbitSquared's first scan fired

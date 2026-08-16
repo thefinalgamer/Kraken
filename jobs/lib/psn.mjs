@@ -27,7 +27,20 @@ import {
 } from 'psn-api';
 
 const WINDOW_MS = 15 * 60 * 1000;
-const MAX_IN_WINDOW = 280;
+
+/**
+ * Requests per 15 minutes.
+ *
+ * 280 was the community library's self-imposed default and it turned out to be
+ * far too cautious: the original Nahasis bot scanned 280 games in 10 minutes,
+ * which at two calls a game is roughly 840 per 15 minutes, sustained for years
+ * without trouble. 600 sits comfortably below that while being more than twice
+ * as fast as where this started.
+ *
+ * Override with PSN_RATE_LIMIT if Sony ever starts pushing back — the client
+ * already backs off hard on a 429, so the failure mode is slowness, not a ban.
+ */
+const MAX_IN_WINDOW = Number(process.env.PSN_RATE_LIMIT) || 600;
 
 export class RateLimiter {
   constructor(max = MAX_IN_WINDOW, windowMs = WINDOW_MS) {

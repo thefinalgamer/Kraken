@@ -23,7 +23,7 @@ const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 
 
 export default {
   async fetch(request, env, ctx) {
-    if (request.method !== 'POST') return new Response('Nahasis is alive.', { status: 200 });
+    if (request.method !== 'POST') return new Response('Kraken is alive.', { status: 200 });
 
     const signature = request.headers.get('x-signature-ed25519');
     const timestamp = request.headers.get('x-signature-timestamp');

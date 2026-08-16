@@ -1,10 +1,18 @@
-# Platinum Intel — Nahasis rebuild
+# Kraken — Platinum Intel
 
-PSN trophy leaderboard bot for the Platinum Intel Discord. Rebuilds the original
-bot's behaviour (`!update`, `!rank`, the movement feed, the fortnightly refresh)
-and adds `/game` and `/backlog`.
+PSN trophy leaderboard bot for the Platinum Intel Discord.
+
+Successor to **Nahasis**, the community's original bot, which was deleted along
+with its data. Kraken rebuilds its behaviour (`!update`, `!rank`, the movement
+feed, the fortnightly refresh) and adds `/game` and `/backlog`.
+
+References to Nahasis in the comments are deliberate — they mark behaviour
+reconstructed from the old bot rather than designed from scratch.
 
 ## Status
+
+Feature complete and untested against live PSN data. Everything below is built;
+nothing has authenticated against a real account yet.
 
 | Piece | State |
 |---|---|
@@ -12,12 +20,18 @@ and adds `/game` and `/backlog`.
 | Database schema | **done** |
 | PSN client + rate limiter | **done** |
 | Scan job (`/update`) | **done** |
+| Fortnightly fallback refresh | **done** |
 | Discord posting + Components V2 cards | **done** |
+| Worker: `/register` `/update` `/rank` `/leaderboard` `/game` `/backlog` | **done** |
 | GitHub Actions workflows | **done** |
-| Worker: `/leaderboard`, `/rank`, `/game`, `/backlog`, `/register` | next |
-| Setup guide | next |
+| Guided setup (`npm run setup`) | **done** |
 
 Run the tests with `npm test`.
+
+> **`.github/` must be present in the repo.** It holds the workflows that run the
+> trophy scans. It starts with a dot, so file managers routinely skip it when
+> you drag files into GitHub's web uploader — if the folder is missing, no scan
+> will ever run and `/update` will silently do nothing.
 
 ## How it fits together
 

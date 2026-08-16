@@ -86,7 +86,7 @@ spare, and sign in to it in a browser you can come back to.
 ## Step 4 — The Discord application
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
-   → **New Application**, call it **Nahasis**.
+   → **New Application**, call it **Kraken**.
 2. Upload the old bot's avatar if you still have it — nice touch for returning members.
 3. **Bot** tab → **Reset Token** → copy it.
 4. Still on the Bot tab, enable **Server Members Intent**.

@@ -87,18 +87,71 @@ export const message = (components, { ephemeral = false } = {}) => ({
 // --------------------------------------------------------------- helpers ---
 
 /**
- * Trophy icons. Upload the originals as server emoji and drop the ids in here
- * so the rebuild matches the old bot exactly; the unicode fallbacks keep it
- * readable until you do.
+ * Trophy icons.
+ *
+ * Resolved at runtime rather than read from `process.env` at import time,
+ * because that global doesn't exist in a Cloudflare Worker — the Worker gets
+ * its config through the `env` binding instead. Both halves call
+ * configureEmoji() at startup; until they do, the unicode fallbacks keep
+ * everything readable.
+ *
+ * Set these to the custom emoji you upload to the server, in Discord's
+ * `<:name:id>` form.
  */
-export const EMOJI = {
-  platinum: process.env?.EMOJI_PLATINUM || '🏆',
-  gold: process.env?.EMOJI_GOLD || '🥇',
-  silver: process.env?.EMOJI_SILVER || '🥈',
-  bronze: process.env?.EMOJI_BRONZE || '🥉',
-  up: '🟩',
-  down: '🟥',
+let EMOJI = {
+  platinum: '🏆',
+  gold: '🥇',
+  silver: '🥈',
+  bronze: '🥉',
 };
+
+export function configureEmoji(source = {}) {
+  EMOJI = {
+    platinum: source.EMOJI_PLATINUM || EMOJI.platinum,
+    gold: source.EMOJI_GOLD || EMOJI.gold,
+    silver: source.EMOJI_SILVER || EMOJI.silver,
+    bronze: source.EMOJI_BRONZE || EMOJI.bronze,
+  };
+}
+
+export const emoji = () => EMOJI;
+
+export const UP = '🟩';
+export const DOWN = '🟥';
+
+// ------------------------------------------------------------------ tiers --
+
+/**
+ * Ranking tiers. Percentage-based so they stay meaningful whether the server
+ * has five members or five hundred, with floors so they don't collapse while
+ * the board is still tiny.
+ *
+ * The trade-off worth remembering: a member can drop a tier because other
+ * people joined, not because they did anything wrong. Swap to fixed point
+ * thresholds here if that turns out to grate.
+ */
+export const TIERS = {
+  platinum: { name: 'Platinum', color: 0x5fc0f0 },
+  gold: { name: 'Gold', color: 0xf0c419 },
+  silver: { name: 'Silver', color: 0xb9bbbe },
+  bronze: { name: 'Bronze', color: 0xe07b39 },
+};
+
+export const TIER_SHARES = { gold: 0.1, silver: 0.33 };
+
+export function tierFor(rank, total) {
+  if (!rank || !total) return 'bronze';
+  if (rank === 1) return 'platinum';
+  const goldMax = Math.max(3, Math.ceil(total * TIER_SHARES.gold));
+  const silverMax = Math.max(10, Math.ceil(total * TIER_SHARES.silver));
+  if (rank <= goldMax) return 'gold';
+  if (rank <= silverMax) return 'silver';
+  return 'bronze';
+}
+
+export const tierEmoji = (tier) => EMOJI[tier] ?? EMOJI.bronze;
+
+// ---------------------------------------------------------------- display --
 
 export const n = (value) => Number(value ?? 0).toLocaleString('en-GB');
 
@@ -117,30 +170,59 @@ export const ordinal = (v) => {
   return `${i}${['th', 'st', 'nd', 'rd'][i % 10] || 'th'}`;
 };
 
+/** Block-character progress bar. Turns a percentage into something you feel. */
+export function bar(percent, width = 10) {
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  const filled = Math.round((p / 100) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+/** Movement since the member's last update. Empty when they haven't moved. */
+export function trend(rank, prevRank) {
+  if (!rank || !prevRank || rank === prevRank) return '';
+  return rank < prevRank ? ` ▲${prevRank - rank}` : ` ▼${rank - prevRank}`;
+}
+
+/**
+ * Regional indicator flag from a two-letter country code. 'GB' becomes 🇬🇧 by
+ * shifting each letter into the Unicode regional-indicator block.
+ */
+export function flag(countryCode) {
+  const cc = String(countryCode ?? '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return '';
+  return String.fromCodePoint(
+    ...[...cc].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65),
+  );
+}
+
 export const trophyLine = (m) =>
   `${EMOJI.platinum} **${n(m.platinum)}**  ${EMOJI.gold} **${n(m.gold)}**  ` +
   `${EMOJI.silver} **${n(m.silver)}**  ${EMOJI.bronze} **${n(m.bronze)}**`;
 
-// ----------------------------------------------------------------- cards ---
-
 /** One leaderboard entry — the card from the old bot, natively drawn. */
-export function memberCard(m, { accent = COLOR.orange, highlight = false } = {}) {
-  const country = m.country ? `\`[${m.country}]\` ` : '';
-  const name = highlight ? `__${m.psn_online_id}__` : m.psn_online_id;
+export function memberCard(m, { total = 0, highlight = false } = {}) {
+  const tier = tierFor(m.rank, total);
+  const { name: tierName, color } = TIERS[tier];
+
+  const country = flag(m.country);
+  const who = highlight ? `__${m.psn_online_id}__` : m.psn_online_id;
+  const position = `${ordinal(m.rank)}${trend(m.rank, m.prev_rank)}`;
 
   return container(
     [
       section(
         [
-          `### ${ordinal(m.rank)} · ${country}${name}`,
+          `### ${position} · ${country ? `${country} ` : ''}${who}`,
           trophyLine(m),
-          `**Completion:** ${pct(m.completion)}\n**Points:** ${n(m.points)}`,
+          `**Completion** \`${bar(m.completion)}\` ${pct(m.completion)}\n` +
+            `**Points** ${n(m.points)}`,
+          `-# ${tierEmoji(tier)} ${tierName} tier`,
         ],
         thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
       ),
       row(button('View profile', `profile:${m.discord_id}`)),
     ],
-    accent,
+    color,
   );
 }
 
@@ -194,8 +276,8 @@ export function movementLines(movements) {
   return movements
     .map((m) =>
       m.direction === 'up'
-        ? `${EMOJI.up} **${m.onlineId}** moved to **${ordinal(m.to)}** position!`
-        : `${EMOJI.down} **${m.onlineId}** fell to **${ordinal(m.to)}** position!`,
+        ? `${UP} **${m.onlineId}** moved to **${ordinal(m.to)}** position!`
+        : `${DOWN} **${m.onlineId}** fell to **${ordinal(m.to)}** position!`,
     )
     .join('\n');
 }

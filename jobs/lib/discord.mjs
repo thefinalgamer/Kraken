@@ -7,6 +7,7 @@
  */
 
 import {
+  configureEmoji,
   message,
   updateCard,
   movementLines,
@@ -17,6 +18,10 @@ import {
 
 const API = 'https://discord.com/api/v10';
 const env = process.env;
+
+// The job half reads config from process.env; the Worker half uses its env
+// binding. Both must configure the emoji before rendering anything.
+configureEmoji(env);
 
 async function rest(path, { method = 'POST', body, useBotToken = true } = {}) {
   const res = await fetch(`${API}${path}`, {

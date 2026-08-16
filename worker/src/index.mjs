@@ -14,7 +14,7 @@ import { verifyKey } from './verify.mjs';
 import * as db from './db.mjs';
 import {
   message, container, text, section, thumbnail, row, button, separator,
-  memberCard, COLOR, STYLE, EMOJI, n, pct, ordinal, trophyLine, FALLBACK_AVATAR,
+  memberCard, configureEmoji, COLOR, STYLE, n, pct, ordinal, trophyLine, FALLBACK_AVATAR,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS } from '../../shared/scoring.mjs';
 
@@ -23,6 +23,9 @@ const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 
 
 export default {
   async fetch(request, env, ctx) {
+    // Worker config arrives via the env binding, not process.env.
+    configureEmoji(env);
+
     if (request.method !== 'POST') return new Response('Kraken is alive.', { status: 200 });
 
     const signature = request.headers.get('x-signature-ed25519');
@@ -156,14 +159,10 @@ async function rank(env, target) {
   // Your position plus the people either side — the view members actually want,
   // since they care about whoever they're chasing, not about first place.
   const neighbours = await db.neighbours(env, member.rank ?? 1, 2);
-  const cards = neighbours.map((m) =>
-    memberCard(m, {
-      accent: m.discord_id === member.discord_id ? COLOR.blurple : COLOR.orange,
-      highlight: m.discord_id === member.discord_id,
-    }),
-  );
-
   const total = await db.memberCount(env);
+  const cards = neighbours.map((m) =>
+    memberCard(m, { total, highlight: m.discord_id === member.discord_id }),
+  );
   return reply([
     text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
     ...cards,
@@ -183,12 +182,7 @@ async function leaderboard(env, page, viewerId) {
 
   return reply([
     text(`## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`),
-    ...members.map((m) =>
-      memberCard(m, {
-        accent: m.discord_id === viewerId ? COLOR.blurple : COLOR.orange,
-        highlight: m.discord_id === viewerId,
-      }),
-    ),
+    ...members.map((m) => memberCard(m, { total, highlight: m.discord_id === viewerId })),
     row(
       button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
       button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),

@@ -45,20 +45,31 @@ export class D1 {
   }
 
   /**
-   * Batch inserts. D1 caps statement size, so chunk generously but not wildly —
-   * a 40-trophy game is one chunk, a 3,000-row backfill is several.
+   * D1 rejects any statement with more than 100 bound parameters
+   * ("too many SQL variables"). Chunking by row count is therefore wrong —
+   * what matters is rows x columns. A 9-column insert can only take 10 rows
+   * at a time, while a 2-column one can take 45.
    */
-  async batchInsert(table, columns, rows, { chunk = 60, orReplace = true } = {}) {
+  async batchInsert(table, columns, rows, { orReplace = true } = {}) {
     if (!rows.length) return;
     const verb = orReplace ? 'INSERT OR REPLACE' : 'INSERT OR IGNORE';
-    for (let i = 0; i < rows.length; i += chunk) {
-      const slice = rows.slice(i, i + chunk);
+    const perChunk = D1.chunkSize(columns.length);
+    for (let i = 0; i < rows.length; i += perChunk) {
+      const slice = rows.slice(i, i + perChunk);
       const placeholders = slice
         .map(() => `(${columns.map(() => '?').join(',')})`)
         .join(',');
       const sql = `${verb} INTO ${table} (${columns.join(',')}) VALUES ${placeholders}`;
       await this.run(sql, slice.flat());
     }
+  }
+
+  /**
+   * How many rows of `paramsPerRow` parameters fit inside D1's limit.
+   * 90 rather than 100 leaves headroom for anything the caller appends.
+   */
+  static chunkSize(paramsPerRow = 1, budget = 90) {
+    return Math.max(1, Math.floor(budget / Math.max(1, paramsPerRow)));
   }
 
   // ------------------------------------------------------------- bot state --

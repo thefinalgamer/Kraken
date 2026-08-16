@@ -183,10 +183,12 @@ async function scanMember(psn, member, updateNo) {
   // Refresh any globally-stale game definitions. Shared across all members.
   const cutoff = Date.now() - GAME_CACHE_TTL_MS;
   const freshness = new Map();
-  // Chunked, because a member with 800 games would otherwise build an IN()
-  // clause with 800 placeholders and blow past D1's statement limits.
-  for (let i = 0; i < gameRows.length; i += 200) {
-    const slice = gameRows.slice(i, i + 200);
+  // Chunked, because D1 rejects any statement with more than 100 bound
+  // parameters and a member with 800 games would otherwise build an IN()
+  // clause with 800 of them.
+  const CHUNK = D1.chunkSize(1);
+  for (let i = 0; i < gameRows.length; i += CHUNK) {
+    const slice = gameRows.slice(i, i + CHUNK);
     const cached = await db.query(
       `SELECT np_comm_id, refreshed_at FROM games WHERE np_comm_id IN (${placeholders(slice.length)})`,
       slice.map((t) => t.npCommunicationId),

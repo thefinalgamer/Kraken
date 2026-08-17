@@ -28,7 +28,7 @@
 
 import { D1 } from './lib/d1.mjs';
 import { PsnClient, PsnPrivateError } from './lib/psn.mjs';
-import { trophyPoints, explainDelta } from '../shared/scoring.mjs';
+import { trophyPoints, isUnrated, explainDelta } from '../shared/scoring.mjs';
 import {
   postUpdateResult,
   postUpdateFailure,
@@ -283,11 +283,27 @@ async function scanMember(psn, member, updateNo) {
   );
 
   const changelog = [];
+  const stats = { unrated: 0, gamesWithUnrated: 0 };
   let done = 0;
   for (const t of toScan) {
-    const entry = await scanGame(psn, accountId, t, prior.get(t.npCommunicationId));
+    // Only write the shared rarity rows when they're actually absent or stale.
+    // The PSN response carries them regardless, but re-writing rows another
+    // member already cached burns D1's daily write allowance for nothing — and
+    // for a big library that allowance is the binding constraint, not the API.
+    const needsRarityWrite =
+      !freshness.has(t.npCommunicationId) || stale.has(t.npCommunicationId);
+    const entry = await scanGame(
+      psn, accountId, t, prior.get(t.npCommunicationId), needsRarityWrite, stats,
+    );
     if (entry) changelog.push(entry);
     if (++done % 50 === 0) console.log(`  ${done}/${toScan.length} games`);
+  }
+
+  if (stats.unrated) {
+    console.log(
+      `  ${stats.unrated} unrated trophies (0.00%) across ${stats.gamesWithUnrated} games ` +
+        `— scored as 0, see DEFAULT_SCORING.unratedPoints`,
+    );
   }
 
   // Recompute every game's points from stored ids against current rarity.
@@ -321,7 +337,7 @@ async function scanMember(psn, member, updateNo) {
  * record, the shared rarity data, and this member's earned list. The separate
  * getTitleTrophies call this used to make was pure duplication.
  */
-async function scanGame(psn, accountId, title, was) {
+async function scanGame(psn, accountId, title, was, needsRarityWrite = true, stats = null) {
   let trophies;
   try {
     trophies = await psn.earnedForTitle(
@@ -335,6 +351,17 @@ async function scanGame(psn, accountId, title, was) {
   }
   if (!trophies.length) return null;
 
+  // Visibility on unrated trophies — PSN returns 0.00% for anything it has no
+  // rarity figure for, and those score nothing by design. Worth knowing how
+  // much of a member's library that covers.
+  if (stats) {
+    const unrated = trophies.filter((t) => isUnrated(t.trophyEarnedRate)).length;
+    if (unrated) {
+      stats.unrated += unrated;
+      stats.gamesWithUnrated += 1;
+    }
+  }
+
   const rated = trophies.map((t) => ({
     id: t.trophyId,
     type: t.trophyType ?? null,
@@ -344,45 +371,50 @@ async function scanGame(psn, accountId, title, was) {
     earned: Boolean(t.earned),
   }));
 
-  // -- shared game record ---------------------------------------------------
-  await db.run(
-    `INSERT OR REPLACE INTO games
-       (np_comm_id, np_service_name, title, platform, icon_url,
-        trophy_count, has_platinum, max_points, refreshed_at)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-    [
-      title.npCommunicationId,
-      title.npServiceName ?? null,
-      title.trophyTitleName,
-      title.trophyTitlePlatform ?? null,
-      title.trophyTitleIconUrl ?? null,
-      rated.length,
-      rated.some((t) => t.type === 'platinum') ? 1 : 0,
-      rated.reduce((n, t) => n + t.points, 0),
-      Date.now(),
-    ],
-  );
-
-  // -- shared rarity --------------------------------------------------------
-  // ON CONFLICT rather than INSERT OR REPLACE, because this endpoint doesn't
-  // return trophy names — replacing would wipe any names /game has since
-  // filled in.
-  const cols = ['np_comm_id', 'trophy_id', 'type', 'hidden', 'earned_rate', 'points'];
-  const perChunk = D1.chunkSize(cols.length);
-  for (let i = 0; i < rated.length; i += perChunk) {
-    const slice = rated.slice(i, i + perChunk);
+  // -- shared game record + rarity ------------------------------------------
+  // Skipped entirely when another member already cached this game recently.
+  // The PSN response carries the rarity either way, but re-writing rows that
+  // haven't changed burns D1's 100,000-writes-a-day allowance for nothing —
+  // and on a large library that allowance binds long before the API does.
+  if (needsRarityWrite) {
     await db.run(
-      `INSERT INTO trophies (${cols.join(',')})
-       VALUES ${slice.map(() => '(?,?,?,?,?,?)').join(',')}
-       ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
-         type = excluded.type,
-         hidden = excluded.hidden,
-         earned_rate = excluded.earned_rate,
-         points = excluded.points`,
-      slice.flatMap((t) => [
-        title.npCommunicationId, t.id, t.type, t.hidden, t.rate, t.points,
-      ]),
+      `INSERT OR REPLACE INTO games
+         (np_comm_id, np_service_name, title, platform, icon_url,
+          trophy_count, has_platinum, max_points, refreshed_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [
+        title.npCommunicationId,
+        title.npServiceName ?? null,
+        title.trophyTitleName,
+        title.trophyTitlePlatform ?? null,
+        title.trophyTitleIconUrl ?? null,
+        rated.length,
+        rated.some((t) => t.type === 'platinum') ? 1 : 0,
+        rated.reduce((n, t) => n + t.points, 0),
+        Date.now(),
+      ],
     );
+
+    // ON CONFLICT rather than INSERT OR REPLACE, because this endpoint doesn't
+    // return trophy names — replacing would wipe any names /game has since
+    // filled in.
+    const cols = ['np_comm_id', 'trophy_id', 'type', 'hidden', 'earned_rate', 'points'];
+    const perChunk = D1.chunkSize(cols.length);
+    for (let i = 0; i < rated.length; i += perChunk) {
+      const slice = rated.slice(i, i + perChunk);
+      await db.run(
+        `INSERT INTO trophies (${cols.join(',')})
+         VALUES ${slice.map(() => '(?,?,?,?,?,?)').join(',')}
+         ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
+           type = excluded.type,
+           hidden = excluded.hidden,
+           earned_rate = excluded.earned_rate,
+           points = excluded.points`,
+        slice.flatMap((t) => [
+          title.npCommunicationId, t.id, t.type, t.hidden, t.rate, t.points,
+        ]),
+      );
+    }
   }
 
   // -- this member's progress ----------------------------------------------
@@ -428,7 +460,7 @@ async function scanGame(psn, accountId, title, was) {
  */
 async function recomputeMemberPoints(accountId) {
   const rows = await db.query(
-    `SELECT mg.np_comm_id, mg.earned_ids,
+    `SELECT mg.np_comm_id, mg.earned_ids, mg.points AS was_points,
             (SELECT json_group_array(json_array(t.trophy_id, t.points))
                FROM trophies t WHERE t.np_comm_id = mg.np_comm_id) AS defs
        FROM member_games mg
@@ -444,15 +476,21 @@ async function recomputeMemberPoints(accountId) {
     let points = 0;
     for (const [trophyId, pts] of defs) if (earned.has(trophyId)) points += pts || 0;
     byGame.set(row.np_comm_id, points);
-    updates.push([points, accountId, row.np_comm_id]);
+    updates.push([points, accountId, row.np_comm_id, row.was_points ?? null]);
   }
 
-  for (const [points, acct, game] of updates) {
+  // Only write rows whose value actually moved. On a repeat update almost
+  // nothing has, so this turns hundreds of writes into a handful.
+  let written = 0;
+  for (const [points, acct, game, was] of updates) {
+    if (points === was) continue;
     await db.run(
       'UPDATE member_games SET points = ? WHERE psn_account_id = ? AND np_comm_id = ?',
       [points, acct, game],
     );
+    written++;
   }
+  if (written) console.log(`  ${written}/${updates.length} game scores changed`);
   return byGame;
 }
 

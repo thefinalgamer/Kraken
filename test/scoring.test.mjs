@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   trophyPoints,
+  isUnrated,
   gamePoints,
   remainingValue,
   explainDelta,
@@ -41,10 +42,31 @@ test('the cap stops one glitched trophy dominating a leaderboard', () => {
   assert.equal(trophyPoints(2.71), trophyPoints(2.71, UNCAPPED));
 });
 
-test('never divides by zero on PSN reporting 0% for a brand-new trophy', () => {
-  const pts = trophyPoints(0);
-  assert.ok(Number.isFinite(pts));
-  assert.equal(pts, DEFAULT_SCORING.cap);
+test('unrated trophies score nothing, not everything', () => {
+  // PSN returns 0.00% for trophies it has no rarity data for — every Sea of
+  // Thieves trophy past Season 13, among others. Clamping those to the rarity
+  // floor would score them at maximum rarity, so a member who earned 200 of
+  // them would bank 400,000 points and break the leaderboard outright.
+  assert.equal(trophyPoints(0), 0);
+  assert.equal(trophyPoints(null), 0);
+  assert.equal(trophyPoints(undefined), 0);
+  assert.equal(trophyPoints(NaN), 0);
+  assert.equal(trophyPoints(-1), 0);
+
+  assert.ok(isUnrated(0));
+  assert.ok(isUnrated(null));
+  assert.ok(!isUnrated(0.01));
+
+  // A real rate, however tiny, still scores
+  assert.ok(trophyPoints(0.01) > 0);
+});
+
+test('a title full of unrated trophies is worth nothing, not a fortune', () => {
+  const sot = Array.from({ length: 200 }, (_, i) => ({ trophyId: i, earnedRate: 0 }));
+  assert.equal(gamePoints(sot, sot.map((t) => t.trophyId)), 0);
+
+  // and it does not distort /backlog either
+  assert.deepEqual(remainingValue(sot, []), { points: 0, count: 200 });
 });
 
 test('game points only count what was actually earned', () => {

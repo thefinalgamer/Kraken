@@ -64,6 +64,25 @@ export async function createProvisionalMember(env, { discordId, onlineId }) {
     .run();
 }
 
+/**
+ * Scans currently in progress, anywhere on the server.
+ *
+ * Scans are serialised — every one authenticates as the same PSN account, so
+ * running them in parallel would blow Sony's rate limit. That means a member
+ * can be waiting behind somebody else's scan, and without telling them so the
+ * bot simply looks dead.
+ */
+export const activeScans = (env) =>
+  all(
+    env,
+    `SELECT m.psn_online_id, u.started_at
+       FROM updates u
+       JOIN members m ON m.psn_account_id = u.psn_account_id
+      WHERE u.status = 'running' AND u.started_at > ?
+      ORDER BY u.started_at ASC`,
+    [Date.now() - 60 * 60 * 1000],
+  );
+
 /** Guards against a double /update. Anything older than an hour is a dead job. */
 export const hasRunningUpdate = async (env, accountId) =>
   Boolean(

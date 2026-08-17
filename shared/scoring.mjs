@@ -25,10 +25,28 @@ export const DEFAULT_SCORING = {
   cap: 2000,
 
   /**
-   * Rarity floor. PSN occasionally reports 0% for brand-new or glitched
-   * trophies, which would divide by zero.
+   * Rarity floor, guarding the division for genuinely rare trophies.
    */
   floorPercent: 0.02,
+
+  /**
+   * What an UNRATED trophy is worth — one PSN reports as 0.00%.
+   *
+   * This is not a hypothetical. PSNProfiles hides trophies past the 255th in a
+   * title, and PSN itself returns 0.00% for large swathes of them — every Sea
+   * of Thieves trophy after Season 13, for instance.
+   *
+   * The reasoning for zero: if a player has earned a trophy, the proportion of
+   * players who have earned it cannot be zero. A 0.00% rate on an earned trophy
+   * is therefore missing data, not extreme rarity.
+   *
+   * The asymmetry decides it. Scoring unknown as zero undervalues a genuinely
+   * brutal new trophy until PSN fills the figure in — and that corrects itself
+   * automatically. Scoring it as maximum rarity hands someone 2,000 points a
+   * trophy, hundreds of thousands across a title like SoT, and that does not
+   * correct itself. It just wrecks the leaderboard and starts an argument.
+   */
+  unratedPoints: 0,
 };
 
 /**
@@ -43,10 +61,22 @@ export const DEFAULT_SCORING = {
  *    0.1% -> 999
  */
 export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
-  const pct = Math.max(Number(earnedRatePercent) || cfg.floorPercent, cfg.floorPercent);
+  const rate = Number(earnedRatePercent);
+
+  // Unrated — see DEFAULT_SCORING.unratedPoints. Must be checked before the
+  // floor is applied, or 0.00% clamps to 0.02% and scores maximum rarity.
+  if (!Number.isFinite(rate) || rate <= 0) return cfg.unratedPoints;
+
+  const pct = Math.max(rate, cfg.floorPercent);
   const raw = Math.floor(100 / pct - 1);
   return Math.min(Math.max(raw, 0), cfg.cap);
 }
+
+/** True when PSN gave us no usable rarity for this trophy. */
+export const isUnrated = (earnedRatePercent) => {
+  const rate = Number(earnedRatePercent);
+  return !Number.isFinite(rate) || rate <= 0;
+};
 
 /**
  * Total points for a set of earned trophies within one game.

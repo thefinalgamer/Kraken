@@ -144,12 +144,26 @@ async function runUpdate(interaction, env, ctx, userId) {
 
   ctx.waitUntil(dispatchScan(env, userId, interaction.token));
 
-  return reply([
-    container(
-      [text(`## ${member.psn_online_id} update queued\n\nScanning PSN now — this message will fill itself in.`)],
-      COLOR.grey,
-    ),
-  ]);
+  // Scans run one at a time server-wide. If somebody's ahead, say so — an
+  // unexplained ten-minute silence is indistinguishable from a broken bot.
+  const active = (await db.activeScans(env)).filter(
+    (s) => s.psn_online_id !== member.psn_online_id,
+  );
+
+  let body = `## ${member.psn_online_id} update queued\n\nScanning PSN now — this message will fill itself in.`;
+
+  if (active.length) {
+    const ahead = active[0];
+    const mins = Math.max(1, Math.round((Date.now() - ahead.started_at) / 60000));
+    body =
+      `## ${member.psn_online_id} update queued\n\n` +
+      `**${ahead.psn_online_id}** is scanning right now — ${mins} minute${mins === 1 ? '' : 's'} in` +
+      (active.length > 1 ? `, with ${active.length - 1} more waiting` : '') +
+      `.\n\nYours starts when theirs finishes, and this message will fill itself in. ` +
+      `Nothing's broken — scans run one at a time so nobody trips PlayStation's rate limit.`;
+  }
+
+  return reply([container([text(body)], active.length ? COLOR.orange : COLOR.grey)]);
 }
 
 async function rank(env, target) {

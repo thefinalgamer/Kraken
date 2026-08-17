@@ -98,11 +98,31 @@ export const message = (components, { ephemeral = false } = {}) => ({
  * Set these to the custom emoji you upload to the server, in Discord's
  * `<:name:id>` form.
  */
-let EMOJI = {
+const UNICODE_FALLBACK = {
   platinum: '🏆',
   gold: '🥇',
   silver: '🥈',
   bronze: '🥉',
+};
+
+/**
+ * The Platinum Intel server's own trophy emoji.
+ *
+ * Hardcoded rather than configured. An emoji id is not a secret — it is
+ * visible in the raw text of every message that uses one — and the two halves
+ * of this system get their configuration through completely different
+ * mechanisms, so making these settings would mean maintaining the same four
+ * values in the Cloudflare dashboard AND the scan workflow, forever, for
+ * something that changes approximately never.
+ *
+ * `configureEmoji` still honours EMOJI_* overrides, so a fork can swap them
+ * without touching this file.
+ */
+let EMOJI = {
+  platinum: '<:platinum:1539028113273397298>',
+  gold: '<:gold:1539028372980768828>',
+  silver: '<:silver:1539028431675727913>',
+  bronze: '<:bronze:1539028492241608816>',
 };
 
 export function configureEmoji(source = {}) {
@@ -113,6 +133,11 @@ export function configureEmoji(source = {}) {
     bronze: source.EMOJI_BRONZE || EMOJI.bronze,
   };
 }
+
+/** Escape hatch: if the custom emoji are ever deleted, this restores readability. */
+export const useUnicodeTrophies = () => {
+  EMOJI = { ...UNICODE_FALLBACK };
+};
 
 export const emoji = () => EMOJI;
 

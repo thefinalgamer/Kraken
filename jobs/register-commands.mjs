@@ -136,3 +136,51 @@ if (env.DISCORD_GUILD_ID) {
       : `Could not clear global commands (${res.status}) — harmless, but duplicates may linger.`,
   );
 }
+
+// ---------------------------------------------------------------- audit ----
+//
+// Duplicated commands in the picker are miserable to diagnose blind, because
+// Discord shows the union of several lists and labels none of them. So print
+// what actually exists afterwards, and say plainly what it means.
+
+const listCommands = async (label, path) => {
+  const res = await fetch(`https://discord.com/api/v10/applications/${path}`, {
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+  });
+  if (!res.ok) {
+    console.log(`${label}: could not read (${res.status})`);
+    return [];
+  }
+  const list = await res.json();
+  console.log(
+    `${label}: ${list.length}` +
+      (list.length ? ` — ${list.map((c) => `/${c.name}`).join(' ')}` : ' (empty)'),
+  );
+  return list;
+};
+
+console.log('\n── what Discord actually has now ──');
+const globals = await listCommands('Global', `${env.DISCORD_APPLICATION_ID}/commands`);
+const guilds = env.DISCORD_GUILD_ID
+  ? await listCommands(
+      'Guild  ',
+      `${env.DISCORD_APPLICATION_ID}/guilds/${env.DISCORD_GUILD_ID}/commands`,
+    )
+  : [];
+
+const clash = globals.filter((g) => guilds.some((c) => c.name === g.name));
+if (clash.length) {
+  console.log(
+    `\n⚠ ${clash.length} command(s) exist in BOTH lists — that is what shows twice in the picker.`,
+  );
+} else if (globals.length && guilds.length) {
+  console.log('\nNo overlap between the lists, so duplicates are not coming from here.');
+} else {
+  console.log('\nOne list only — nothing here can produce a duplicate.');
+  console.log(
+    'If the picker still shows two of each, check the Discord developer portal under\n' +
+      'Installation → Installation Contexts. With "User Install" enabled, an app\'s\n' +
+      'commands appear once for the server and again for you personally, and no amount\n' +
+      'of re-registering will change that. Turn it off if you only want the server copy.',
+  );
+}

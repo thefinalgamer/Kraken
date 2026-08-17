@@ -73,20 +73,54 @@ export async function handleCallback(request, env, ctx, dispatchScan) {
   }
 
   // --- exchange the code for a token -------------------------------------
+  //
+  // Values are trimmed because a stray newline pasted into a secret box is
+  // invisible in the dashboard and produces an identical failure to a wrong
+  // secret, which is a miserable hour to spend.
   let token;
   try {
     const res = await fetch(TOKEN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: env.DISCORD_APPLICATION_ID,
-        client_secret: env.DISCORD_CLIENT_SECRET,
+        client_id: String(env.DISCORD_APPLICATION_ID ?? '').trim(),
+        client_secret: String(env.DISCORD_CLIENT_SECRET ?? '').trim(),
         grant_type: 'authorization_code',
         code,
         redirect_uri: redirectUri(env),
       }),
     });
-    if (!res.ok) throw new Error(`token exchange ${res.status}`);
+
+    if (!res.ok) {
+      // Discord names the fault precisely and the name is not sensitive, so
+      // say it out loud rather than making someone guess.
+      const detail = await res.text();
+      console.error(`OAuth token exchange ${res.status}: ${detail}`);
+      let err = '';
+      try {
+        err = JSON.parse(detail).error ?? '';
+      } catch {}
+
+      const EXPLANATIONS = {
+        invalid_client:
+          'Discord does not recognise the client secret. Reset it on the OAuth2 page of the ' +
+          'Discord developer portal and set <code>DISCORD_CLIENT_SECRET</code> again — and check ' +
+          'you copied the secret, not the Public Key.',
+        invalid_grant:
+          'The redirect URL does not match. It must be <code>' + redirectUri(env) + '</code> ' +
+          'exactly — no trailing slash — in the Discord developer portal under OAuth2 → Redirects.',
+        invalid_request:
+          'Discord rejected the shape of the request. Usually the redirect URL is missing from ' +
+          'the developer portal entirely.',
+      };
+
+      return page(
+        'Discord turned us away',
+        (EXPLANATIONS[err] ?? `Discord said <code>${escape(err || res.status)}</code>.`) +
+          '<br><br>The bio code still works in the meantime.',
+      );
+    }
+
     token = (await res.json()).access_token;
   } catch (err) {
     console.error('OAuth token exchange failed', err);

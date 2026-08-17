@@ -115,11 +115,24 @@ async function register(interaction, env, ctx, userId, psnId) {
   }
 
   const existing = await db.memberByDiscordId(env, userId);
-  if (existing) {
+
+  if (existing?.verified_at) {
     return errorReply(
       `You're already registered as **${existing.psn_online_id}**. ` +
         'Ask a mod if you need it changed.',
     );
+  }
+
+  // Half-finished registration. Anything can interrupt one — a failed OAuth
+  // hop, a mistyped bio, closing the tab, the ephemeral reply scrolling away
+  // and taking the code with it. Refusing here would strand them: /register
+  // says "already registered", they have no code left, and only a mod can free
+  // them. So re-issue instead. A fresh code invalidates the old one, which is
+  // what you'd want anyway.
+  if (existing) {
+    const reissued = makeVerifyCode();
+    await db.reissueVerifyCode(env, userId, existing.psn_online_id, psnId, reissued);
+    return verificationPrompt(env, psnId || existing.psn_online_id, reissued, true);
   }
 
   // Only a VERIFIED claim blocks the name. Unverified rows lapse after an hour,
@@ -138,14 +151,21 @@ async function register(interaction, env, ctx, userId, psnId) {
   const verifyCode = makeVerifyCode();
   await db.createProvisionalMember(env, { discordId: userId, onlineId: psnId, verifyCode });
 
+  return verificationPrompt(env, psnId, verifyCode, false);
+}
+
+/** The two-routes message. Shared, because a retry has to say the same thing. */
+function verificationPrompt(env, psnId, verifyCode, isRetry) {
   return reply(
     [
       container(
         [
           text(
-            `## Almost there\n\n` +
-              `Before **${psnId}** goes on the board, prove it's yours. Two ways — pick whichever ` +
-              `you're comfortable with.\n\n` +
+            (isRetry
+              ? `## Let's try that again\n\nHere's a fresh code for **${psnId}** — the old one no ` +
+                `longer works.\n\n`
+              : `## Almost there\n\nBefore **${psnId}** goes on the board, prove it's yours. ` +
+                `Two ways — pick whichever you're comfortable with.\n\n`) +
               `### The quick way\n` +
               `Hit the button below. It uses the PlayStation account you've already linked to ` +
               `Discord under **User Settings → Connections**, so there's nothing to type. ` +
@@ -156,7 +176,8 @@ async function register(interaction, env, ctx, userId, psnId) {
               `\`\`\`\n${verifyCode}\n\`\`\`\n` +
               `Console: **Profile → Edit Profile → About Me**. You can delete it straight after.\n\n` +
               `-# Also check your trophies are public — Settings → Users and Accounts → Privacy → ` +
-              `Trophies → **Anyone** — or the scan will find nothing.`,
+              `Trophies → **Anyone** — or the scan will find nothing.\n` +
+              `-# Stuck? Run \`/register\` again for a fresh code.`,
           ),
           row(linkButton('Link with Discord', `${env.WORKER_BASE_URL}/auth/psn?code=${verifyCode}`)),
         ],

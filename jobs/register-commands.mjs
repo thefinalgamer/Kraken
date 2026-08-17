@@ -112,3 +112,27 @@ console.log(
   `Registered ${commands.length} commands ` +
     (env.DISCORD_GUILD_ID ? `to guild ${env.DISCORD_GUILD_ID} (instant).` : 'globally (up to 1h).'),
 );
+
+// Guild and global command sets are separate lists, and Discord shows BOTH —
+// so a command registered globally once, then later registered to the guild,
+// appears twice in the picker forever. Nobody can tell which is which, and at
+// a hundred members that is a hundred people asking. Clearing the global list
+// whenever we register to a guild keeps exactly one of each.
+if (env.DISCORD_GUILD_ID) {
+  const res = await fetch(
+    `https://discord.com/api/v10/applications/${env.DISCORD_APPLICATION_ID}/commands`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: '[]',
+    },
+  );
+  console.log(
+    res.ok
+      ? 'Cleared the global command list, so nothing shows up twice.'
+      : `Could not clear global commands (${res.status}) — harmless, but duplicates may linger.`,
+  );
+}

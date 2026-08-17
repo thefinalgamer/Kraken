@@ -98,6 +98,20 @@ export const claimBlockedBy = (env, onlineId) =>
     [onlineId, Date.now() - CLAIM_GRACE_MS],
   );
 
+/**
+ * Hand an unverified member a fresh code, and let them correct the PSN name
+ * while they're at it — a typo is the most likely reason a first attempt
+ * failed, and making them find a mod to fix it would be daft.
+ */
+export async function reissueVerifyCode(env, discordId, currentOnlineId, requestedOnlineId, code) {
+  const onlineId = requestedOnlineId || currentOnlineId;
+  await env.DB.prepare(
+    'UPDATE members SET verify_code = ?, psn_online_id = ? WHERE discord_id = ? AND verified_at IS NULL',
+  )
+    .bind(code, onlineId, discordId)
+    .run();
+}
+
 /** Mod tooling. Frees both the Discord user and the PSN name for reuse. */
 export async function unlinkMember(env, discordId) {
   const member = await memberByDiscordId(env, discordId);

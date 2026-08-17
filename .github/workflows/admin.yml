@@ -1,0 +1,61 @@
+# Admin jobs you'd otherwise need Node installed locally to run.
+#
+# There is no Node on the machine this repo is edited from, and there doesn't
+# need to be — GitHub already has one, and it already holds every secret these
+# tasks want. Run this from the Actions tab: pick the task, click the button.
+#
+#   Actions -> Admin -> Run workflow -> choose a task -> Run
+#
+# Deliberately NOT triggered by pushes. These are things you do on purpose.
+
+name: Admin
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to run
+        required: true
+        default: register-commands
+        type: choice
+        options:
+          - register-commands
+          - migrate
+
+jobs:
+  admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      # Publishes the slash commands to Discord. Registering to a single guild
+      # applies instantly; without DISCORD_GUILD_ID it goes global and Discord
+      # takes up to an hour to propagate.
+      - name: Register slash commands
+        if: inputs.task == 'register-commands'
+        env:
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+        run: npm run register-commands
+
+      # Applies every migration file in order. Each one is written to be safe to
+      # re-run, so a repeat is a no-op rather than a mess.
+      - name: Run database migrations
+        if: inputs.task == 'migrate'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          for f in migrations/*.sql; do
+            echo "── $f"
+            npx wrangler d1 execute platinum-intel --remote --yes --file "$f"
+          done

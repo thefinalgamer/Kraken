@@ -14,7 +14,8 @@
     "db:init:local": "wrangler d1 execute platinum-intel --local --file=schema.sql",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy",
-    "test": "node --test test/"
+    "db:migrate": "wrangler d1 execute platinum-intel --remote --file=migrations/001-verification.sql",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "psn-api": "^2.11.0"

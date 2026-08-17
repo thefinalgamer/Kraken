@@ -52,16 +52,58 @@ export const membersBetween = (env, fromRank, toRank) =>
     [fromRank, toRank],
   );
 
-export async function createProvisionalMember(env, { discordId, onlineId }) {
+export async function createProvisionalMember(env, { discordId, onlineId, verifyCode }) {
   // psn_account_id is filled in by the first scan, which is what actually
   // validates the profile exists and is public. Provisional rows are excluded
   // from the leaderboard by the `last_update_at IS NOT NULL` filter.
   await env.DB.prepare(
-    `INSERT INTO members (discord_id, psn_account_id, psn_online_id, registered_at)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO members (discord_id, psn_account_id, psn_online_id, registered_at, verify_code)
+     VALUES (?, ?, ?, ?, ?)`,
   )
-    .bind(discordId, `pending:${discordId}`, onlineId, Date.now())
+    .bind(discordId, `pending:${discordId}`, onlineId, Date.now(), verifyCode ?? null)
     .run();
+}
+
+// --------------------------------------------------------- verification ----
+
+/** The verify_code doubles as the OAuth state, so this is the lookup for both. */
+export const memberByVerifyCode = (env, code) =>
+  first(env, 'SELECT * FROM members WHERE verify_code = ?', [code]);
+
+export async function markVerified(env, discordId, method) {
+  await env.DB.prepare(
+    'UPDATE members SET verified_at = ?, verify_method = ?, verify_code = NULL WHERE discord_id = ?',
+  )
+    .bind(Date.now(), method, discordId)
+    .run();
+}
+
+/**
+ * Is this PSN ID genuinely spoken for?
+ *
+ * Only a VERIFIED member blocks a claim. An unverified provisional row expires
+ * after an hour, so somebody who types a name and never proves it cannot sit on
+ * it forever — which was the whole problem with the old first-come-first-served
+ * check. The hour of grace exists only so two people racing for the same name
+ * are not both told it is free.
+ */
+const CLAIM_GRACE_MS = 60 * 60 * 1000;
+
+export const claimBlockedBy = (env, onlineId) =>
+  first(
+    env,
+    `SELECT * FROM members
+      WHERE psn_online_id = ? COLLATE NOCASE
+        AND (verified_at IS NOT NULL OR registered_at > ?)`,
+    [onlineId, Date.now() - CLAIM_GRACE_MS],
+  );
+
+/** Mod tooling. Frees both the Discord user and the PSN name for reuse. */
+export async function unlinkMember(env, discordId) {
+  const member = await memberByDiscordId(env, discordId);
+  if (!member) return null;
+  await env.DB.prepare('DELETE FROM members WHERE discord_id = ?').bind(discordId).run();
+  return member;
 }
 
 /**

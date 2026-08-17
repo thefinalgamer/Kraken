@@ -23,8 +23,17 @@ LEADERBOARD_PAGE_SIZE = "10"
 # Only members with the role can join the board; leave empty to open it up.
 HUNTER_ROLE_ID = "1538606682039648327"
 
+# Public base URL of this Worker. Used to build the "Link with Discord"
+# verification link, so it must match what is configured in the Discord
+# developer portal — the Redirect URI there is this value plus /auth/callback.
+WORKER_BASE_URL = "https://platinum-intel.martinleewilkinson1992.workers.dev"
+
 # Secrets required (set with: wrangler secret put NAME)
 #   DISCORD_PUBLIC_KEY      - from the Discord app's General Information page
 #   DISCORD_APPLICATION_ID  - same page
+#   DISCORD_CLIENT_SECRET   - OAuth2 page of the same app. Only needed for the
+#                             "Link with Discord" verification route. Add
+#                             <WORKER_BASE_URL>/auth/callback as a Redirect URI
+#                             on that page too, or Discord refuses the flow.
 #   GITHUB_TOKEN            - fine-grained PAT with "Contents: read and write"
 #   GITHUB_REPO             - e.g. "martin/platinum-intel"

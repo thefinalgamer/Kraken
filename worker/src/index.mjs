@@ -12,8 +12,9 @@
 
 import { verifyKey } from './verify.mjs';
 import * as db from './db.mjs';
+import * as oauth from './oauth.mjs';
 import {
-  message, container, text, section, thumbnail, row, button, separator,
+  message, container, text, section, thumbnail, row, button, linkButton, separator,
   memberCard, configureEmoji, COLOR, STYLE, n, pct, ordinal, trophyLine, FALLBACK_AVATAR,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS } from '../../shared/scoring.mjs';
@@ -25,6 +26,16 @@ export default {
   async fetch(request, env, ctx) {
     // Worker config arrives via the env binding, not process.env.
     configureEmoji(env);
+
+    // Browser traffic — the "link with Discord" verification round trip. These
+    // are real people in a real browser, not Discord posting an interaction, so
+    // they get HTML back and none of the signature checking below applies.
+    if (request.method === 'GET') {
+      const path = new URL(request.url).pathname;
+      if (path === '/auth/psn') return oauth.handleStart(request, env);
+      if (path === '/auth/callback') return oauth.handleCallback(request, env, ctx, dispatchScan);
+      return new Response('Kraken is alive.', { status: 200 });
+    }
 
     if (request.method !== 'POST') return new Response('Kraken is alive.', { status: 200 });
 
@@ -77,6 +88,8 @@ async function handleCommand(interaction, env, ctx) {
 
   switch (name) {
     case 'register':   return register(interaction, env, ctx, userId, opt('psn-id'));
+    case 'verify':     return verify(interaction, env, ctx, userId);
+    case 'unlink':     return unlink(interaction, env, opt('member'));
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
     case 'leaderboard':return leaderboard(env, Number(opt('page') ?? 1), userId);
@@ -109,30 +122,128 @@ async function register(interaction, env, ctx, userId, psnId) {
     );
   }
 
-  const taken = await db.memberByOnlineId(env, psnId);
-  if (taken) return errorReply(`**${psnId}** is already claimed by someone else here.`);
+  // Only a VERIFIED claim blocks the name. Unverified rows lapse after an hour,
+  // so nobody can squat on "Pelzio" by typing it first and never proving it.
+  const taken = await db.claimBlockedBy(env, psnId);
+  if (taken) {
+    return errorReply(
+      taken.verified_at
+        ? `**${psnId}** is already claimed and verified by someone here. If that's wrong, ask a mod.`
+        : `Somebody is part-way through claiming **${psnId}**. Try again in an hour.`,
+    );
+  }
 
-  // The Worker has no PSN credentials, so the scan job resolves and validates
-  // the account. We store a provisional row and let the first scan fill it in.
-  await db.createProvisionalMember(env, { discordId: userId, onlineId: psnId });
+  // No scan yet. Nothing touches PSN and nothing reaches the board until they
+  // have proved the account is theirs — that is the entire point of this step.
+  const verifyCode = makeVerifyCode();
+  await db.createProvisionalMember(env, { discordId: userId, onlineId: psnId, verifyCode });
 
-  ctx.waitUntil(dispatchScan(env, userId, interaction.token, { first: true }));
+  return reply(
+    [
+      container(
+        [
+          text(
+            `## Almost there\n\n` +
+              `Before **${psnId}** goes on the board, prove it's yours. Two ways — pick whichever ` +
+              `you're comfortable with.\n\n` +
+              `### The quick way\n` +
+              `Hit the button below. It uses the PlayStation account you've already linked to ` +
+              `Discord under **User Settings → Connections**, so there's nothing to type. ` +
+              `Kraken reads which accounts you've connected, looks only at the PlayStation one, ` +
+              `and stores nothing else. It cannot read your messages or post as you.\n\n` +
+              `### The no-permissions way\n` +
+              `Put this code anywhere in your PSN **About Me**, then run \`/verify\`:\n` +
+              `\`\`\`\n${verifyCode}\n\`\`\`\n` +
+              `Console: **Profile → Edit Profile → About Me**. You can delete it straight after.\n\n` +
+              `-# Also check your trophies are public — Settings → Users and Accounts → Privacy → ` +
+              `Trophies → **Anyone** — or the scan will find nothing.`,
+          ),
+          row(linkButton('Link with Discord', `${env.WORKER_BASE_URL}/auth/psn?code=${verifyCode}`)),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * Codes people have to retype off a phone screen, so no 0/O or 1/I/l.
+ * Six characters from a 30-letter alphabet is comfortably unguessable for
+ * something that expires the moment it's used.
+ */
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function makeVerifyCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  let out = '';
+  for (const b of bytes) out += CODE_ALPHABET[b % CODE_ALPHABET.length];
+  return `KRAKEN-${out}`;
+}
+
+/**
+ * The bio route. The Worker has no PSN credentials, so it cannot read an About
+ * Me itself — the scan job does the check as its first act and refuses to go
+ * any further if the code isn't there.
+ */
+async function verify(interaction, env, ctx, userId) {
+  const member = await db.memberByDiscordId(env, userId);
+  if (!member) return errorReply('You have not registered yet — run `/register` with your PSN ID first.');
+  if (member.verified_at) {
+    return errorReply(`**${member.psn_online_id}** is already verified. Use \`/update\` to rescan.`);
+  }
+
+  const running = await db.hasRunningUpdate(env, member.psn_account_id);
+  if (running) return errorReply('Already checking. Give it a minute.');
+
+  ctx.waitUntil(dispatchScan(env, userId, interaction.token, { first: true, verify: true }));
 
   return reply([
     container(
       [
         text(
-          `## Welcome to Platinum Intel\n\n` +
-            `Linking **${psnId}** and running your first scan now.\n\n` +
-            `First scans are the slow ones — **15 to 30 minutes** — because nothing about ` +
-            `your library is cached yet. Every update after this takes 2 to 3.\n\n` +
-            `-# If nothing happens, your PSN trophies are probably set to private. ` +
-            `Settings → Users and Accounts → Privacy → Trophies → **Anyone**.`,
+          `## Checking **${member.psn_online_id}**\n\n` +
+            `Looking for \`${member.verify_code}\` in your PSN About Me. If it's there, your first ` +
+            `scan starts straight away.\n\n` +
+            `First scans are the slow ones — **15 to 30 minutes** — because nothing about your ` +
+            `library is cached yet. Every update after this takes two or three.`,
         ),
       ],
       COLOR.green,
     ),
   ]);
+}
+
+/**
+ * Mod tooling. Impersonation in a community this size gets spotted in minutes
+ * and is socially expensive — the real problem was that it could not be UNDONE.
+ * This turns a permanent mess into a thirty-second annoyance.
+ */
+async function unlink(interaction, env, targetId) {
+  const perms = BigInt(interaction.member?.permissions ?? '0');
+  const MANAGE_GUILD = 1n << 5n;
+  const isMod = (perms & MANAGE_GUILD) === MANAGE_GUILD;
+  if (!isMod) return errorReply('That one is for mods only.');
+
+  if (!targetId) return errorReply('Tell me who to unlink.');
+
+  const removed = await db.unlinkMember(env, targetId);
+  if (!removed) return errorReply('That person is not registered.');
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `Unlinked <@${targetId}> from **${removed.psn_online_id}**.\n\n` +
+              `-# The name is free again and they can re-register. Their scan history stays put.`,
+          ),
+        ],
+        COLOR.orange,
+      ),
+    ],
+    { ephemeral: true },
+  );
 }
 
 async function runUpdate(interaction, env, ctx, userId) {

@@ -26,6 +26,20 @@ const commands = [
     ],
   },
   {
+    name: 'verify',
+    description: 'Confirm the PSN account you registered is really yours',
+  },
+  {
+    name: 'unlink',
+    description: 'Mods only — free a member’s PSN link so it can be claimed again',
+    // MANAGE_GUILD. Discord hides the command entirely from anyone without it,
+    // so nobody has to discover it exists and then be told no.
+    default_member_permissions: '32',
+    options: [
+      { name: 'member', description: 'The Discord member to unlink', type: 6, required: true },
+    ],
+  },
+  {
     name: 'update',
     description: 'Rescan your trophies and update your card',
   },

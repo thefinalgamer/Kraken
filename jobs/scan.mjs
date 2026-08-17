@@ -36,7 +36,16 @@ import {
   warnTokenExpiry,
 } from './lib/discord.mjs';
 
-const GAME_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+/**
+ * How long cached rarity stays good for.
+ *
+ * Was 14 days, which turned out to be far too eager: a member's whole library
+ * is first scanned on one day, so it all expires on one day, and that update
+ * grinds through the entire stale budget. Trophy rarity moves like a glacier —
+ * a game that was 3% last month is 3% this month — so a month costs nothing in
+ * accuracy and roughly halves the background refreshing.
+ */
+const GAME_CACHE_TTL_MS = Number(process.env.GAME_CACHE_TTL_DAYS || 30) * 24 * 60 * 60 * 1000;
 
 /**
  * Most stale-rarity refreshes allowed in a single update. Games the member has
@@ -45,6 +54,22 @@ const GAME_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
  * balloon back to first-scan length.
  */
 const STALE_REFRESH_BUDGET = Number(process.env.STALE_REFRESH_BUDGET) || 150;
+
+/**
+ * A PSN profile's About Me, for the bio verification code.
+ *
+ * psn-api has shuffled this between the top level and a nested `profile` object
+ * across versions, so check both rather than break on a dependency bump.
+ */
+async function readAboutMe(psn, onlineId) {
+  try {
+    const res = await psn.profile(onlineId);
+    return String(res?.aboutMe ?? res?.profile?.aboutMe ?? '');
+  } catch (err) {
+    console.error('Could not read About Me', err);
+    return '';
+  }
+}
 
 const env = process.env;
 const db = new D1({
@@ -77,6 +102,31 @@ async function main() {
         `No PSN account called "${member.psn_online_id}". Check the spelling and register again.`,
       );
     }
+    // Ownership check, and the reason this happens BEFORE anything is written:
+    // without it, /register was first-come-first-served and anyone could claim
+    // anyone. The Worker can't read a PSN profile — no credentials — so the
+    // check lands here, as the first thing the scan does.
+    //
+    // Only runs for the bio route. The "link with Discord" route has already
+    // set verified_at, because Discord made them sign in to Sony directly and
+    // that is stronger evidence than a string in a bio.
+    if (member.verify_code && !member.verified_at) {
+      const aboutMe = await readAboutMe(psn, account.onlineId);
+      if (!aboutMe.toUpperCase().includes(member.verify_code.toUpperCase())) {
+        throw new Error(
+          `Couldn't find \`${member.verify_code}\` in ${account.onlineId}'s About Me. ` +
+            `Add it (Profile → Edit Profile → About Me), give PSN a minute to catch up, ` +
+            `then run \`/verify\` again.`,
+        );
+      }
+      await db.run(
+        "UPDATE members SET verified_at = ?, verify_method = 'bio', verify_code = NULL WHERE discord_id = ?",
+        [Date.now(), discordId],
+      );
+      member.verified_at = Date.now();
+      console.log(`Verified ${account.onlineId} via About Me code`);
+    }
+
     await db.run(
       'UPDATE members SET psn_account_id = ?, psn_online_id = ?, avatar_url = ? WHERE discord_id = ?',
       [account.accountId, account.onlineId, account.avatarUrl ?? null, discordId],

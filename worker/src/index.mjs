@@ -343,21 +343,36 @@ async function rank(env, target) {
   const member = await db.memberByDiscordId(env, target);
   if (!member) return errorReply('That member is not on the board yet.');
 
-  // Your position plus the people either side — the view members actually want,
-  // since they care about whoever they're chasing, not about first place.
-  const neighbours = await db.neighbours(env, member.rank ?? 1, 2);
+  // The person above, you, and the person below. Two either side was five
+  // cards, which is a wall rather than an answer — and the two extra were
+  // people nobody is racing. Knowing who is four hundred points behind and
+  // closing motivates as much as knowing who you are chasing.
+  const neighbours = await db.neighbours(env, member.rank ?? 1, 1);
   const total = await db.memberCount(env);
-  const cards = neighbours.map((m) =>
-    memberCard(m, { total, highlight: m.discord_id === member.discord_id }),
+  const cards = neighbours.map((m, i) =>
+    memberCard(m, {
+      total,
+      highlight: m.discord_id === member.discord_id,
+      above: neighbours[i - 1] ?? null,
+      showTier: true,
+    }),
   );
-  return reply([
-    text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
-    ...cards,
-    row(
-      button('Full leaderboard', `lb:${Math.max(1, Math.ceil((member.rank ?? 1) / 10))}`),
-      button('Refresh my stats', 'do:update', STYLE.PRIMARY),
-    ),
-  ]);
+  return reply(
+    [
+      text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
+      ...cards,
+      row(
+        button('Full leaderboard', `lb:${Math.max(1, Math.ceil((member.rank ?? 1) / 10))}`),
+        button('Refresh my stats', 'do:update', STYLE.PRIMARY),
+        button('Share to channel', `share:rank:${target}`, STYLE.SECONDARY),
+      ),
+    ],
+    // Personal stats are answered privately. With a hundred members, every
+    // /rank posting publicly turns the main channel into a wall of other
+    // people's numbers — so the default is quiet, with a button for when
+    // somebody actually wants to show off.
+    { ephemeral: true },
+  );
 }
 
 async function leaderboard(env, page, viewerId) {
@@ -365,11 +380,25 @@ async function leaderboard(env, page, viewerId) {
   const total = await db.memberCount(env);
   const pages = Math.max(1, Math.ceil(total / size));
   const safePage = Math.min(Math.max(1, page), pages);
-  const members = await db.leaderboardPage(env, (safePage - 1) * size, size);
+  const offset = (safePage - 1) * size;
+  const members = await db.leaderboardPage(env, offset, size);
+
+  // Whoever sits immediately above the top of this page, so the first card
+  // still gets a chase line instead of an awkward blank at every page break.
+  const [firstAbove] = offset > 0 ? await db.leaderboardPage(env, offset - 1, 1) : [];
 
   return reply([
     text(`## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`),
-    ...members.map((m) => memberCard(m, { total, highlight: m.discord_id === viewerId })),
+    // `above` is the previous row on the page, which is exactly the person each
+    // member is chasing. The first row of page 2+ needs the last row of the
+    // previous page, so fetch one extra and drop it from the render.
+    ...members.map((m, i) =>
+      memberCard(m, {
+        total,
+        highlight: m.discord_id === viewerId,
+        above: i === 0 ? firstAbove : members[i - 1],
+      }),
+    ),
     row(
       button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
       button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
@@ -512,6 +541,16 @@ async function handleComponent(interaction, env, ctx) {
       return rank(env, arg);
     case 'rank':
       return rank(env, arg);
+    // /rank answers privately so a hundred members don't bury the channel in
+    // each other's numbers. This is the opt-in: same cards, posted for real.
+    case 'share': {
+      const shared = await rank(env, interaction.data.custom_id.split(':')[2] || userId);
+      if (shared.data?.flags) shared.data.flags &= ~64; // clear ephemeral
+      shared.data.components = shared.data.components.filter(
+        (c) => !(c.type === 1 && c.components?.some((b) => b.custom_id?.startsWith('share:'))),
+      );
+      return shared;
+    }
     case 'do':
       return runUpdate(interaction, env, ctx, userId);
     case 'owners': {

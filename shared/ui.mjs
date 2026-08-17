@@ -134,6 +134,10 @@ let EMOJI = {
   gold: '<:gold:1539032682514612274>',
   silver: '<:silver:1539032715943481484>',
   bronze: '<:bronze:1539032726701735955>',
+  // Discord offers no way to colour text, so a green ▲ and a red ▼ have to be
+  // emoji — and unicode has no green/red arrow pair, only red ones.
+  up: '<:up:1539040642007695401>',
+  down: '<:down:1539040656847278211>',
 };
 
 export function configureEmoji(source = {}) {
@@ -209,7 +213,50 @@ export const ordinal = (v) => {
 /** Movement since the member's last update. Empty when they haven't moved. */
 export function trend(rank, prevRank) {
   if (!rank || !prevRank || rank === prevRank) return '';
-  return rank < prevRank ? ` ▲${prevRank - rank}` : ` ▼${rank - prevRank}`;
+  return rank < prevRank
+    ? ` ${EMOJI.up}${prevRank - rank}`
+    : ` ${EMOJI.down}${rank - prevRank}`;
+}
+
+/**
+ * "4,812 behind RabbitSquared" — the single most useful line on a card.
+ *
+ * A position tells someone where they are. A gap tells them what to do about
+ * it. At a hundred members almost nobody is chasing first place, but everybody
+ * has one person just above them, and that is the one they will actually go
+ * after.
+ */
+export function chaseLine(member, above) {
+  if (!above) return '';
+  const gap = Number(above.points ?? 0) - Number(member.points ?? 0);
+  if (gap <= 0) return '';
+  return `${EMOJI.up} **${n(gap)}** behind ${above.psn_online_id}`;
+}
+
+/**
+ * How long ago a member's data was refreshed.
+ *
+ * With a hundred members half the board is stale at any moment. Saying so
+ * quietly is more honest than presenting month-old figures as current, and it
+ * nudges people to run /update without anyone having to nag them.
+ */
+export function lastSeen(timestamp, now = Date.now()) {
+  if (!timestamp) return '';
+  const mins = Math.floor((now - Number(timestamp)) / 60000);
+  if (mins < 2) return 'updated just now';
+  if (mins < 60) return `updated ${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `updated ${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `updated ${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.floor(days / 30);
+  return `updated ${months} month${months === 1 ? '' : 's'} ago`;
+}
+
+/** "Hardcore Survivor · 0.18%" — the bit people screenshot. */
+export function rarestLine(m) {
+  if (!m.rarest_name || !(Number(m.rarest_rate) > 0)) return '';
+  return `◆ ${m.rarest_name} · ${Number(m.rarest_rate).toFixed(2)}%`;
 }
 
 /**
@@ -228,14 +275,31 @@ export const trophyLine = (m) =>
   `${EMOJI.platinum} **${n(m.platinum)}**  ${EMOJI.gold} **${n(m.gold)}**  ` +
   `${EMOJI.silver} **${n(m.silver)}**  ${EMOJI.bronze} **${n(m.bronze)}**`;
 
-/** One leaderboard entry — the card from the old bot, natively drawn. */
-export function memberCard(m, { total = 0, highlight = false } = {}) {
+/**
+ * One leaderboard entry — the card from the old bot, natively drawn.
+ *
+ * @param {object} opts.above    the member one rank higher, for the chase line
+ * @param {boolean} opts.showTier  print the tier name. Off on the leaderboard,
+ *   where the accent colour already says it and the label is pure noise; on
+ *   for /rank, which has room and where somebody might genuinely be checking.
+ */
+export function memberCard(m, { total = 0, highlight = false, above = null, showTier = false } = {}) {
   const tier = tierFor(m.rank, total);
   const { name: tierName, color } = TIERS[tier];
 
   const country = flag(m.country);
   const who = highlight ? `__${m.psn_online_id}__` : m.psn_online_id;
   const position = `${ordinal(m.rank)}${trend(m.rank, m.prev_rank)}`;
+
+  // Folded into the third block on purpose — see the note below.
+  const footer = [
+    chaseLine(m, above),
+    [rarestLine(m), lastSeen(m.last_update_at)].filter(Boolean).join('  ·  '),
+    showTier ? `${tierEmoji(tier)} ${tierName} tier` : '',
+  ]
+    .filter(Boolean)
+    .map((line) => `-# ${line}`)
+    .join('\n');
 
   return container(
     [
@@ -247,9 +311,8 @@ export function memberCard(m, { total = 0, highlight = false } = {}) {
         [
           `### ${position} · ${country ? `${country} ` : ''}${who}`,
           trophyLine(m),
-          `**Completion** ${pct(m.completion)}\n` +
-            `**Points** ${n(m.points)}\n` +
-            `-# ${tierEmoji(tier)} ${tierName} tier`,
+          `**Completion** ${pct(m.completion)}\n**Points** ${n(m.points)}` +
+            (footer ? `\n${footer}` : ''),
         ],
         thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
       ),

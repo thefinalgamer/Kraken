@@ -551,6 +551,42 @@ async function recomputeMemberPoints(accountId) {
   return byGame;
 }
 
+/**
+ * The rarest trophy this member actually owns.
+ *
+ * One query, run once per scan and cached on the members row, because doing
+ * it per card render would mean this join four times for a single
+ * /leaderboard page.
+ *
+ * Unrated trophies (0.00%) are excluded deliberately — PSN reports 0 for
+ * anything it has no figure for, and "0.00%" would win this contest every
+ * time while meaning nothing. See DEFAULT_SCORING.unratedPoints.
+ */
+async function findRarestTrophy(accountId) {
+  try {
+    const row = await db.one(
+      `SELECT t.name, t.earned_rate, g.title
+         FROM member_games mg
+         JOIN trophies t ON t.np_comm_id = mg.np_comm_id
+         LEFT JOIN games g ON g.np_comm_id = mg.np_comm_id
+        WHERE mg.psn_account_id = ?
+          AND t.earned_rate > 0
+          AND EXISTS (
+                SELECT 1 FROM json_each(mg.earned_ids) je
+                 WHERE je.value = t.trophy_id
+              )
+        ORDER BY t.earned_rate ASC
+        LIMIT 1`,
+      [accountId],
+    );
+    return row ?? null;
+  } catch (err) {
+    // A missing rarest trophy is a cosmetic loss, not a failed scan.
+    console.error('Could not resolve rarest trophy', err);
+    return null;
+  }
+}
+
 // ------------------------------------------------------------- rollups -----
 
 function rollUp(summary, titles, pointsByGame) {
@@ -612,18 +648,26 @@ async function finaliseUpdate(updateNo, result, member) {
     ],
   );
 
+  const rarest = await findRarestTrophy(member.psn_account_id);
+
   await db.run(
     `UPDATE members SET
        platinum = ?, gold = ?, silver = ?, bronze = ?,
        completion = ?, points = ?, projects = ?, completed = ?,
+       rarest_name = ?, rarest_rate = ?, rarest_game = ?,
        last_update_at = ?, last_scan_ok = 1
      WHERE discord_id = ?`,
     [
       after.platinum, after.gold, after.silver, after.bronze,
       after.completion, after.points, after.projects, after.completed,
+      rarest?.name ?? null, rarest?.earned_rate ?? null, rarest?.title ?? null,
       Date.now(), member.discord_id,
     ],
   );
+
+  if (rarest) {
+    console.log(`  rarest owned: ${rarest.name} (${rarest.earned_rate}%) — ${rarest.title ?? '?'}`);
+  }
 }
 
 /** Re-rank everyone and return who moved, for the #leaderboard feed. */

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   tierFor, trend, flag, ordinal, memberCard, configureEmoji,
+  chaseLine, lastSeen, rarestLine,
 } from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
@@ -40,10 +41,41 @@ test('tiers never invert — a better rank is never a worse tier', () => {
 });
 
 test('trend arrows', () => {
-  assert.equal(trend(1, 3), ' ▲2');
-  assert.equal(trend(5, 2), ' ▼3');
+  // The arrows are custom emoji now — Discord cannot colour text, so a green
+  // up and a red down have to be images. Assert on the movement rather than
+  // the glyph, so re-uploading the emoji never breaks the suite.
+  assert.match(trend(1, 3), /up.*2$/);
+  assert.match(trend(5, 2), /down.*3$/);
   assert.equal(trend(4, 4), '');
   assert.equal(trend(4, null), '');
+});
+
+test('chase line', () => {
+  const me = { points: 226198 };
+  assert.match(chaseLine(me, { points: 367581, psn_online_id: 'JFL__Leon' }), /141,383.*JFL__Leon/);
+  assert.equal(chaseLine(me, null), '');
+  // A tie, or somebody below you, gets no line rather than "0 behind".
+  assert.equal(chaseLine(me, { points: 226198, psn_online_id: 'x' }), '');
+});
+
+test('last seen', () => {
+  const now = Date.parse('2026-08-17T22:00:00Z');
+  const ago = (mins) => now - mins * 60000;
+  assert.equal(lastSeen(ago(1), now), 'updated just now');
+  assert.equal(lastSeen(ago(30), now), 'updated 30 minutes ago');
+  assert.equal(lastSeen(ago(60 * 5), now), 'updated 5 hours ago');
+  assert.equal(lastSeen(ago(60 * 24 * 3), now), 'updated 3 days ago');
+  assert.equal(lastSeen(null, now), '');
+});
+
+test('rarest line', () => {
+  assert.equal(
+    rarestLine({ rarest_name: 'The Path Home', rarest_rate: 0.31 }),
+    '◆ The Path Home · 0.31%',
+  );
+  // Unrated trophies come back as 0.00% and must never win this contest.
+  assert.equal(rarestLine({ rarest_name: 'Ghost', rarest_rate: 0 }), '');
+  assert.equal(rarestLine({}), '');
 });
 
 test('flags', () => {

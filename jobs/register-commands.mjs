@@ -118,23 +118,42 @@ console.log(
 // appears twice in the picker forever. Nobody can tell which is which, and at
 // a hundred members that is a hundred people asking. Clearing the global list
 // whenever we register to a guild keeps exactly one of each.
-if (env.DISCORD_GUILD_ID) {
-  const res = await fetch(
-    `https://discord.com/api/v10/applications/${env.DISCORD_APPLICATION_ID}/commands`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: '[]',
+const api = (path, init = {}) =>
+  fetch(`https://discord.com/api/v10/${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+      ...init.headers,
     },
-  );
-  console.log(
-    res.ok
-      ? 'Cleared the global command list, so nothing shows up twice.'
-      : `Could not clear global commands (${res.status}) — harmless, but duplicates may linger.`,
-  );
+  });
+
+const clear = async (label, path) => {
+  const res = await api(path, { method: 'PUT', body: '[]' });
+  console.log(res.ok ? `Cleared ${label}.` : `Could not clear ${label} (${res.status}).`);
+};
+
+if (env.DISCORD_GUILD_ID) {
+  // Registered to one guild, so the global list is the stale one.
+  await clear('the global command list', `applications/${env.DISCORD_APPLICATION_ID}/commands`);
+} else {
+  // Registered globally, so any GUILD list left over from an earlier setup is
+  // the stale one — and Discord shows the union, which is why everything
+  // appears twice. The bot can enumerate its own servers, so this needs no
+  // configuration: whatever it's in, it tidies.
+  const res = await api('users/@me/guilds');
+  if (!res.ok) {
+    console.log(`Could not list the bot's servers (${res.status}) — skipping guild cleanup.`);
+  } else {
+    const guilds = await res.json();
+    console.log(`Bot is in ${guilds.length} server(s); clearing any leftover guild commands.`);
+    for (const g of guilds) {
+      await clear(
+        `guild commands in ${g.name}`,
+        `applications/${env.DISCORD_APPLICATION_ID}/guilds/${g.id}/commands`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------- audit ----
@@ -144,9 +163,7 @@ if (env.DISCORD_GUILD_ID) {
 // what actually exists afterwards, and say plainly what it means.
 
 const listCommands = async (label, path) => {
-  const res = await fetch(`https://discord.com/api/v10/applications/${path}`, {
-    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
-  });
+  const res = await api(path);
   if (!res.ok) {
     console.log(`${label}: could not read (${res.status})`);
     return [];
@@ -160,27 +177,28 @@ const listCommands = async (label, path) => {
 };
 
 console.log('\n── what Discord actually has now ──');
-const globals = await listCommands('Global', `${env.DISCORD_APPLICATION_ID}/commands`);
-const guilds = env.DISCORD_GUILD_ID
-  ? await listCommands(
-      'Guild  ',
-      `${env.DISCORD_APPLICATION_ID}/guilds/${env.DISCORD_GUILD_ID}/commands`,
-    )
-  : [];
+const globals = await listCommands('Global', `applications/${env.DISCORD_APPLICATION_ID}/commands`);
 
-const clash = globals.filter((g) => guilds.some((c) => c.name === g.name));
-if (clash.length) {
-  console.log(
-    `\n⚠ ${clash.length} command(s) exist in BOTH lists — that is what shows twice in the picker.`,
-  );
-} else if (globals.length && guilds.length) {
-  console.log('\nNo overlap between the lists, so duplicates are not coming from here.');
+let guildTotal = 0;
+const gres = await api('users/@me/guilds');
+if (gres.ok) {
+  for (const g of await gres.json()) {
+    const list = await listCommands(
+      `Guild ${g.name}`,
+      `applications/${env.DISCORD_APPLICATION_ID}/guilds/${g.id}/commands`,
+    );
+    guildTotal += list.length;
+  }
+}
+
+if (globals.length && guildTotal) {
+  console.log('\n⚠ Commands exist in BOTH the global and a guild list — that is the duplication.');
 } else {
   console.log('\nOne list only — nothing here can produce a duplicate.');
   console.log(
-    'If the picker still shows two of each, check the Discord developer portal under\n' +
-      'Installation → Installation Contexts. With "User Install" enabled, an app\'s\n' +
-      'commands appear once for the server and again for you personally, and no amount\n' +
-      'of re-registering will change that. Turn it off if you only want the server copy.',
+    'If the picker still shows two of each after a Discord restart, check the developer\n' +
+      'portal under Installation → Installation Contexts. With "User Install" enabled\n' +
+      'alongside "Guild Install", commands appear once for the server and again for you\n' +
+      'personally, and no amount of re-registering will change it.',
   );
 }

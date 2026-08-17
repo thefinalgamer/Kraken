@@ -139,3 +139,12 @@ test('every tier renders without throwing', () => {
     }
   }
 });
+
+test('configureEmoji keeps emoji it does not know about', () => {
+  // Regression: it used to rebuild the set from a fixed list of keys, which
+  // silently dropped the trend arrows and rendered them as "undefined".
+  configureEmoji({ EMOJI_PLATINUM: '<:p:1>' });
+  assert.match(trend(1, 3), /up|▲/);
+  assert.doesNotMatch(trend(1, 3), /undefined/);
+  assert.doesNotMatch(trend(5, 2), /undefined/);
+});

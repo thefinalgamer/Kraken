@@ -141,11 +141,17 @@ let EMOJI = {
 };
 
 export function configureEmoji(source = {}) {
+  // Spread the existing set rather than rebuilding it. Listing the keys
+  // explicitly meant every emoji NOT named here — the trend arrows — was
+  // silently dropped the moment this ran, and rendered as "undefined".
   EMOJI = {
+    ...EMOJI,
     platinum: source.EMOJI_PLATINUM || EMOJI.platinum,
     gold: source.EMOJI_GOLD || EMOJI.gold,
     silver: source.EMOJI_SILVER || EMOJI.silver,
     bronze: source.EMOJI_BRONZE || EMOJI.bronze,
+    up: source.EMOJI_UP || EMOJI.up,
+    down: source.EMOJI_DOWN || EMOJI.down,
   };
 }
 

@@ -375,7 +375,14 @@ async function scanMember(psn, member, updateNo) {
     );
   }
 
-  return { before, after: totals, delta, changelog, gamesChanged: changelog.length };
+  return {
+    before,
+    after: totals,
+    delta,
+    changelog,
+    gamesChanged: changelog.length,
+    repaired: repairs.length,
+  };
 }
 
 /**

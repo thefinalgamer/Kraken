@@ -287,15 +287,56 @@ async function runUpdate(interaction, env, ctx, userId) {
   if (active.length) {
     const ahead = active[0];
     const mins = Math.max(1, Math.round((Date.now() - ahead.started_at) / 60000));
+
+    // The database only knows about scans that have STARTED. Anyone waiting
+    // behind them is queued at GitHub, invisible from here — so ask GitHub.
+    // Without this, the twelfth person in line is told "one person is ahead of
+    // you", waits an hour, and reasonably concludes the bot is broken.
+    const waiting = await queueDepth(env);
+    const position = Math.max(active.length, waiting) + 1;
+    const eta = position * 3; // repeat scans are 2–4 minutes; first scans blow this out
+
     body =
       `## ${member.psn_online_id} update queued\n\n` +
-      `**${ahead.psn_online_id}** is scanning right now — ${mins} minute${mins === 1 ? '' : 's'} in` +
-      (active.length > 1 ? `, with ${active.length - 1} more waiting` : '') +
-      `.\n\nYours starts when theirs finishes, and this message will fill itself in. ` +
-      `Nothing's broken — scans run one at a time so nobody trips PlayStation's rate limit.`;
+      `**${ahead.psn_online_id}** is scanning right now — ${mins} minute${mins === 1 ? '' : 's'} in.\n\n` +
+      (position > 1
+        ? `You're **${ordinal(position)}** in the queue, so roughly **${eta} minutes** — longer if ` +
+          `anyone ahead of you is on their first scan.\n\n`
+        : `You're next.\n\n`) +
+      `This message will fill itself in when it's your turn. Nothing's broken — scans run one ` +
+      `at a time so nobody trips PlayStation's rate limit.`;
   }
 
   return reply([container([text(body)], active.length ? COLOR.orange : COLOR.grey)]);
+}
+
+/**
+ * How many scans are queued or running, straight from GitHub Actions.
+ *
+ * GitHub is the actual queue — `concurrency: queue: max` holds pending runs
+ * there, and D1 never sees them because a row is only written once a scan
+ * starts. Returns 0 on any failure: a wrong queue estimate is a far smaller
+ * problem than /update falling over because the GitHub API had a moment.
+ */
+async function queueDepth(env) {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/scan.yml/runs` +
+        `?per_page=30&exclude_pull_requests=true`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'platinum-intel-bot',
+        },
+      },
+    );
+    if (!res.ok) return 0;
+    const { workflow_runs = [] } = await res.json();
+    return workflow_runs.filter((r) => r.status === 'queued' || r.status === 'in_progress').length;
+  } catch {
+    return 0;
+  }
 }
 
 async function rank(env, target) {

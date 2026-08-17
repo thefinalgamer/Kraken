@@ -56,6 +56,7 @@ export async function postUpdateResult({ member, result, interactionToken }) {
       delta: result.delta,
       gamesChanged: result.gamesChanged,
       durationSeconds: result.durationSeconds,
+      repaired: result.repaired,
     }),
   ]);
 

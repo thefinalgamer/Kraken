@@ -106,23 +106,34 @@ const UNICODE_FALLBACK = {
 };
 
 /**
- * The Platinum Intel server's own trophy emoji.
+ * Kraken's trophy icons — APP-owned emoji, not server emoji.
  *
- * Hardcoded rather than configured. An emoji id is not a secret — it is
- * visible in the raw text of every message that uses one — and the two halves
- * of this system get their configuration through completely different
+ * This distinction matters and cost an evening to find. Every card here is
+ * sent as an interaction response, which Discord treats as a webhook message,
+ * and webhook messages need USE_EXTERNAL_EMOJIS to render a custom emoji —
+ * even one from the very server they are posted in. Without it Discord does
+ * not error; it silently renders `:platinum:` as plain text and leaves you
+ * staring at correct-looking code.
+ *
+ * Emoji owned by the application have no such requirement ("the
+ * USE_EXTERNAL_EMOJIS permission is not required to use app emojis"), work in
+ * every server the bot is ever added to, and cannot be broken by someone
+ * reorganising role permissions. Manage them at:
+ *
+ *   discord.com/developers/applications -> Kraken -> Emojis
+ *
+ * Hardcoded rather than configured, because an emoji id is not a secret — it
+ * is visible in the raw text of every message using it — and the Worker and
+ * the scan job take their configuration through completely different
  * mechanisms, so making these settings would mean maintaining the same four
- * values in the Cloudflare dashboard AND the scan workflow, forever, for
- * something that changes approximately never.
- *
- * `configureEmoji` still honours EMOJI_* overrides, so a fork can swap them
- * without touching this file.
+ * values in two places forever, for something that changes approximately
+ * never. `configureEmoji` still honours EMOJI_* overrides for forks.
  */
 let EMOJI = {
-  platinum: '<:platinum:1539028113273397298>',
-  gold: '<:gold:1539028372980768828>',
-  silver: '<:silver:1539028431675727913>',
-  bronze: '<:bronze:1539028492241608816>',
+  platinum: '<:platinum:1539032665217310730>',
+  gold: '<:gold:1539032682514612274>',
+  silver: '<:silver:1539032715943481484>',
+  bronze: '<:bronze:1539032726701735955>',
 };
 
 export function configureEmoji(source = {}) {
@@ -249,7 +260,9 @@ export function memberCard(m, { total = 0, highlight = false } = {}) {
 }
 
 /** The `/update` result — same shape as the old embed, plus the explanation. */
-export function updateCard({ member, updateNo, before, after, delta, gamesChanged, durationSeconds }) {
+export function updateCard({
+  member, updateNo, before, after, delta, gamesChanged, durationSeconds, repaired = 0,
+}) {
   const gained = [
     after.platinum - before.platinum && `${EMOJI.platinum} ${signed(after.platinum - before.platinum)}`,
     after.gold - before.gold && `${EMOJI.gold} ${signed(after.gold - before.gold)}`,
@@ -274,6 +287,27 @@ export function updateCard({ member, updateNo, before, after, delta, gamesChange
       `> **Why the drop?** You earned ${signed(delta.earned)} points from new trophies, ` +
         `but trophies you already had have become more common as other players caught up ` +
         `(${signed(delta.drift)}). Nothing was taken away.`,
+    );
+  } else if (delta.earned && delta.drift) {
+    // Even on a good update, showing the split teaches people what the number
+    // means while they're pleased with it — which is a far better time to
+    // learn it than the first time it goes backwards.
+    lines.push(
+      `-# ${signed(delta.earned)} from new trophies, ${signed(delta.drift)} from rarity shifting.`,
+    );
+  }
+
+  // A repaired game is one that had been silently scoring ZERO — progress
+  // recorded, rarity never written, usually because an earlier scan died
+  // partway. When the fix lands, points can jump by tens of thousands with no
+  // trophies earned, and an unexplained jump like that reads as the bot
+  // inventing numbers. Say it plainly instead.
+  if (repaired > 0) {
+    lines.push(
+      `> **${n(repaired)} game${repaired === 1 ? '' : 's'} repaired.** ` +
+        `${repaired === 1 ? 'It was' : 'They were'} missing rarity data from an interrupted scan ` +
+        `and had been scoring nothing. ${repaired === 1 ? 'It is' : 'They are'} counted now, ` +
+        `so part of this change is points you already had but weren't being given.`,
     );
   }
 

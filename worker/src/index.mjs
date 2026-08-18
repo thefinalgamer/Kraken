@@ -384,30 +384,53 @@ async function rank(env, target) {
 }
 
 async function leaderboard(env, page, viewerId) {
-  const size = Number(env.LEADERBOARD_PAGE_SIZE ?? 10);
-  const total = await db.memberCount(env);
+  const size = Number(env.LEADERBOARD_PAGE_SIZE ?? 25);
+
+  // Count the RANKED members, not every registered row. Someone mid-first-scan
+  // has no finished data and isn't listed, so counting them made the header
+  // claim six hunters above a list of five.
+  const total = await db.rankedCount(env);
   const pages = Math.max(1, Math.ceil(total / size));
   const safePage = Math.min(Math.max(1, page), pages);
   const offset = (safePage - 1) * size;
   const members = await db.leaderboardPage(env, offset, size);
 
+  const nav = [
+    button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
+    button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
+    button('Jump to me', 'lb:me', STYLE.PRIMARY),
+  ];
 
-  return reply([
-    text(
-      `## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`,
-    ),
-    // Tier blocks, not cards. Discord counts nested components against a limit
-    // of 40 and a card is 8 of them, so cards broke the board the moment a
-    // fifth member registered — reporting itself as "Kraken didn't respond in
-    // time", which points nowhere near the cause. A tier is three components
-    // however many people are in it. See boardBlocks() in ui.mjs.
-    ...boardBlocks(members, { viewerId, total, startRank: offset + 1 }),
-    row(
-      button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
-      button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
-      button('Jump to me', 'lb:me', STYLE.PRIMARY),
-    ),
-  ]);
+  // A door back to the real board. The channel is the one that's pinned and
+  // always current; this command is a private peek for when you don't want to
+  // leave the conversation you're in.
+  if (env.DISCORD_GUILD_ID && env.DISCORD_LEADERBOARD_CHANNEL_ID) {
+    nav.push(
+      linkButton(
+        'Open #leaderboard',
+        `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${env.DISCORD_LEADERBOARD_CHANNEL_ID}`,
+      ),
+    );
+  }
+
+  return reply(
+    [
+      text(
+        `## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`,
+      ),
+      // Tier blocks, not cards. Discord counts nested components against a
+      // limit of 40 and a card is 8 of them, so cards broke this the moment a
+      // fifth member registered — reporting itself as "Kraken didn't respond
+      // in time", which points nowhere near the cause. A tier is three
+      // components however many people are in it. See boardBlocks() in ui.mjs.
+      ...boardBlocks(members, { viewerId, total, startRank: offset + 1 }),
+      row(...nav),
+    ],
+    // Private. The pinned board in #leaderboard is the public one; this exists
+    // so nobody has to leave the channel they're chatting in, and it shouldn't
+    // paste a second copy of the standings into general chat every time.
+    { ephemeral: true },
+  );
 }
 
 async function game(env, query, userId) {

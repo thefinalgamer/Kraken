@@ -386,12 +386,14 @@ export function boardBlocks(
   return groups.map(({ tier, rows }) => {
     const { name, color } = TIERS[tier];
     const lines = rows.map((m) => {
+      // The count is separated from the name and glued to the arrow. Without
+      // the gap `▼1 N7_Maxxi` reads as though the 1 belongs to the name.
       const move =
         !m.prev_rank || m.prev_rank === m.rank
           ? ''
           : m.rank < m.prev_rank
-            ? `${EMOJI.up}${m.prev_rank - m.rank} `
-            : `${EMOJI.down}${m.rank - m.prev_rank} `;
+            ? `${EMOJI.up}\`${m.prev_rank - m.rank}\` `
+            : `${EMOJI.down}\`${m.rank - m.prev_rank}\` `;
       const who =
         m.discord_id && m.discord_id === viewerId
           ? `__${m.psn_online_id}__`

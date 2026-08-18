@@ -17,11 +17,21 @@ database_id = "44d2a77b-cded-4a63-af05-dc43da8aaed6"
 
 [vars]
 # Public, non-secret configuration. Secrets go in via `wrangler secret put`.
-LEADERBOARD_PAGE_SIZE = "10"
 
 # Set this to a Discord role id to gate /register during the soft launch.
 # Only members with the role can join the board; leave empty to open it up.
 HUNTER_ROLE_ID = "1538606682039648327"
+
+# The #leaderboard channel and the server it lives in. Only used to build the
+# "Open #leaderboard" link on /leaderboard, so the private peek can hand you
+# back to the pinned board. Both are needed or the button is simply omitted.
+DISCORD_GUILD_ID = "1351956287222714389"
+DISCORD_LEADERBOARD_CHANNEL_ID = "1539046348496838686"
+
+# How many members per page on /leaderboard. Was 10 when each row was a card;
+# rows are single lines now, so 25 fits comfortably inside Discord's 4,000
+# character ceiling with room to spare.
+LEADERBOARD_PAGE_SIZE = "25"
 
 # Public base URL of this Worker. Used to build the "Link with Discord"
 # verification link, so it must match what is configured in the Discord

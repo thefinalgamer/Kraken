@@ -254,3 +254,11 @@ export function backlog(env, accountId, sort = 'value', limit = 5) {
     [accountId, limit],
   );
 }
+
+/**
+ * Members who actually appear on the board — ranked, with a completed scan.
+ * memberCount() counts registrations, which includes anyone mid-first-scan and
+ * made the leaderboard header disagree with the list underneath it.
+ */
+export const rankedCount = async (env) =>
+  (await first(env, 'SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL'))?.c ?? 0;

@@ -15,7 +15,7 @@ import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
-  memberCard, leaderboardTable, configureEmoji, COLOR, STYLE, n, pct, ordinal,
+  memberCard, boardBlocks, configureEmoji, COLOR, STYLE, n, pct, ordinal,
   trophyLine, FALLBACK_AVATAR,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS } from '../../shared/scoring.mjs';
@@ -396,12 +396,12 @@ async function leaderboard(env, page, viewerId) {
     text(
       `## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`,
     ),
-    // A TABLE, not cards. Discord counts nested components against a limit of
-    // 40 per message and a card is 8 of them, so this broke the moment a fifth
-    // member registered — and reported itself as "Kraken didn't respond in
-    // time", which points nowhere near the real cause. A table is one
-    // component at any size. See leaderboardTable() in ui.mjs.
-    text(leaderboardTable(members, { viewerId, startRank: offset + 1 })),
+    // Tier blocks, not cards. Discord counts nested components against a limit
+    // of 40 and a card is 8 of them, so cards broke the board the moment a
+    // fifth member registered — reporting itself as "Kraken didn't respond in
+    // time", which points nowhere near the cause. A tier is three components
+    // however many people are in it. See boardBlocks() in ui.mjs.
+    ...boardBlocks(members, { viewerId, total, startRank: offset + 1 }),
     row(
       button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
       button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),

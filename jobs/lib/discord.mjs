@@ -13,7 +13,7 @@ import {
   movementLines,
   container,
   text,
-  leaderboardTable,
+  boardBlocks,
   chunkBoard,
   COLOR,
 } from '../../shared/ui.mjs';
@@ -264,7 +264,7 @@ export async function publishLeaderboard(members, store) {
 
     const body = message([
       text(heading),
-      text(leaderboardTable(chunk, { total: members.length, tierHeadings: true })),
+      ...boardBlocks(chunk, { total: members.length }),
     ]);
 
     let id = known[i];

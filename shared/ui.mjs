@@ -368,65 +368,51 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
  * also means no custom emoji and no bold — code blocks render neither — hence
  * plain ▲▼ for movement and a » marker for "this is you".
  */
-export function leaderboardTable(
+export function boardBlocks(
   members,
-  { viewerId = null, startRank = 1, total = 0, tierHeadings = false } = {},
+  { viewerId = null, total = 0, startRank = 1 } = {},
 ) {
-  const NAME = 19;
-  const BUDGET = 3800;
-  const out = [];
-  let used = 0;
-  let lastTier = null;
-  let dropped = 0;
-
+  const size = total || members.length;
+  const groups = [];
   for (const [i, m] of members.entries()) {
     const rank = m.rank ?? startRank + i;
-    const lines = [];
-
-    // Tier headings turn a list into a ladder. Without them a member sees only
-    // the person immediately above; with them they can see the band they are
-    // climbing towards, which is the thing that actually motivates.
-    if (tierHeadings) {
-      const tier = tierFor(rank, total || members.length);
-      if (tier !== lastTier) {
-        lines.push(`${lastTier ? '\n' : ''}── ${TIERS[tier].name.toUpperCase()} ${'─'.repeat(Math.max(0, 30 - TIERS[tier].name.length))}`);
-        lastTier = tier;
-      }
+    const tier = tierFor(rank, size);
+    if (!groups.length || groups[groups.length - 1].tier !== tier) {
+      groups.push({ tier, rows: [] });
     }
-
-    const move =
-      !m.prev_rank || m.prev_rank === rank
-        ? '   '
-        : rank < m.prev_rank
-          ? `▲${String(m.prev_rank - rank).padEnd(2)}`
-          : `▼${String(rank - m.prev_rank).padEnd(2)}`;
-    const name = String(m.psn_online_id ?? '');
-    const shown = name.length > NAME ? `${name.slice(0, NAME - 1)}…` : name.padEnd(NAME);
-    const mine = m.discord_id && m.discord_id === viewerId ? ' »' : '';
-    lines.push(
-      `${String(rank).padStart(3)} ${move} ${shown} ${n(m.points).padStart(9)} ${pct(m.completion).padStart(7)}${mine}`,
-    );
-
-    // Hard cap on characters as well as components. Discord allows 4,000
-    // across every text block in a message and roughly 85 rows reaches it, so
-    // a long page would fail the same silent way the cards did. Trim and say
-    // so: a truncated board is a nuisance, a rejected message is a dead bot.
-    const cost = lines.join('\n').length + 1;
-    if (used + cost > BUDGET) {
-      dropped = members.length - i;
-      break;
-    }
-    out.push(...lines);
-    used += cost;
+    groups[groups.length - 1].rows.push({ ...m, rank });
   }
 
-  const note = dropped ? `\n-# ${dropped} more — use \`/rank\` for your position.` : '';
-  return `\`\`\`\n${out.join('\n')}\n\`\`\`${note}`;
+  return groups.map(({ tier, rows }) => {
+    const { name, color } = TIERS[tier];
+    const lines = rows.map((m) => {
+      const move =
+        !m.prev_rank || m.prev_rank === m.rank
+          ? ''
+          : m.rank < m.prev_rank
+            ? `${EMOJI.up}${m.prev_rank - m.rank} `
+            : `${EMOJI.down}${m.rank - m.prev_rank} `;
+      const who =
+        m.discord_id && m.discord_id === viewerId
+          ? `__${m.psn_online_id}__`
+          : m.psn_online_id;
+      return `\`${String(m.rank).padStart(3)}\` ${move}**${who}** — ${n(m.points)} pts · ${pct(m.completion)}`;
+    });
+    return container(
+      [text(`${tierEmoji(tier)} **${name}**`), text(lines.join('\n'))],
+      color,
+    );
+  });
 }
 
 /**
- * How many rows fit in one Discord message, used to split the whole board into
- * however many messages it needs. 25 keeps each one glanceable on a phone.
+ * How many members go in one Discord message.
+ *
+ * Bounded by two ceilings: 40 components per message, and 4,000 characters
+ * across every text block. The component side is generous here — a tier is
+ * three components however many people are in it — so characters bind first,
+ * and a rich row runs about 80 once the custom emoji ids are counted (an emoji
+ * is thirty characters of markup for one small picture).
  */
 export const BOARD_CHUNK = 25;
 
@@ -436,6 +422,22 @@ export function chunkBoard(members, size = BOARD_CHUNK) {
   for (let i = 0; i < members.length; i += size) out.push(members.slice(i, i + size));
   return out;
 }
+
+/** Characters a set of blocks will cost, for checking against the 4,000 limit. */
+export function blockChars(blocks) {
+  let chars = 0;
+  const walk = (x) => {
+    if (Array.isArray(x)) return x.forEach(walk);
+    if (x && typeof x === 'object') {
+      if (x.type === T.TEXT_DISPLAY && x.content) chars += x.content.length;
+      Object.values(x).forEach(walk);
+    }
+  };
+  walk(blocks);
+  return chars;
+}
+
+
 
 /** The `/update` result — same shape as the old embed, plus the explanation. */
 export function updateCard({

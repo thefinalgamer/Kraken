@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   tierFor, trend, flag, ordinal, memberCard, configureEmoji,
   chaseLine, lastSeen, rarestLine, pct,
-  leaderboardTable, text, row, button,
+  boardBlocks, blockChars, chunkBoard, text, row, button,
 } from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
@@ -160,9 +160,10 @@ test('percentages round down, never up', () => {
   assert.equal(pct(0), '0.00%');
 });
 
-test('leaderboard stays inside Discord component limits at any size', () => {
+test('the board stays inside Discord limits at any size', () => {
   // Regression: cards broke the board the day a fifth member joined. Discord
-  // counts nested components against a limit of 40, and each card is 8.
+  // counts nested components against a limit of 40, and a card is 8 of them.
+  // A tier block is 3, however many people are in it.
   const count = (c) => {
     let n = 0;
     const walk = (x) => {
@@ -176,22 +177,34 @@ test('leaderboard stays inside Discord component limits at any size', () => {
     return n;
   };
 
-  for (const size of [5, 25, 100]) {
-    const members = Array.from({ length: size }, (_, i) => ({
-      rank: i + 1, prev_rank: i + 2, psn_online_id: `AVeryLongPsnName_${i}`,
-      discord_id: String(i), points: 900000 - i * 137, completion: 99.99 - i / 10,
+  const make = (size) =>
+    Array.from({ length: size }, (_, i) => ({
+      rank: i + 1,
+      prev_rank: i + 2,
+      psn_online_id: 'AVeryLongPsnName_XX',
+      discord_id: String(i),
+      points: 900000 - i * 137,
+      completion: 99.99 - i / 10,
     }));
+
+  // One message's worth, at every plausible server size.
+  for (const total of [5, 25, 100, 300]) {
+    const page = make(Math.min(25, total));
     const msg = [
-      text('## Platinum Intel'),
-      text(leaderboardTable(members, { viewerId: '3' })),
+      text('# Platinum Intel'),
+      ...boardBlocks(page, { total, viewerId: '3' }),
       row(button('a', '1'), button('b', '2'), button('c', '3')),
     ];
-    assert.ok(count(msg) <= 40, `${size} members produced ${count(msg)} components`);
+    assert.ok(count(msg) <= 40, `${total} members: ${count(msg)} components`);
+    assert.ok(
+      blockChars(msg) < 4000,
+      `${total} members: ${blockChars(msg)} characters — every row carries a 30-character emoji id`,
+    );
   }
 
-  // And the 4,000-character ceiling, which is the one that bites at scale.
-  const big = Array.from({ length: 88 }, (_, i) => ({
-    rank: i + 1, psn_online_id: 'x'.repeat(19), points: 999999, completion: 100,
-  }));
-  assert.ok(leaderboardTable(big).length < 4000, leaderboardTable(big).length);
+  // And the whole board splits into whole messages with nobody lost.
+  const everyone = make(137);
+  const chunks = chunkBoard(everyone);
+  assert.equal(chunks.flat().length, 137);
+  assert.equal(chunks[0][0].rank, 1);
 });

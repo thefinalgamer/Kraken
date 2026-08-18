@@ -125,6 +125,31 @@ export function explainDelta(pointsFromNewTrophies, totalDelta) {
   };
 }
 
+/**
+ * Trophy weight for COMPLETION — Sony's own values, with the platinum excluded.
+ *
+ * The exclusion is the important part, and it is not a fudge. A platinum is
+ * awarded automatically for earning every other trophy in a game; it is not an
+ * independent achievement, so counting it counts the same work twice.
+ *
+ * It also happens to be what PSNProfiles does. Solving for the weights that
+ * reproduce four members' published completion percentages puts the platinum
+ * weight at exactly zero:
+ *
+ *   plain trophy count            worst error 1.89 points
+ *   300/90/30/15 (plat included)  worst error 1.84
+ *   180/90/30/15 (plat included)  worst error 1.26
+ *   90/30/15, platinum excluded   worst error 0.52   <- this
+ *
+ * Rabbit is what proves it: 321 platinums available and 129 earned, so any
+ * model that weights platinums at all crushes him while PSNProfiles does not
+ * move. The half-point that remains is the trophies Kraken counts and
+ * PSNProfiles does not index — it hides everything past the 255th in a title.
+ */
+export function completionWeight({ gold = 0, silver = 0, bronze = 0 } = {}) {
+  return gold * 90 + silver * 30 + bronze * 15;
+}
+
 /** PSNProfiles-style flat points, shown alongside as a familiar second number. */
 export function flatPoints({ platinum = 0, gold = 0, silver = 0, bronze = 0 }) {
   return platinum * 300 + gold * 90 + silver * 30 + bronze * 15;

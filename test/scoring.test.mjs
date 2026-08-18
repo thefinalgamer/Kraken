@@ -8,6 +8,7 @@ import {
   explainDelta,
   flatPoints,
   DEFAULT_SCORING,
+  completionWeight,
 } from '../shared/scoring.mjs';
 
 const UNCAPPED = { ...DEFAULT_SCORING, cap: Infinity };
@@ -120,4 +121,22 @@ test('reproduces the observed points-per-trophy band', () => {
     perTrophy > 6 && perTrophy < 16,
     `expected the realistic 6-16 band, got ${perTrophy.toFixed(2)}`,
   );
+});
+
+test('completion weighting excludes platinums', () => {
+  // A platinum is awarded for earning everything else, so counting it would
+  // count the same work twice — and PSNProfiles agrees, which is what makes
+  // our number match theirs.
+  assert.equal(completionWeight({ platinum: 1, gold: 0, silver: 0, bronze: 0 }), 0);
+  assert.equal(completionWeight({ gold: 1 }), 90);
+  assert.equal(completionWeight({ silver: 1 }), 30);
+  assert.equal(completionWeight({ bronze: 1 }), 15);
+  assert.equal(completionWeight({}), 0);
+
+  // RabbitSquared's real figures — the member who disproved every model that
+  // gave platinums any weight at all. PSNProfiles publishes 49.20%.
+  const earned  = { platinum: 129, gold: 786,  silver: 1781, bronze: 5414 };
+  const defined = { platinum: 321, gold: 1566, silver: 3811, bronze: 10923 };
+  const pct = (completionWeight(earned) / completionWeight(defined)) * 100;
+  assert.ok(Math.abs(pct - 49.20) < 0.6, `expected ~49.20, got ${pct.toFixed(2)}`);
 });

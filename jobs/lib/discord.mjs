@@ -13,6 +13,8 @@ import {
   movementLines,
   container,
   text,
+  leaderboardTable,
+  chunkBoard,
   COLOR,
 } from '../../shared/ui.mjs';
 
@@ -178,12 +180,18 @@ async function postChangelogThread(msg, member, result) {
   }
 }
 
-/** The movement feed. Batched into one message per update, as the old bot did. */
+/**
+ * The movement feed — posted to #updates, NOT #leaderboard.
+ *
+ * #leaderboard holds the living board and nothing else: you glance at it, you
+ * do not scroll it. Movement lines are news and belong with the update cards.
+ */
 export async function postMovements(movements) {
-  if (!env.DISCORD_LEADERBOARD_CHANNEL_ID) return;
+  const channel = env.DISCORD_UPDATES_CHANNEL_ID;
+  if (!channel) return;
   const CHUNK = 15;
   for (let i = 0; i < movements.length; i += CHUNK) {
-    await rest(`/channels/${env.DISCORD_LEADERBOARD_CHANNEL_ID}/messages`, {
+    await rest(`/channels/${channel}/messages`, {
       body: message([text(movementLines(movements.slice(i, i + CHUNK)))]),
     });
   }
@@ -214,4 +222,77 @@ export async function warnTokenExpiry(daysLeft) {
       ),
     ]),
   });
+}
+
+
+// ------------------------------------------------------- the living board --
+
+/**
+ * The #leaderboard channel: EVERY member, always current, edited in place.
+ *
+ * Not a feed. The old bot posted a line every time anyone moved, so one person
+ * climbing twenty places produced twenty messages and everyone below was told
+ * they had "fallen" for doing nothing. This is a scoreboard you glance at — the
+ * rows simply move.
+ *
+ * Everyone is shown, deliberately. Martin's reason is the right one: you cannot
+ * aim at somebody you cannot see, and picking a target two places above you is
+ * most of what makes a leaderboard fun. So it is split into as many messages as
+ * it takes, 25 to a message, each one edited rather than reposted.
+ *
+ * Message ids live in the kv table. If a message is deleted by hand the edit
+ * fails, and we post a fresh one and remember that instead — so the board
+ * repairs itself rather than going quiet forever.
+ */
+export async function publishLeaderboard(members, store) {
+  const channel = env.DISCORD_LEADERBOARD_CHANNEL_ID;
+  if (!channel) {
+    console.log('No DISCORD_LEADERBOARD_CHANNEL_ID set — skipping the board.');
+    return;
+  }
+
+  const chunks = chunkBoard(members);
+  const known = (await store.get('board_message_ids', [])) || [];
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const ids = [];
+
+  for (const [i, chunk] of chunks.entries()) {
+    const first = i === 0;
+    const heading = first
+      ? `# Platinum Intel\n-# ${members.length} hunters · ranked by rarity points · updated ${stamp} UTC`
+      : `-# ranks ${chunk[0].rank}–${chunk[chunk.length - 1].rank}`;
+
+    const body = message([
+      text(heading),
+      text(leaderboardTable(chunk, { total: members.length, tierHeadings: true })),
+    ]);
+
+    let id = known[i];
+    if (id) {
+      try {
+        await rest(`/channels/${channel}/messages/${id}`, { method: 'PATCH', body });
+      } catch (err) {
+        console.log(`Board message ${id} could not be edited (${err.message}) — reposting.`);
+        id = null;
+      }
+    }
+    if (!id) {
+      const posted = await rest(`/channels/${channel}/messages`, { body });
+      id = posted.id;
+    }
+    ids.push(id);
+  }
+
+  // The board shrank — delete the leftovers rather than leaving stale ranks
+  // sitting underneath the real ones.
+  for (const stale of known.slice(chunks.length)) {
+    try {
+      await rest(`/channels/${channel}/messages/${stale}`, { method: 'DELETE' });
+    } catch {
+      /* already gone; nothing to do */
+    }
+  }
+
+  await store.set('board_message_ids', ids);
+  console.log(`Board published: ${members.length} hunters across ${ids.length} message(s).`);
 }

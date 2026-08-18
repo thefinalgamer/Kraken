@@ -33,6 +33,7 @@ import {
   postUpdateResult,
   postUpdateFailure,
   postMovements,
+  publishLeaderboard,
   warnTokenExpiry,
 } from './lib/discord.mjs';
 
@@ -207,6 +208,21 @@ async function main() {
 
     await announce('the update card', () => postUpdateResult({ member, result, interactionToken }));
     if (movements.length) await announce('the rank movements', () => postMovements(movements));
+
+    // Rewrite the living board in #leaderboard. Everyone is on it, split across
+    // as many messages as it takes, each edited in place rather than reposted.
+    await announce('the leaderboard', async () => {
+      const board = await db.query(
+        `SELECT discord_id, psn_online_id, points, completion, rank, prev_rank
+           FROM members
+          WHERE rank IS NOT NULL AND last_update_at IS NOT NULL
+          ORDER BY rank ASC`,
+      );
+      await publishLeaderboard(board, {
+        get: (k, fallback) => db.getState(k, fallback),
+        set: (k, v) => db.setState(k, v),
+      });
+    });
 
     const daysLeft = psn.daysUntilReauth();
     if (daysLeft !== null && daysLeft <= 3) {

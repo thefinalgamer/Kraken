@@ -368,10 +368,32 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
  * also means no custom emoji and no bold — code blocks render neither — hence
  * plain ▲▼ for movement and a » marker for "this is you".
  */
-export function leaderboardTable(members, { viewerId = null, startRank = 1 } = {}) {
+export function leaderboardTable(
+  members,
+  { viewerId = null, startRank = 1, total = 0, tierHeadings = false } = {},
+) {
   const NAME = 19;
-  const rows = members.map((m, i) => {
+  const BUDGET = 3800;
+  const out = [];
+  let used = 0;
+  let lastTier = null;
+  let dropped = 0;
+
+  for (const [i, m] of members.entries()) {
     const rank = m.rank ?? startRank + i;
+    const lines = [];
+
+    // Tier headings turn a list into a ladder. Without them a member sees only
+    // the person immediately above; with them they can see the band they are
+    // climbing towards, which is the thing that actually motivates.
+    if (tierHeadings) {
+      const tier = tierFor(rank, total || members.length);
+      if (tier !== lastTier) {
+        lines.push(`${lastTier ? '\n' : ''}── ${TIERS[tier].name.toUpperCase()} ${'─'.repeat(Math.max(0, 30 - TIERS[tier].name.length))}`);
+        lastTier = tier;
+      }
+    }
+
     const move =
       !m.prev_rank || m.prev_rank === rank
         ? '   '
@@ -381,24 +403,38 @@ export function leaderboardTable(members, { viewerId = null, startRank = 1 } = {
     const name = String(m.psn_online_id ?? '');
     const shown = name.length > NAME ? `${name.slice(0, NAME - 1)}…` : name.padEnd(NAME);
     const mine = m.discord_id && m.discord_id === viewerId ? ' »' : '';
-    return `${String(rank).padStart(3)} ${move} ${shown} ${n(m.points).padStart(9)} ${pct(m.completion).padStart(7)}${mine}`;
-  });
-  // Hard cap on characters as well as components. Discord allows 4,000 across
-  // every text block in a message, and ~85 rows reaches it — so a big page
-  // would fail the same silent way the cards did. Trim rather than break, and
-  // say what was trimmed: a truncated board is a nuisance, a rejected message
-  // is a bot that looks dead.
-  const BUDGET = 3800;
-  const kept = [];
-  let used = 0;
-  for (const r of rows) {
-    if (used + r.length + 1 > BUDGET) break;
-    kept.push(r);
-    used += r.length + 1;
+    lines.push(
+      `${String(rank).padStart(3)} ${move} ${shown} ${n(m.points).padStart(9)} ${pct(m.completion).padStart(7)}${mine}`,
+    );
+
+    // Hard cap on characters as well as components. Discord allows 4,000
+    // across every text block in a message and roughly 85 rows reaches it, so
+    // a long page would fail the same silent way the cards did. Trim and say
+    // so: a truncated board is a nuisance, a rejected message is a dead bot.
+    const cost = lines.join('\n').length + 1;
+    if (used + cost > BUDGET) {
+      dropped = members.length - i;
+      break;
+    }
+    out.push(...lines);
+    used += cost;
   }
-  const dropped = rows.length - kept.length;
-  const note = dropped ? `\n-# ${dropped} more on this page — use \`/rank\` for your position.` : '';
-  return `\`\`\`\n${kept.join('\n')}\n\`\`\`${note}`;
+
+  const note = dropped ? `\n-# ${dropped} more — use \`/rank\` for your position.` : '';
+  return `\`\`\`\n${out.join('\n')}\n\`\`\`${note}`;
+}
+
+/**
+ * How many rows fit in one Discord message, used to split the whole board into
+ * however many messages it needs. 25 keeps each one glanceable on a phone.
+ */
+export const BOARD_CHUNK = 25;
+
+/** Split members into message-sized chunks, preserving rank order. */
+export function chunkBoard(members, size = BOARD_CHUNK) {
+  const out = [];
+  for (let i = 0; i < members.length; i += size) out.push(members.slice(i, i + size));
+  return out;
 }
 
 /** The `/update` result — same shape as the old embed, plus the explanation. */

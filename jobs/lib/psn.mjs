@@ -116,6 +116,13 @@ export class PsnClient {
       refreshTokenExpiresAt: expiresAt,
     });
     this.refreshTokenExpiresAt = expiresAt;
+
+    // The ACCESS token is the short-lived one — about an hour. That never
+    // mattered while every scan finished in minutes, but a member with 15,000
+    // games takes six hours, and the token died at the sixty-minute mark
+    // taking the whole run with it. Track it so we can refresh before it goes.
+    this.accessTokenExpiresAt =
+      Date.now() + (this.auth.expiresIn ?? 3600) * 1000;
     return this.auth;
   }
 
@@ -125,10 +132,24 @@ export class PsnClient {
     return Math.floor((this.refreshTokenExpiresAt - Date.now()) / 86_400_000);
   }
 
+  /** True when the access token is gone, or close enough that it will be. */
+  #accessTokenStale() {
+    if (!this.accessTokenExpiresAt) return false;
+    return Date.now() > this.accessTokenExpiresAt - 5 * 60_000; // 5 min of slack
+  }
+
   /** Every PSN call funnels through here: paced, retried, and counted. */
   async #call(fn, ...args) {
     const MAX_ATTEMPTS = 5;
     for (let attempt = 1; ; attempt++) {
+      // Renew BEFORE it expires rather than after. On a long scan the
+      // alternative is one guaranteed failure per hour, and the retry below
+      // only papers over it.
+      if (this.#accessTokenStale()) {
+        console.log('PSN access token near expiry — renewing mid-scan');
+        await this.authenticate();
+      }
+
       await this.limiter.take();
       this.requestCount++;
       try {
@@ -139,7 +160,14 @@ export class PsnClient {
         // Private profile / not permitted — a real answer, not a failure to retry.
         if (status === 403 || status === 404) throw new PsnPrivateError(status);
 
-        if (status === 401 && attempt === 1) {
+        // psn-api throws "Expired token" as a plain Error with no HTTP status
+        // attached, so a status check alone never catches it — which is how a
+        // six-hour scan died at 2,350 games with a stack trace instead of a
+        // retry. Match the message too.
+        const expired = /expired|invalid.*token|unauthor/i.test(String(err?.message ?? ''));
+
+        if ((status === 401 || expired) && attempt <= 2) {
+          console.log(`Re-authenticating with PSN (${err?.message ?? status})`);
           await this.authenticate();
           continue;
         }

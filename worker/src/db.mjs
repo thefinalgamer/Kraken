@@ -280,3 +280,61 @@ export const changelogFor = (env, updateId, limit = 60) =>
 
 export const changelogCount = async (env, updateId) =>
   (await first(env, 'SELECT COUNT(*) AS c FROM update_changelog WHERE update_id = ?', [updateId]))?.c ?? 0;
+
+// -------------------------------------------------------------- profile ----
+
+/** The single game worth the most points to this member. */
+export const bestGame = (env, accountId) =>
+  first(
+    env,
+    `SELECT g.title, mg.points, mg.progress
+       FROM member_games mg JOIN games g ON g.np_comm_id = mg.np_comm_id
+      WHERE mg.psn_account_id = ? AND mg.points > 0
+      ORDER BY mg.points DESC LIMIT 1`,
+    [accountId],
+  );
+
+/** Most recently finished games — what they've been clearing lately. */
+export const recentlyFinished = (env, accountId, limit = 3) =>
+  all(
+    env,
+    `SELECT g.title, mg.last_played_at
+       FROM member_games mg JOIN games g ON g.np_comm_id = mg.np_comm_id
+      WHERE mg.psn_account_id = ? AND mg.progress = 100
+      ORDER BY mg.last_played_at DESC LIMIT ?`,
+    [accountId, limit],
+  );
+
+/** Update history: how many, and the best single one. */
+export const updateStats = (env, accountId) =>
+  first(
+    env,
+    `SELECT COUNT(*) AS runs,
+            MAX(d_points) AS best_gain,
+            SUM(d_platinum) AS plats_here
+       FROM updates
+      WHERE psn_account_id = ? AND status = 'done'`,
+    [accountId],
+  );
+
+/**
+ * Games you BOTH own where they are further ahead than you.
+ *
+ * The most useful thing one member can learn about another, and the seed of the
+ * /boost co-op idea: not "they are better than me" but "here are four specific
+ * games where they know something I don't".
+ */
+export const aheadOfMe = (env, theirAccount, myAccount, limit = 4) =>
+  all(
+    env,
+    `SELECT g.title, mine.progress AS my_progress, theirs.progress AS their_progress
+       FROM member_games theirs
+       JOIN member_games mine
+         ON mine.np_comm_id = theirs.np_comm_id AND mine.psn_account_id = ?
+       JOIN games g ON g.np_comm_id = theirs.np_comm_id
+      WHERE theirs.psn_account_id = ?
+        AND theirs.progress > mine.progress
+      ORDER BY (theirs.progress - mine.progress) DESC, theirs.progress DESC
+      LIMIT ?`,
+    [myAccount, theirAccount, limit],
+  );

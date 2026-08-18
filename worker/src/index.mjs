@@ -16,7 +16,7 @@ import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
   memberCard, boardBlocks, configureEmoji, COLOR, STYLE, n, pct, ordinal,
-  trophyLine, FALLBACK_AVATAR,
+  trophyLine, FALLBACK_AVATAR, TIERS, tierFor,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS } from '../../shared/scoring.mjs';
 
@@ -559,7 +559,7 @@ async function handleComponent(interaction, env, ctx) {
     case 'bl':
       return { ...update((await backlog(env, userId, arg)).data.components) };
     case 'profile':
-      return rank(env, arg);
+      return profile(env, arg, userId);
     case 'rank':
       return rank(env, arg);
     // /rank answers privately so a hundred members don't bury the channel in
@@ -592,6 +592,109 @@ async function handleComponent(interaction, env, ctx) {
 }
 
 /** Game title autocomplete, straight out of the shared cache. */
+/**
+ * A member's profile — the stuff that doesn't fit on a leaderboard row.
+ *
+ * Used to just re-render /rank, which was pointless when you had clicked it
+ * FROM /rank. What people actually want to know about somebody is not their
+ * position, which they can already see, but what they have done: the rarest
+ * thing they own, their best game, what they have been finishing lately.
+ *
+ * And when you look at someone else, the most useful section is the last one —
+ * games you both own where they are ahead of you. That turns "they beat me"
+ * into "here are four games where they know something I don't", which is the
+ * seed of the /boost co-op idea.
+ */
+async function profile(env, targetId, viewerId) {
+  const m = await db.memberByDiscordId(env, targetId);
+  if (!m) return errorReply('That member is not on the board yet.');
+
+  const total = await db.rankedCount(env);
+  const tier = TIERS[tierFor(m.rank, total)];
+  const [best, finished, stats] = await Promise.all([
+    db.bestGame(env, m.psn_account_id),
+    db.recentlyFinished(env, m.psn_account_id),
+    db.updateStats(env, m.psn_account_id),
+  ]);
+
+  const lines = [
+    `**Rank** ${ordinal(m.rank)} of ${n(total)} · ${tier.name}`,
+    `**Points** ${n(m.points)}  ·  **Completion** ${pct(m.completion)}`,
+    `**Games** ${n(m.projects)} started, ${n(m.completed)} finished`,
+  ];
+
+  if (m.rarest_name || m.rarest_game) {
+    lines.push(
+      `**Rarest owned** ${Number(m.rarest_rate).toFixed(2)}%` +
+        (m.rarest_game ? ` — ${m.rarest_game}` : ''),
+    );
+  }
+  if (best) lines.push(`**Best game** ${best.title} — ${n(best.points)} pts at ${best.progress}%`);
+  if (stats?.runs) {
+    lines.push(
+      `**Updates** ${n(stats.runs)}` +
+        (stats.best_gain > 0 ? ` · best single gain ${n(stats.best_gain)} pts` : ''),
+    );
+  }
+
+  const blocks = [
+    container(
+      [
+        section(
+          [`## ${m.psn_online_id}`, trophyLine(m), lines.join('\n')],
+          thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
+        ),
+      ],
+      tier.color,
+    ),
+  ];
+
+  if (finished.length) {
+    blocks.push(
+      container(
+        [
+          text(
+            `### Recently finished\n${finished.map((f) => `✅ ${f.title}`).join('\n')}`,
+          ),
+        ],
+        COLOR.green,
+      ),
+    );
+  }
+
+  // Only when looking at somebody else, and only if you actually overlap.
+  if (viewerId && viewerId !== targetId) {
+    const me = await db.memberByDiscordId(env, viewerId);
+    if (me?.psn_account_id) {
+      const ahead = await db.aheadOfMe(env, m.psn_account_id, me.psn_account_id);
+      if (ahead.length) {
+        blocks.push(
+          container(
+            [
+              text(
+                `### Where they're ahead of you\n` +
+                  ahead
+                    .map((a) => `▫️ **${a.title}** — them ${a.their_progress}%, you ${a.my_progress}%`)
+                    .join('\n'),
+              ),
+            ],
+            COLOR.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  blocks.push(
+    row(
+      button('Their rank', `rank:${targetId}`),
+      button('Full leaderboard', 'lb:1'),
+    ),
+  );
+
+  return reply(blocks, { ephemeral: true });
+}
+
 /** What actually changed in an update, straight from the database. */
 async function changelog(env, updateId) {
   const rows = await db.changelogFor(env, updateId);

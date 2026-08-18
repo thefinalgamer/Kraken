@@ -28,7 +28,7 @@
 
 import { D1 } from './lib/d1.mjs';
 import { PsnClient, PsnPrivateError } from './lib/psn.mjs';
-import { trophyPoints, isUnrated, explainDelta } from '../shared/scoring.mjs';
+import { trophyPoints, isUnrated, explainDelta, flatPoints } from '../shared/scoring.mjs';
 import {
   postUpdateResult,
   postUpdateFailure,
@@ -593,16 +593,30 @@ function rollUp(summary, titles, pointsByGame) {
   const earned = summary?.earnedTrophies ?? {};
   const completed = titles.filter((t) => (t.progress ?? 0) === 100).length;
 
-  // Completion is TROPHY-WEIGHTED: earned / (earned + unearned), across every
-  // game. Averaging the per-game percentages instead would treat a 5-trophy
-  // indie and a 90-trophy JRPG as equally important, and produce a number about
-  // a point higher than the one members see on PSNProfiles. Matching their
-  // formula means nobody has to argue about which figure is right.
+  // Completion is VALUE-WEIGHTED, on the 300/90/30/15 scale — the same figure
+  // PSNProfiles shows, so nobody has to argue about which number is right.
+  //
+  // This used to be a straight trophy count, on the stated belief that a count
+  // was what PSNProfiles used. It isn't, and JFL__Leon caught it: his profile
+  // reads 91.96% there and Kraken said 90.07%. Working through the candidates
+  // against his real data settled it —
+  //
+  //   trophy count in/out          90.07%
+  //   games completed / played     90.29%
+  //   trophy-count-weighted avg    89.88%
+  //   PSN points weighting         91.70%
+  //   300/90/30/15 weighting       91.83%   <- PSNProfiles shows 91.96%
+  //
+  // The last 0.13 is the handful of trophies each side counts differently, not
+  // a difference in method.
+  //
+  // It is also the fairer measure. A platinum left unclaimed should weigh more
+  // than a missing bronze, and under a straight count they were identical.
   let earnedTotal = 0;
   let definedTotal = 0;
   for (const t of titles) {
-    earnedTotal += sumTrophies(t.earnedTrophies);
-    definedTotal += sumTrophies(t.definedTrophies);
+    earnedTotal += flatPoints(t.earnedTrophies ?? {});
+    definedTotal += flatPoints(t.definedTrophies ?? {});
   }
   const completion = definedTotal ? (earnedTotal / definedTotal) * 100 : 0;
 

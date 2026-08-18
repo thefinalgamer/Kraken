@@ -637,7 +637,11 @@ function rollUp(summary, titles, pointsByGame) {
     gold: earned.gold ?? 0,
     silver: earned.silver ?? 0,
     bronze: earned.bronze ?? 0,
-    completion: Math.round(completion * 100) / 100,
+    // Floored, never rounded. Rounding to nearest would show 100.00% to
+    // somebody sitting at 99.996% — still missing trophies, told by their own
+    // leaderboard that they had finished. On a completionist board that is the
+    // worst lie available, and it lands on whoever is closest to the top.
+    completion: Math.floor(completion * 100) / 100,
     points,
     projects: titles.length,
     completed,

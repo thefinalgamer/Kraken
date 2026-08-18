@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   tierFor, trend, flag, ordinal, memberCard, configureEmoji,
-  chaseLine, lastSeen, rarestLine,
+  chaseLine, lastSeen, rarestLine, pct,
 } from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
@@ -147,4 +147,14 @@ test('configureEmoji keeps emoji it does not know about', () => {
   assert.match(trend(1, 3), /up|▲/);
   assert.doesNotMatch(trend(1, 3), /undefined/);
   assert.doesNotMatch(trend(5, 2), /undefined/);
+});
+
+test('percentages round down, never up', () => {
+  // The case that matters: someone a few trophies short of everything must
+  // never be shown 100%.
+  assert.equal(pct(99.996), '99.99%');
+  assert.equal(pct(74.999), '74.99%');
+  assert.equal(pct(49.201), '49.20%');
+  assert.equal(pct(100), '100.00%');
+  assert.equal(pct(0), '0.00%');
 });

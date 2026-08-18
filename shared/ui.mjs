@@ -207,7 +207,15 @@ export const signed = (value, suffix = '') => {
   return `${v > 0 ? '+' : '−'}${n(Math.abs(v))}${suffix}`;
 };
 
-export const pct = (value) => `${Number(value ?? 0).toFixed(2)}%`;
+/**
+ * Percentages are FLOORED, never rounded to nearest.
+ *
+ * toFixed rounds up, so 74.996% would print as 75.00% — a member reading a
+ * milestone they have not reached, and later a badge that disagrees with their
+ * own card. Always erring a hundredth low is the harmless direction: nobody
+ * has ever complained about being under-credited by 0.01%.
+ */
+export const pct = (value) => `${(Math.floor(Number(value ?? 0) * 100) / 100).toFixed(2)}%`;
 
 export const ordinal = (v) => {
   const i = Number(v);

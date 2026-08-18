@@ -37,3 +37,19 @@ WORKER_BASE_URL = "https://platinum-intel.martinleewilkinson1992.workers.dev"
 #                             on that page too, or Discord refuses the flow.
 #   GITHUB_TOKEN            - fine-grained PAT with "Contents: read and write"
 #   GITHUB_REPO             - e.g. "martin/platinum-intel"
+
+# Worker logs. Off by default, which means the first time something goes wrong
+# in production there is nothing to read — you turn it on, then have to
+# reproduce the fault. Cheap enough to leave on: 20 million log events are
+# included, and this Worker serves a few hundred requests a month.
+#
+# Set here rather than in the dashboard because `wrangler deploy` overwrites
+# dashboard observability settings with whatever this file says — so a dashboard
+# toggle would silently switch itself back off on the next push.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = true

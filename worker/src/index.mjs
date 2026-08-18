@@ -581,14 +581,81 @@ async function handleComponent(interaction, env, ctx) {
         { ephemeral: true },
       );
     }
+    // Used to be a stub that told you to go and find a thread, styled as a
+    // warning — so a working button looked like a fault. The changelog is in
+    // the database; just show it.
     case 'changelog':
-      return errorReply('Open the thread on the update message for the full changelog.');
+      return changelog(env, Number(arg));
     default:
       return errorReply('That button has expired.');
   }
 }
 
 /** Game title autocomplete, straight out of the shared cache. */
+/** What actually changed in an update, straight from the database. */
+async function changelog(env, updateId) {
+  const rows = await db.changelogFor(env, updateId);
+  if (!rows.length) {
+    return reply(
+      [
+        container(
+          [
+            text(
+              `### Nothing changed in Update No. ${updateId}\n\n` +
+                `No new trophies since the previous scan, so there's nothing to list. ` +
+                `Your points can still move on an update like this — trophies you already ` +
+                `own shift in rarity as other players earn them.`,
+            ),
+          ],
+          COLOR.grey,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  const total = await db.changelogCount(env, updateId);
+  const icon = { new: '🆕', completed: '✅', progress: '📈' };
+  const lines = rows.map((c) => {
+    const what =
+      c.kind === 'new'
+        ? `started (${c.progress_to}%)`
+        : `${c.progress_from}% → ${c.progress_to}%`;
+    const gained = c.trophies_gained > 0 ? ` · +${n(c.trophies_gained)} trophies` : '';
+    const worth = c.points_gained > 0 ? ` · +${n(c.points_gained)} pts` : '';
+    return `${icon[c.kind] ?? '•'} **${c.title}** — ${what}${gained}${worth}`;
+  });
+
+  // Ruthless about length. A first scan can change thousands of games and
+  // Discord allows 4,000 characters, so build up to the limit and stop.
+  const kept = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + line.length + 1 > 3400) break;
+    kept.push(line);
+    used += line.length + 1;
+  }
+  const hidden = total - kept.length;
+
+  return reply(
+    [
+      container(
+        [
+          text(`### Update No. ${updateId} — what changed`),
+          text(kept.join('\n')),
+          text(
+            hidden > 0
+              ? `-# Showing the ${kept.length} most valuable of ${n(total)} games changed.`
+              : `-# ${n(total)} game${total === 1 ? '' : 's'} changed.`,
+          ),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
 async function handleAutocomplete(interaction, env) {
   const focused = interaction.data.options?.find((o) => o.focused)?.value ?? '';
   const games = await db.searchGames(env, focused, 25);

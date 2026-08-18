@@ -262,3 +262,21 @@ export function backlog(env, accountId, sort = 'value', limit = 5) {
  */
 export const rankedCount = async (env) =>
   (await first(env, 'SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL'))?.c ?? 0;
+
+/**
+ * What changed in one update. Ordered by what it was worth, so the interesting
+ * games are at the top and any truncation drops the boring ones.
+ */
+export const changelogFor = (env, updateId, limit = 60) =>
+  all(
+    env,
+    `SELECT title, kind, trophies_gained, points_gained, progress_from, progress_to
+       FROM update_changelog
+      WHERE update_id = ?
+      ORDER BY points_gained DESC, trophies_gained DESC
+      LIMIT ?`,
+    [updateId, limit],
+  );
+
+export const changelogCount = async (env, updateId) =>
+  (await first(env, 'SELECT COUNT(*) AS c FROM update_changelog WHERE update_id = ?', [updateId]))?.c ?? 0;

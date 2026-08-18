@@ -500,8 +500,10 @@ export function updateCard({
   return container(
     [
       text(lines.join('\n\n')),
+      // Only offer the changelog when there IS one. A button that opens an
+      // apology is worse than no button.
       row(
-        button('View changelog', `changelog:${updateNo}`),
+        ...(gamesChanged > 0 ? [button('View changelog', `changelog:${updateNo}`)] : []),
         button('My rank', `rank:${member.discord_id}`),
       ),
     ],

@@ -267,7 +267,19 @@ export function lastSeen(timestamp, now = Date.now()) {
   return `updated ${months} month${months === 1 ? '' : 's'} ago`;
 }
 
-/** "Hardcore Survivor · 0.18%" — the bit people screenshot. */
+/**
+ * A member's rarest owned trophy. NOT currently shown anywhere — deliberately.
+ *
+ * The card was getting cluttered, and the line reads poorly today because the
+ * one-call-per-game scan doesn't return trophy NAMES, only rarity, so it can
+ * name the game and nothing more.
+ *
+ * The scan still records rarest_name / rarest_rate / rarest_game on every
+ * update, which costs one query and keeps the door open: if this ever becomes
+ * a feature — a profile view, a weekly digest, a "rarest on the server" board —
+ * the data is already there with months of history behind it instead of
+ * starting from zero.
+ */
 export function rarestLine(m) {
   if (!m.rarest_name || !(Number(m.rarest_rate) > 0)) return '';
   return `◆ ${m.rarest_name} · ${Number(m.rarest_rate).toFixed(2)}%`;
@@ -308,7 +320,7 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
   // Folded into the third block on purpose — see the note below.
   const footer = [
     chaseLine(m, above),
-    [rarestLine(m), lastSeen(m.last_update_at)].filter(Boolean).join('  ·  '),
+    lastSeen(m.last_update_at),
     showTier ? `${tierEmoji(tier)} ${tierName} tier` : '',
   ]
     .filter(Boolean)

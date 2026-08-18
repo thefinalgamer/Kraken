@@ -179,11 +179,39 @@ async function main() {
     await finaliseUpdate(updateNo, result, member);
     const movements = await recomputeRanks();
 
-    await postUpdateResult({ member, result, interactionToken });
-    if (movements.length) await postMovements(movements);
+    // Everything past this point is ANNOUNCING the result, not producing it.
+    // The scan is done and the database is written; a Discord problem must not
+    // undo that. This exact case bit us once — a six-hour scan of a 15,000-game
+    // library finished cleanly and was then marked "failed" because the bot
+    // lacked Send Messages permission in one channel. Data safe, run red,
+    // update row wrongly flagged, and no obvious way to tell the difference.
+    //
+    // So: announce on a best-effort basis, log loudly if it fails, and let the
+    // job succeed regardless. A missing message is a nuisance. A lost scan is
+    // six hours and a member's whole library.
+    const announce = async (what, fn) => {
+      try {
+        await fn();
+      } catch (err) {
+        const missingAccess = /Missing Access|50001|403/.test(String(err?.message ?? ''));
+        console.error(
+          `WARNING: ${what} could not be posted to Discord — the scan itself was fine.\n` +
+            `  ${err?.message ?? err}` +
+            (missingAccess
+              ? '\n  This looks like a permissions problem. Give Kraken View Channel, ' +
+                'Send Messages, Embed Links and Read Message History on that channel.'
+              : ''),
+        );
+      }
+    };
+
+    await announce('the update card', () => postUpdateResult({ member, result, interactionToken }));
+    if (movements.length) await announce('the rank movements', () => postMovements(movements));
 
     const daysLeft = psn.daysUntilReauth();
-    if (daysLeft !== null && daysLeft <= 3) await warnTokenExpiry(daysLeft);
+    if (daysLeft !== null && daysLeft <= 3) {
+      await announce('the token expiry warning', () => warnTokenExpiry(daysLeft));
+    }
 
     console.log(
       `Update No. ${updateNo} for ${member.psn_online_id}: ` +

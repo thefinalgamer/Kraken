@@ -79,12 +79,36 @@ const db = new D1({
 });
 
 async function main() {
-  const discordId = env.TARGET_DISCORD_ID;
+  // Trimmed, because this arrives from a hand-typed Actions input as often as
+  // from the Worker. A trailing space is invisible in the input box AND in the
+  // error message, so an id that looks identical to the one in the database
+  // silently matches nothing — which reads as "this member doesn't exist" and
+  // sends you hunting for a deleted row that was never deleted.
+  const discordId = String(env.TARGET_DISCORD_ID ?? '').trim();
   const interactionToken = env.INTERACTION_TOKEN || null;
+
+  if (!/^\d{5,}$/.test(discordId)) {
+    console.error(
+      `"${env.TARGET_DISCORD_ID}" is not a Discord user id. ` +
+        'Enable Developer Mode, right-click the member, Copy User ID — it is a long number. ' +
+        '(A PSN name or a channel id will not work.)',
+    );
+    process.exit(1);
+  }
 
   const member = await db.one('SELECT * FROM members WHERE discord_id = ?', [discordId]);
   if (!member) {
-    console.error(`No registered member for discord id ${discordId}`);
+    // Quoted deliberately: whitespace and lookalike characters are the usual
+    // cause, and neither shows up in a bare printout.
+    console.error(`No registered member for discord id "${discordId}" (${discordId.length} chars)`);
+    const known = await db.query(
+      'SELECT discord_id, psn_online_id FROM members ORDER BY psn_online_id',
+    );
+    console.error(
+      known.length
+        ? `Registered members:\n${known.map((m) => `  ${m.discord_id}  ${m.psn_online_id}`).join('\n')}`
+        : 'There are no registered members at all.',
+    );
     process.exit(1);
   }
 

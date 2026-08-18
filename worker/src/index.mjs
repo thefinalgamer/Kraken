@@ -320,10 +320,17 @@ async function runUpdate(interaction, env, ctx, userId) {
  */
 async function queueDepth(env) {
   try {
+    // HARD TIMEOUT. Discord gives an interaction three seconds, total. This
+    // call is a nicety — it turns "queued" into "you're 4th, about 12 minutes"
+    // — and a nicety must never be allowed to blow the deadline for the reply
+    // itself. If GitHub is slow, we say nothing rather than saying nothing at
+    // all, which is what a missed deadline actually looks like to the member:
+    // "Kraken didn't respond in time".
     const res = await fetch(
       `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/scan.yml/runs` +
         `?per_page=30&exclude_pull_requests=true`,
       {
+        signal: AbortSignal.timeout(800),
         headers: {
           Authorization: `Bearer ${env.GITHUB_TOKEN}`,
           Accept: 'application/vnd.github+json',

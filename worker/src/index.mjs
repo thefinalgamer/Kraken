@@ -15,7 +15,8 @@ import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
-  memberCard, configureEmoji, COLOR, STYLE, n, pct, ordinal, trophyLine, FALLBACK_AVATAR,
+  memberCard, leaderboardTable, configureEmoji, COLOR, STYLE, n, pct, ordinal,
+  trophyLine, FALLBACK_AVATAR,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS } from '../../shared/scoring.mjs';
 
@@ -390,22 +391,17 @@ async function leaderboard(env, page, viewerId) {
   const offset = (safePage - 1) * size;
   const members = await db.leaderboardPage(env, offset, size);
 
-  // Whoever sits immediately above the top of this page, so the first card
-  // still gets a chase line instead of an awkward blank at every page break.
-  const [firstAbove] = offset > 0 ? await db.leaderboardPage(env, offset - 1, 1) : [];
 
   return reply([
-    text(`## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`),
-    // `above` is the previous row on the page, which is exactly the person each
-    // member is chasing. The first row of page 2+ needs the last row of the
-    // previous page, so fetch one extra and drop it from the render.
-    ...members.map((m, i) =>
-      memberCard(m, {
-        total,
-        highlight: m.discord_id === viewerId,
-        above: i === 0 ? firstAbove : members[i - 1],
-      }),
+    text(
+      `## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`,
     ),
+    // A TABLE, not cards. Discord counts nested components against a limit of
+    // 40 per message and a card is 8 of them, so this broke the moment a fifth
+    // member registered — and reported itself as "Kraken didn't respond in
+    // time", which points nowhere near the real cause. A table is one
+    // component at any size. See leaderboardTable() in ui.mjs.
+    text(leaderboardTable(members, { viewerId, startRank: offset + 1 })),
     row(
       button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
       button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
@@ -414,11 +410,6 @@ async function leaderboard(env, page, viewerId) {
   ]);
 }
 
-/**
- * The website's scan feature, brought into Discord — except it knows who is
- * asking, so it shows what the game is worth to YOU with anything already
- * earned subtracted.
- */
 async function game(env, query, userId) {
   const found = await db.findGame(env, query);
   if (!found) {

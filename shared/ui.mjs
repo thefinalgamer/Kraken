@@ -348,6 +348,59 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
   );
 }
 
+/**
+ * The leaderboard as a MONOSPACE TABLE rather than a stack of cards.
+ *
+ * Not a style choice — a hard constraint. Discord allows 40 components in a
+ * message and counts nested ones, and a member card is 8 (container, section,
+ * three text blocks, thumbnail, button row, button). So five cards is 45 and
+ * Discord rejects the entire message, which reaches the member as the
+ * spectacularly unhelpful "Kraken didn't respond in time".
+ *
+ * This board broke the day a fifth member registered. A table is ONE component
+ * however many people are on it, so it cannot break this way at any size.
+ *
+ * Cards are still right for /rank — three of them is 29 components, and when
+ * you are looking at yourself and the two people either side you want the
+ * avatars and the detail.
+ *
+ * Rendered inside a code block so the columns line up on every device. That
+ * also means no custom emoji and no bold — code blocks render neither — hence
+ * plain ▲▼ for movement and a » marker for "this is you".
+ */
+export function leaderboardTable(members, { viewerId = null, startRank = 1 } = {}) {
+  const NAME = 19;
+  const rows = members.map((m, i) => {
+    const rank = m.rank ?? startRank + i;
+    const move =
+      !m.prev_rank || m.prev_rank === rank
+        ? '   '
+        : rank < m.prev_rank
+          ? `▲${String(m.prev_rank - rank).padEnd(2)}`
+          : `▼${String(rank - m.prev_rank).padEnd(2)}`;
+    const name = String(m.psn_online_id ?? '');
+    const shown = name.length > NAME ? `${name.slice(0, NAME - 1)}…` : name.padEnd(NAME);
+    const mine = m.discord_id && m.discord_id === viewerId ? ' »' : '';
+    return `${String(rank).padStart(3)} ${move} ${shown} ${n(m.points).padStart(9)} ${pct(m.completion).padStart(7)}${mine}`;
+  });
+  // Hard cap on characters as well as components. Discord allows 4,000 across
+  // every text block in a message, and ~85 rows reaches it — so a big page
+  // would fail the same silent way the cards did. Trim rather than break, and
+  // say what was trimmed: a truncated board is a nuisance, a rejected message
+  // is a bot that looks dead.
+  const BUDGET = 3800;
+  const kept = [];
+  let used = 0;
+  for (const r of rows) {
+    if (used + r.length + 1 > BUDGET) break;
+    kept.push(r);
+    used += r.length + 1;
+  }
+  const dropped = rows.length - kept.length;
+  const note = dropped ? `\n-# ${dropped} more on this page — use \`/rank\` for your position.` : '';
+  return `\`\`\`\n${kept.join('\n')}\n\`\`\`${note}`;
+}
+
 /** The `/update` result — same shape as the old embed, plus the explanation. */
 export function updateCard({
   member, updateNo, before, after, delta, gamesChanged, durationSeconds, repaired = 0,

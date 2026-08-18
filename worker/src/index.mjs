@@ -611,14 +611,15 @@ async function profile(env, targetId, viewerId) {
 
   const total = await db.rankedCount(env);
   const tier = TIERS[tierFor(m.rank, total)];
-  const [best, finished, stats] = await Promise.all([
+  const [best, finished] = await Promise.all([
     db.bestGame(env, m.psn_account_id),
     db.recentlyFinished(env, m.psn_account_id),
-    db.updateStats(env, m.psn_account_id),
   ]);
 
   const lines = [
-    `**Rank** ${ordinal(m.rank)} of ${n(total)} · ${tier.name}`,
+    // "4th — Silver". The "of 5" was noise: the leaderboard already says how
+    // many people are on it, and a card should read like a name badge.
+    `**${ordinal(m.rank)}** — ${tier.name}`,
     `**Points** ${n(m.points)}  ·  **Completion** ${pct(m.completion)}`,
     `**Games** ${n(m.projects)} started, ${n(m.completed)} finished`,
   ];
@@ -630,13 +631,6 @@ async function profile(env, targetId, viewerId) {
     );
   }
   if (best) lines.push(`**Best game** ${best.title} — ${n(best.points)} pts at ${best.progress}%`);
-  if (stats?.runs) {
-    lines.push(
-      `**Updates** ${n(stats.runs)}` +
-        (stats.best_gain > 0 ? ` · best single gain ${n(stats.best_gain)} pts` : ''),
-    );
-  }
-
   const blocks = [
     container(
       [

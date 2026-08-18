@@ -110,19 +110,107 @@ export function remainingValue(definitions, earnedIds, cfg = DEFAULT_SCORING) {
 }
 
 /**
- * Split a member's points change into the two things that actually caused it,
- * so the update embed can explain a negative number instead of just showing one.
+ * THE COMPLETION MULTIPLIER — layer three of the scoring model.
  *
- * @param {number} pointsFromNewTrophies - points for trophies earned since last update
- * @param {number} totalDelta - overall change in their score
+ * A game is worth 1,000 and your overall completion is 70%, so you bank 700.
+ * Clear the backlog and the rest comes to you on a later update.
+ *
+ * This is what Esto's original bot did, confirmed independently by two people
+ * from opposite ends. RabbitSquared: "he just worked out your points then x the
+ * completion". Martin: "when you /update it goes through and gives you that
+ * extra bit you first missed off with worse completion."
+ *
+ * The decisive argument that it must be a PERSONAL multiplier rather than
+ * anything to do with rarity: Martin and Rabbit played many of the same games,
+ * and Martin remembers earning more from them because his completion was
+ * higher. Rarity is shared — same game, same server, same rarity for both
+ * players — so no rarity model of any kind can pay one of them more than the
+ * other. Only a personal multiplier can. That is elimination, not curve-fitting.
+ *
+ * Three properties worth understanding before anyone changes this:
+ *
+ * 1. LIVE, NOT BANKED. Applied at scan time against current completion, never
+ *    stored per trophy. That is what makes climbing feel good — your entire
+ *    back catalogue re-prices at once, and you gain points on games you have
+ *    not touched in years. A banked version would need a stored multiplier per
+ *    trophy, would break every rescan, and would deliver none of the payoff.
+ *
+ * 2. IT IS A DEBT MODEL, and that is the selling point. Starting a 45-trophy
+ *    game and popping one tutorial trophy drops your completion, so everything
+ *    you own pays slightly less. Going back and finishing that same game pays
+ *    twice: once for the trophies, once for the percentage. Starting things
+ *    costs you, finishing things pays. That is "reward the backlog" delivered
+ *    by a single multiply.
+ *
+ * 3. NO CLIFFS, EVER. Use the true percentage, never a rounded or banded one.
+ *    Esto's bot rounded completion to whole percent, which is why Rabbit
+ *    remembers scores lurching — "if you went up by 1% it went up a big chunk".
+ *    That was a bug. At Martin's score a whole-percent step is ~1,375 points;
+ *    at true precision it is ~14 points per 0.01%. Same system, no lurches.
+ *
+ *    Tiers and thresholds are worse still. A +10% band at 75% means someone at
+ *    75.1% who buys a game and pops the tutorial trophy falls to 74.9% and
+ *    loses thousands instantly — which teaches people to stop starting games,
+ *    the exact opposite of trophy hunting. Keep milestones cosmetic.
+ *
+ * Floored, like every other percentage on the board: nobody is ever paid for a
+ * completion point they have not finished earning.
+ *
+ * @param {number} rawPoints - the rarity-weighted sum, before completion
+ * @param {number} completionPercent - overall completion, e.g. 49.2
  */
-export function explainDelta(pointsFromNewTrophies, totalDelta) {
-  const drift = totalDelta - pointsFromNewTrophies;
-  return {
-    earned: pointsFromNewTrophies,
-    drift, // negative when the world caught up on trophies they already had
-    net: totalDelta,
-  };
+export function applyCompletion(rawPoints, completionPercent) {
+  const raw = Number(rawPoints) || 0;
+  const c = Number(completionPercent);
+  if (!Number.isFinite(c) || c <= 0) return 0;
+  return Math.floor((raw * Math.min(c, 100)) / 100);
+}
+
+/**
+ * Split a member's points change into the three things that actually caused
+ * it, so the update card can explain a number instead of just showing one.
+ *
+ * With the completion multiplier live there are three moving parts, and they
+ * feel completely different to the person reading the card:
+ *
+ *   earned  - new trophies, priced at the completion you had before
+ *   backlog - your whole library re-priced because your completion moved
+ *   drift   - trophies you already owned becoming more or less rare
+ *
+ * `backlog` is the one that matters. It is the reward for clearing old games,
+ * and it is invisible unless the card names it — the points arrive attached to
+ * games the member did not touch this session, so without a label it reads as
+ * the bot inventing numbers.
+ *
+ * The algebra, so nobody has to rederive it. Score is raw x c:
+ *
+ *   after - before = raw1.c1 - raw0.c0
+ *                  = (earnedRaw + driftRaw).c0  +  raw1.(c1 - c0)
+ *
+ * The first term is trophy movement valued at the old rate; the second is the
+ * re-pricing. They sum exactly, so the three parts always reconcile to net and
+ * the card can never show a split that does not add up.
+ */
+export function explainDelta({
+  earnedRaw = 0,
+  rawBefore = 0,
+  rawAfter = 0,
+  completionBefore = 0,
+  completionAfter = 0,
+} = {}) {
+  const c0 = (Number(completionBefore) || 0) / 100;
+  const c1 = (Number(completionAfter) || 0) / 100;
+  const driftRaw = rawAfter - rawBefore - earnedRaw;
+
+  const earned = Math.round(earnedRaw * c0);
+  const drift = Math.round(driftRaw * c0);
+  const backlog = Math.round(rawAfter * (c1 - c0));
+
+  // Net comes from the stored scores, not from summing the parts, so the
+  // headline figure is always the truth even if rounding nudges a component.
+  const net = applyCompletion(rawAfter, completionAfter) - applyCompletion(rawBefore, completionBefore);
+
+  return { earned, backlog, drift, net };
 }
 
 /**

@@ -28,7 +28,9 @@
 
 import { D1 } from './lib/d1.mjs';
 import { PsnClient, PsnPrivateError } from './lib/psn.mjs';
-import { trophyPoints, isUnrated, explainDelta, completionWeight } from '../shared/scoring.mjs';
+import {
+  trophyPoints, isUnrated, explainDelta, completionWeight, applyCompletion,
+} from '../shared/scoring.mjs';
 import {
   postUpdateResult,
   postUpdateFailure,
@@ -279,6 +281,10 @@ async function scanMember(psn, member, updateNo) {
     bronze: member.bronze,
     completion: member.completion,
     points: member.points,
+    // The rarity sum before the completion multiplier. Older rows predate the
+    // column, so fall back to the stored score rather than reading zero and
+    // reporting the member's entire library as this session's gain.
+    rawPoints: member.raw_points ?? member.points,
     projects: member.projects,
     completed: member.completed,
   };
@@ -430,7 +436,13 @@ async function scanMember(psn, member, updateNo) {
 
   const totals = rollUp(summary, titles, pointsByGame);
   const pointsEarned = changelog.reduce((n, c) => n + c.points_gained, 0);
-  const delta = explainDelta(pointsEarned, totals.points - before.points);
+  const delta = explainDelta({
+    earnedRaw: pointsEarned,
+    rawBefore: before.rawPoints,
+    rawAfter: totals.rawPoints,
+    completionBefore: before.completion,
+    completionAfter: totals.completion,
+  });
 
   if (changelog.length) {
     await db.batchInsert(
@@ -673,8 +685,12 @@ function rollUp(summary, titles, pointsByGame) {
   }
   const completion = definedTotal ? (earnedTotal / definedTotal) * 100 : 0;
 
-  let points = 0;
-  for (const p of pointsByGame.values()) points += p;
+  let rawPoints = 0;
+  for (const p of pointsByGame.values()) rawPoints += p;
+
+  // Floored before the multiplier is applied, for the same reason it is
+  // floored on display — see the comment on `completion` below.
+  const completionPct = Math.floor(completion * 100) / 100;
 
   return {
     platinum: earned.platinum ?? 0,
@@ -685,8 +701,14 @@ function rollUp(summary, titles, pointsByGame) {
     // somebody sitting at 99.996% — still missing trophies, told by their own
     // leaderboard that they had finished. On a completionist board that is the
     // worst lie available, and it lands on whoever is closest to the top.
-    completion: Math.floor(completion * 100) / 100,
-    points,
+    completion: completionPct,
+    // Two numbers, deliberately. `rawPoints` is what the trophies are worth;
+    // `points` is what this member actually banks at their current completion.
+    // Storing both is what lets an update say "+14,203 because your completion
+    // went from 49.00% to 52.10%" instead of showing an unexplained jump on
+    // games nobody touched.
+    rawPoints,
+    points: applyCompletion(rawPoints, completionPct),
     projects: titles.length,
     completed,
   };
@@ -698,7 +720,7 @@ async function finaliseUpdate(updateNo, result, member) {
     `UPDATE updates SET
        finished_at = ?, d_platinum = ?, d_gold = ?, d_silver = ?, d_bronze = ?,
        d_projects = ?, d_completed = ?, d_completion = ?, d_points = ?,
-       points_earned = ?, points_drift = ?, games_changed = ?,
+       points_earned = ?, points_backlog = ?, points_drift = ?, games_changed = ?,
        duration_seconds = ?, status = 'done'
      WHERE id = ?`,
     [
@@ -712,6 +734,7 @@ async function finaliseUpdate(updateNo, result, member) {
       Math.round((after.completion - before.completion) * 100) / 100,
       delta.net,
       delta.earned,
+      delta.backlog,
       delta.drift,
       result.gamesChanged,
       result.durationSeconds,
@@ -724,13 +747,13 @@ async function finaliseUpdate(updateNo, result, member) {
   await db.run(
     `UPDATE members SET
        platinum = ?, gold = ?, silver = ?, bronze = ?,
-       completion = ?, points = ?, projects = ?, completed = ?,
+       completion = ?, points = ?, raw_points = ?, projects = ?, completed = ?,
        rarest_name = ?, rarest_rate = ?, rarest_game = ?,
        last_update_at = ?, last_scan_ok = 1
      WHERE discord_id = ?`,
     [
       after.platinum, after.gold, after.silver, after.bronze,
-      after.completion, after.points, after.projects, after.completed,
+      after.completion, after.points, after.rawPoints, after.projects, after.completed,
       rarest?.name ?? null, rarest?.earned_rate ?? null, rarest?.title ?? null,
       Date.now(), member.discord_id,
     ],

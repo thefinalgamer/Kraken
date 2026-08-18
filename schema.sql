@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS members (
   silver            INTEGER NOT NULL DEFAULT 0,
   bronze            INTEGER NOT NULL DEFAULT 0,
   completion        REAL    NOT NULL DEFAULT 0,   -- percent, 41.02
-  points            INTEGER NOT NULL DEFAULT 0,   -- rarity-weighted score
+  points            INTEGER NOT NULL DEFAULT 0,   -- the score on the card: raw_points x completion
+  raw_points        INTEGER NOT NULL DEFAULT 0,   -- rarity-weighted sum, before the multiplier
   projects          INTEGER NOT NULL DEFAULT 0,   -- games started
   completed         INTEGER NOT NULL DEFAULT 0,   -- games at 100%
   rank              INTEGER,
@@ -105,6 +106,7 @@ CREATE TABLE IF NOT EXISTS updates (
   d_completion      REAL    DEFAULT 0,
   d_points          INTEGER DEFAULT 0,
   points_earned     INTEGER DEFAULT 0,    -- from newly earned trophies
+  points_backlog    INTEGER DEFAULT 0,    -- from your completion moving, re-pricing everything
   points_drift      INTEGER DEFAULT 0,    -- from the world catching up
   games_changed     INTEGER DEFAULT 0,
   duration_seconds  INTEGER,

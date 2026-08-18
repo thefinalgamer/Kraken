@@ -624,6 +624,16 @@ async function profile(env, targetId, viewerId) {
     `**Games** ${n(m.projects)} started, ${n(m.completed)} finished`,
   ];
 
+  // Show the working. The score is rarity points x completion, and a member who
+  // can see both halves understands instantly why finishing old games pays —
+  // which no amount of explaining in #rules ever achieves.
+  if (m.raw_points > 0 && m.completion < 100) {
+    lines.push(
+      `-# ${n(m.raw_points)} rarity points × ${pct(m.completion)} completion. ` +
+        `${n(m.raw_points - m.points)} still waiting in the backlog.`,
+    );
+  }
+
   if (m.rarest_name || m.rarest_game) {
     lines.push(
       `**Rarest owned** ${Number(m.rarest_rate).toFixed(2)}%` +

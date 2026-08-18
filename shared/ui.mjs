@@ -463,8 +463,33 @@ export function updateCard({
     ].join('\n'),
   );
 
+  // The backlog payout gets its own callout, and it is the most important line
+  // on this card. These points arrive attached to games the member did not
+  // touch this session — their whole library re-priced because their completion
+  // moved — so without a name for it the number reads as the bot making things
+  // up. Named, it is the exact moment the system teaches itself: finish old
+  // games, get paid on everything.
+  const backlog = delta.backlog ?? 0;
+  if (backlog > 0) {
+    lines.push(
+      `> ### ${EMOJI.up} Backlog payout: ${signed(backlog)}\n` +
+        `> Your completion went ${pct(before.completion)} → ${pct(after.completion)}, ` +
+        `so **every game you own** just re-priced. Most of this is points for ` +
+        `old games you didn't touch today.`,
+    );
+  } else if (backlog < 0) {
+    // Starting new games costs you. Say so plainly — it is a design decision,
+    // not a malfunction, and the member is owed the reason.
+    lines.push(
+      `> **Completion dipped ${pct(before.completion)} → ${pct(after.completion)}** ` +
+        `(${signed(backlog)}). Starting a game adds trophies you haven't earned yet, ` +
+        `so your share of everything drops a little. Finish it and you get this back ` +
+        `with interest.`,
+    );
+  }
+
   // The fix: never show a bare negative number without saying why.
-  if (delta.net < 0 && delta.drift < 0) {
+  if (delta.net < 0 && delta.drift < 0 && backlog >= 0) {
     lines.push(
       `> **Why the drop?** You earned ${signed(delta.earned)} points from new trophies, ` +
         `but trophies you already had have become more common as other players caught up ` +

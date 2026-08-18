@@ -6,6 +6,7 @@ import {
   gamePoints,
   remainingValue,
   explainDelta,
+  applyCompletion,
   flatPoints,
   DEFAULT_SCORING,
   completionWeight,
@@ -91,14 +92,74 @@ test('remaining value drives /game and /backlog', () => {
   assert.deepEqual(remainingValue(defs, [0, 1, 2]), { points: 0, count: 0 });
 });
 
-test('a negative update is explained, not just reported', () => {
-  // RabbitSquared's Update No. 94: three trophies earned, still lost 1,008.
-  const d = explainDelta(184, -1008);
+test('a negative update is explained, not just shown', () => {
+  // The scenario that started this: 184 points of new trophies, score still
+  // fell 1,008, because everything they already owned got more common.
+  const d = explainDelta({
+    earnedRaw: 184, rawBefore: 100000, rawAfter: 98992,
+    completionBefore: 100, completionAfter: 100,
+  });
   assert.equal(d.earned, 184);
   assert.equal(d.drift, -1192);
+  assert.equal(d.net, -1008);
   assert.ok(d.drift < 0, 'drift must be negative for the explanation to make sense');
 });
 
+test('the completion multiplier pays what Esto paid', () => {
+  // The sentence Martin and Rabbit both remembered, as a test.
+  assert.equal(applyCompletion(1000, 70), 700);
+  assert.equal(applyCompletion(1000, 100), 1000);
+  assert.equal(applyCompletion(1000, 0), 0);
+  // Floored, never rounded — nobody is paid for a percent they have not finished.
+  assert.equal(applyCompletion(1000, 70.09), 700);
+  assert.equal(applyCompletion(226198, 49), 110837);
+});
+
+test('clearing the backlog pays out across the whole library', () => {
+  // No new trophies at all: completion alone rose from 49% to 60%. Every game
+  // re-prices, and the member must be told that is what happened.
+  const d = explainDelta({
+    earnedRaw: 0, rawBefore: 460000, rawAfter: 460000,
+    completionBefore: 49, completionAfter: 60,
+  });
+  assert.equal(d.earned, 0);
+  assert.equal(d.drift, 0);
+  assert.equal(d.backlog, 50600);
+  assert.equal(d.net, 50600);
+});
+
+test('starting a game costs you, and the split says so', () => {
+  // Popped one common trophy in a big new game: a few points earned, but
+  // completion dipped, so the library re-prices downwards.
+  const d = explainDelta({
+    earnedRaw: 60, rawBefore: 460000, rawAfter: 460060,
+    completionBefore: 49.2, completionAfter: 49.0,
+  });
+  assert.ok(d.earned > 0, 'the trophy still paid something');
+  assert.ok(d.backlog < 0, 'but the dip cost more');
+  assert.ok(d.net < 0);
+});
+
+test('the three parts always reconcile to the headline number', () => {
+  // If the split ever disagreed with the total, the card would be arguing with
+  // itself in front of the member.
+  const cases = [
+    [1200, 300000, 302400, 40.5, 41.2],
+    [0, 900000, 899000, 99.11, 99.11],
+    [50000, 10000, 60000, 12.5, 30.0],
+    [0, 500000, 500000, 70, 70],
+  ];
+  for (const [earnedRaw, rawBefore, rawAfter, c0, c1] of cases) {
+    const d = explainDelta({
+      earnedRaw, rawBefore, rawAfter, completionBefore: c0, completionAfter: c1,
+    });
+    const sum = d.earned + d.backlog + d.drift;
+    assert.ok(
+      Math.abs(sum - d.net) <= 2,
+      `parts ${sum} vs net ${d.net} — the card would show a split that does not add up`,
+    );
+  }
+});
 test('the old bot was not using flat per-type points', () => {
   // If it were, RabbitSquared would have scored 155,505 rather than 47,873.
   const flat = flatPoints({ platinum: 76, gold: 474, silver: 1153, bronze: 3697 });

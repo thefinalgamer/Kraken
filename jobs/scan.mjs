@@ -31,6 +31,7 @@ import { PsnClient, PsnPrivateError } from './lib/psn.mjs';
 import {
   isUnrated, explainDelta, completionWeight, applyCompletion, scoreGameTrophies,
 } from '../shared/scoring.mjs';
+import { memberCompletion } from './lib/completion.mjs';
 import {
   postUpdateResult,
   postUpdateFailure,
@@ -460,7 +461,7 @@ async function scanMember(psn, member, updateNo) {
   // Pure database work — this is where drift shows up.
   const pointsByGame = await recomputeMemberPoints(accountId);
 
-  const totals = rollUp(summary, titles, pointsByGame);
+  const totals = await rollUp(summary, titles, pointsByGame, accountId);
   const pointsEarned = changelog.reduce((n, c) => n + c.points_gained, 0);
   const delta = explainDelta({
     earnedRaw: pointsEarned,
@@ -548,8 +549,9 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
     await db.run(
       `INSERT OR REPLACE INTO games
          (np_comm_id, np_service_name, title, platform, icon_url,
-          trophy_count, has_platinum, max_points, estimated, refreshed_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          trophy_count, has_platinum, max_points, estimated, completion_weight,
+          refreshed_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
         title.npCommunicationId,
         title.npServiceName ?? null,
@@ -561,6 +563,10 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
         rated.reduce((n, t) => n + t.points, 0),
         // Flagged so the next scan re-checks it in days rather than a month.
         rated.some((t) => t.estimated) ? 1 : 0,
+        // What this game contributes to a member's completion denominator.
+        // Stored here so the rescore job can recompute completion from the
+        // database — before this, only a full rescan could move the number.
+        rated.reduce((n, t) => n + completionWeight({ [t.type]: 1 }), 0),
         Date.now(),
       ],
     );
@@ -702,38 +708,28 @@ async function findRarestTrophy(accountId) {
 
 // ------------------------------------------------------------- rollups -----
 
-function rollUp(summary, titles, pointsByGame) {
+async function rollUp(summary, titles, pointsByGame, accountId) {
   const earned = summary?.earnedTrophies ?? {};
   const completed = titles.filter((t) => (t.progress ?? 0) === 100).length;
 
-  // Completion matches PSNProfiles: weighted by Sony's trophy values with the
-  // PLATINUM EXCLUDED. See completionWeight() for why, and for the numbers that
-  // settled it. A straight count was 1.89 points out on JFL__Leon; weighting
-  // platinums at all was 1.84 out on RabbitSquared. This is 0.52 at worst.
-  let earnedTotal = 0;
-  let definedTotal = 0;
-  for (const t of titles) {
-    earnedTotal += completionWeight(t.earnedTrophies ?? {});
-    definedTotal += completionWeight(t.definedTrophies ?? {});
-  }
-  const completion = definedTotal ? (earnedTotal / definedTotal) * 100 : 0;
+  // Completion now comes from the database rather than from PSN's title list,
+  // because worthless games have to be excluded and only the database knows
+  // which those are. Same weights as before — Sony's values with the PLATINUM
+  // EXCLUDED, see completionWeight() — just filtered. One definition, shared
+  // with the rescore job, in lib/completion.mjs.
+  const { completion } = await memberCompletion(db, accountId);
 
   let rawPoints = 0;
   for (const p of pointsByGame.values()) rawPoints += p;
 
-  // Floored before the multiplier is applied, for the same reason it is
-  // floored on display — see the comment on `completion` below.
-  const completionPct = Math.floor(completion * 100) / 100;
+  // memberCompletion() already floors to two places.
+  const completionPct = completion;
 
   return {
     platinum: earned.platinum ?? 0,
     gold: earned.gold ?? 0,
     silver: earned.silver ?? 0,
     bronze: earned.bronze ?? 0,
-    // Floored, never rounded. Rounding to nearest would show 100.00% to
-    // somebody sitting at 99.996% — still missing trophies, told by their own
-    // leaderboard that they had finished. On a completionist board that is the
-    // worst lie available, and it lands on whoever is closest to the top.
     completion: completionPct,
     // Two numbers, deliberately. `rawPoints` is what the trophies are worth;
     // `points` is what this member actually banks at their current completion.

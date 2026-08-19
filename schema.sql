@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS games (
   has_platinum      INTEGER DEFAULT 0,
   max_points        INTEGER,              -- full-plat value at last refresh
   estimated         INTEGER NOT NULL DEFAULT 0,  -- 1 = PSN published no rarity; points are a guess
+  completion_weight INTEGER NOT NULL DEFAULT 0,  -- gold*90+silver*30+bronze*15, platinum excluded
   refreshed_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_games_title     ON games(title);

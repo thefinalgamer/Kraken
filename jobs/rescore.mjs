@@ -25,6 +25,7 @@
 
 import { D1 } from './lib/d1.mjs';
 import { scoreGameTrophies, applyCompletion } from '../shared/scoring.mjs';
+import { memberCompletion } from './lib/completion.mjs';
 import { publishLeaderboard } from './lib/discord.mjs';
 
 const env = process.env;
@@ -168,6 +169,18 @@ async function rescoreGames() {
     `UPDATE games SET max_points =
        (SELECT COALESCE(SUM(t.points), 0) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)`,
   );
+
+  // The completion denominator. Independent of scoring — it is just the game's
+  // trophy make-up — but recomputed here so a game added by an older build,
+  // before the column existed, cannot sit at zero and quietly drop itself out
+  // of everyone's completion.
+  await db.run(
+    `UPDATE games SET completion_weight = (
+       SELECT COALESCE(SUM(CASE t.type
+                WHEN 'gold' THEN 90 WHEN 'silver' THEN 30 WHEN 'bronze' THEN 15
+                ELSE 0 END), 0)
+         FROM trophies t WHERE t.np_comm_id = games.np_comm_id)`,
+  );
   const worthless = await db.one('SELECT COUNT(*) AS c FROM games WHERE max_points = 0');
   const total = await db.one('SELECT COUNT(*) AS c FROM games');
   console.log(`  ${worthless.c} of ${total.c} games still score nothing (all-easy shovelware)`);
@@ -226,21 +239,22 @@ async function rescoreMember(member) {
     }
   }
 
-  // Completion is untouched — it comes from PSN's trophy counts, not from
-  // rarity, so no scoring change can move it. Only the multiplication is redone.
-  const points = applyCompletion(rawPoints, member.completion);
+  // Completion IS recomputed, because it depends on which games are worth
+  // nothing and a scoring change moves that line. Same query the scan uses.
+  const { completion } = await memberCompletion(db, member.psn_account_id);
+  const points = applyCompletion(rawPoints, completion);
 
-  await db.run('UPDATE members SET raw_points = ?, points = ? WHERE discord_id = ?', [
-    rawPoints,
-    points,
-    member.discord_id,
-  ]);
+  await db.run(
+    'UPDATE members SET raw_points = ?, points = ?, completion = ? WHERE discord_id = ?',
+    [rawPoints, points, completion, member.discord_id],
+  );
 
   const before = member.points ?? 0;
   const delta = points - before;
   console.log(
     `  ${member.psn_online_id.padEnd(18)} ${String(before).padStart(9)} -> ${String(points).padStart(9)}` +
-      `  (${delta >= 0 ? '+' : ''}${delta}, ${rows.length} games, ${written} rewritten)`,
+      `  (${delta >= 0 ? '+' : ''}${delta})  completion ${member.completion} -> ${completion}` +
+      `  [${rows.length} games, ${written} rewritten]`,
   );
   return { onlineId: member.psn_online_id, before, after: points };
 }

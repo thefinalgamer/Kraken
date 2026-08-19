@@ -537,6 +537,11 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
       hidden: t.trophyHidden ? 1 : 0,
       rate: t.trophyEarnedRate != null ? Number(t.trophyEarnedRate) : null,
       earned: Boolean(t.earned),
+      // PSN sends the date with every earned trophy and we used to discard it.
+      // It costs nothing to keep — same response, same call — and it cannot be
+      // recovered later without rescanning everybody. See
+      // migrations/006-trophy-timestamps.sql for what it is eventually for.
+      earnedAt: t.earned && t.earnedDateTime ? Date.parse(t.earnedDateTime) : null,
     })),
   );
 
@@ -601,17 +606,26 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
   const progress = title.progress ?? 0;
   const points = mine.reduce((n, t) => n + t.points, 0);
 
+  // The span between their first and last trophy in this game. NULL when
+  // unknown — a row scanned before this existed, or a game with no dated
+  // trophies — which must never be confused with "finished in no time".
+  const stamps = mine.map((t) => t.earnedAt).filter((n) => Number.isFinite(n));
+  const firstEarned = stamps.length ? Math.min(...stamps) : null;
+  const lastEarned = stamps.length ? Math.max(...stamps) : null;
+
   await db.run(
     `INSERT OR REPLACE INTO member_games
        (psn_account_id, np_comm_id, progress, earned_total,
         earned_platinum, earned_gold, earned_silver, earned_bronze,
-        earned_ids, points, last_played_at, scanned_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        earned_ids, points, last_played_at, first_earned_at, last_earned_at,
+        scanned_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       accountId, title.npCommunicationId, progress, earnedIds.length,
       counts.platinum, counts.gold, counts.silver, counts.bronze,
       JSON.stringify(earnedIds), points,
       title.lastUpdatedDateTime ? Date.parse(title.lastUpdatedDateTime) : null,
+      firstEarned, lastEarned,
       Date.now(),
     ],
   );

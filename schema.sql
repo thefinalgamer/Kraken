@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS member_games (
   earned_ids        TEXT,                 -- JSON array of trophy ids
   points            INTEGER DEFAULT 0,    -- this member's points in this game
   last_played_at    INTEGER,
+  -- When their first and last trophy in this game were earned. Free to collect
+  -- (PSN sends the dates with every trophy) and impossible to backfill without
+  -- a full rescan, so we store them now and use them later — see
+  -- migrations/006-trophy-timestamps.sql.
+  first_earned_at   INTEGER,
+  last_earned_at    INTEGER,
   scanned_at        INTEGER,              -- last deep scan; null = never
   PRIMARY KEY (psn_account_id, np_comm_id)
 );

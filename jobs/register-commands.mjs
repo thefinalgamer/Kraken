@@ -40,6 +40,23 @@ const commands = [
     ],
   },
   {
+    name: 'addmember',
+    description: 'Mods only — put someone on the board yourself, skipping verification',
+    // MANAGE_GUILD, same as /unlink. This bypasses the PSN ownership check, so
+    // it is the one command where a mod is vouching with their own judgement
+    // instead of the member proving anything. Recorded as 'grandfathered'.
+    default_member_permissions: '32',
+    options: [
+      { name: 'member', description: 'The Discord member to add', type: 6, required: true },
+      {
+        name: 'psn-id',
+        description: 'Their PSN online ID, spelled exactly as on their profile',
+        type: 3,
+        required: true,
+      },
+    ],
+  },
+  {
     name: 'update',
     description: 'Rescan your trophies and update your card',
   },
@@ -80,9 +97,9 @@ const commands = [
         type: 3,
         required: false,
         choices: [
-          { name: 'Most points', value: 'value' },
+          { name: 'Biggest prize', value: 'value' },
           { name: 'Nearly done', value: 'nearly' },
-          { name: 'Quickest wins', value: 'quick' },
+          { name: 'Best value', value: 'quick' },
           { name: 'Rarest first', value: 'rare' },
         ],
       },

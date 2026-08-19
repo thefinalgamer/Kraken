@@ -64,6 +64,28 @@ export async function createProvisionalMember(env, { discordId, onlineId, verify
     .run();
 }
 
+/**
+ * A member added by a mod, skipping verification entirely.
+ *
+ * The whole verification system exists so nobody can claim somebody else's
+ * account. This bypasses it — which is fine ONLY because a mod is vouching with
+ * their own judgement, and it is recorded as `grandfathered` so the difference
+ * between "proved it" and "someone said so" is never lost.
+ *
+ * psn_account_id stays provisional until the first scan resolves it, exactly as
+ * for a self-registered member: that scan is what actually proves the profile
+ * exists and is public.
+ */
+export async function createVerifiedMember(env, { discordId, onlineId }) {
+  await env.DB.prepare(
+    `INSERT INTO members (discord_id, psn_account_id, psn_online_id, registered_at,
+                          verified_at, verify_method)
+     VALUES (?, ?, ?, ?, ?, 'grandfathered')`,
+  )
+    .bind(discordId, `pending:${discordId}`, onlineId, Date.now(), Date.now())
+    .run();
+}
+
 // --------------------------------------------------------- verification ----
 
 /** The verify_code doubles as the OAuth state, so this is the lookup for both. */

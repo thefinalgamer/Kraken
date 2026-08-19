@@ -91,6 +91,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'register':   return register(interaction, env, ctx, userId, opt('psn-id'));
     case 'verify':     return verify(interaction, env, ctx, userId);
     case 'unlink':     return unlink(interaction, env, opt('member'));
+    case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
     case 'leaderboard':return leaderboard(env, Number(opt('page') ?? 1), userId);
@@ -465,6 +466,70 @@ async function handleAutocomplete(interaction, env) {
 }
 
 // -------------------------------------------------------------- dispatch ---
+
+/**
+ * Put someone on the board by hand, skipping verification. Mods only.
+ *
+ * Verification exists so nobody can claim somebody else's PSN account, and
+ * bypassing it is a real decision rather than a convenience — so it is recorded
+ * as `grandfathered`, and the reply says plainly that no proof was taken. When
+ * a mod adds twenty friends at launch, that is exactly what happened, and the
+ * database should not pretend otherwise.
+ *
+ * The first scan still has to succeed: the PSN online ID is only a string until
+ * Sony confirms an account by that name exists and is public. A typo here does
+ * not create a fake member, it creates a member whose first scan fails loudly.
+ */
+async function addMember(interaction, env, ctx, targetId, psnId) {
+  const actor = interaction.member?.permissions ?? '0';
+  if ((BigInt(actor) & 32n) !== 32n) {
+    return errorReply('That command is for mods.');
+  }
+
+  const cleanId = String(psnId ?? '').trim();
+  if (!/^[A-Za-z0-9_-]{3,16}$/.test(cleanId)) {
+    return errorReply(
+      `**${cleanId}** does not look like a PSN online ID. They are 3-16 characters, ` +
+        'letters, numbers, hyphens and underscores only.',
+    );
+  }
+
+  const existing = await db.memberByDiscordId(env, targetId);
+  if (existing) {
+    return errorReply(
+      `<@${targetId}> is already on the board as **${existing.psn_online_id}**. ` +
+        'Use `/unlink` first if it needs changing.',
+    );
+  }
+
+  const taken = await db.claimBlockedBy(env, cleanId);
+  if (taken) {
+    return errorReply(`**${cleanId}** is already claimed by <@${taken.discord_id}>.`);
+  }
+
+  await db.createVerifiedMember(env, { discordId: targetId, onlineId: cleanId });
+  ctx.waitUntil(dispatchScan(env, targetId, null, { first: true }));
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `## ${cleanId} added\n\n` +
+              `<@${targetId}> is on the board and their first scan is queued. It reads their ` +
+              `whole library, so it can take a while — the result lands in ` +
+              `<#${env.DISCORD_UPDATES_CHANNEL_ID}>.\n\n` +
+              `-# Added by a mod, so no PSN ownership check was done — recorded as ` +
+              `\`grandfathered\`. If the name is misspelled the scan will fail rather than ` +
+              `score the wrong person; \`/unlink\` and try again.`,
+          ),
+        ],
+        COLOR.green,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
 
 /**
  * Which lane a member's scan belongs in.

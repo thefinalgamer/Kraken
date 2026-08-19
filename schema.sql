@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS members (
   avatar_url        TEXT,
   registered_at     INTEGER NOT NULL,
   last_update_at    INTEGER,
+  last_attempt_at   INTEGER,               -- set BEFORE a refresh scan starts, so a
+                                           -- member who times out still loses their turn
   last_scan_ok      INTEGER DEFAULT 1,    -- 0 when the profile went private
   -- cached rollups, so the leaderboard is a single indexed read
   platinum          INTEGER NOT NULL DEFAULT 0,

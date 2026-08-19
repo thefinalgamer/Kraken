@@ -1,13 +1,21 @@
 /**
- * The fortnightly safety net.
+ * The weekly safety net.
  *
  * The original bot ran a full refresh every two weeks if nobody triggered an
  * update, so inactive members' cards didn't go stale and the board didn't drift
- * into fiction. Kept exactly.
+ * into fiction. Kept, but weekly rather than fortnightly: with the server
+ * growing past twenty, smaller and more frequent bites finish the whole list
+ * instead of rolling half of it over every time.
  *
- * Members are refreshed oldest-first and the job stops well before GitHub's
- * six-hour ceiling, so a large server simply picks up where it left off on the
- * next run rather than failing halfway.
+ * FAIRNESS. Members are taken oldest-first, and `last_attempt_at` is stamped
+ * BEFORE each scan starts rather than after it succeeds. That matters: if the
+ * job is killed partway through somebody — GitHub's ceiling, a hung PSN call —
+ * an "update on success" design leaves them still the oldest, so they consume
+ * the budget again on the next run and everybody behind them starves forever,
+ * silently. Being TRIED is enough to lose your turn.
+ *
+ * The job stops well before GitHub's six-hour ceiling, so a large server simply
+ * picks up where it left off next time.
  */
 
 import { spawn } from 'node:child_process';
@@ -28,7 +36,7 @@ const members = await db.query(
   `SELECT discord_id, psn_online_id, last_update_at
      FROM members
     WHERE last_scan_ok = 1
-    ORDER BY COALESCE(last_update_at, 0) ASC`,
+    ORDER BY COALESCE(last_attempt_at, last_update_at, 0) ASC`,
 );
 
 console.log(`Fortnightly refresh: ${members.length} members, oldest first.`);
@@ -43,6 +51,11 @@ for (const member of members) {
   }
 
   try {
+    // Stamped first, on purpose. See the fairness note at the top of the file.
+    await db.run('UPDATE members SET last_attempt_at = ? WHERE discord_id = ?', [
+      Date.now(),
+      member.discord_id,
+    ]);
     await runScan(member.discord_id);
     done++;
     console.log(`  [${done}/${members.length}] ${member.psn_online_id}`);

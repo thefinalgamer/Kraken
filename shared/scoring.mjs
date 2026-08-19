@@ -47,9 +47,33 @@ export const DEFAULT_SCORING = {
    * server-shutdown trophy paid a thousand, and an ordinary good game was worth
    * about as much as nothing.
    *
-   * Square root (0.5) brings that ratio to roughly 50x. Ultra-rares stay
-   * clearly the most valuable thing on the board — they just stop being the
-   * ONLY thing on it.
+   * 0.65 brings that ratio to roughly 100x. Ultra-rares stay clearly the most
+   * valuable thing on the board — they just stop being the ONLY thing on it.
+   *
+   * IT WAS 0.5 FOR ABOUT AN HOUR AND THAT WAS TOO FAR. The measured result:
+   * Pelziowo's long tail of 1,988 small games grew 93% while N7_Maxxi's
+   * genuinely hard trophies LOST 3%, and Pelzio — 15,411 games — passed Maxxi,
+   * who has 350. Exactly the outcome Martin had ruled out: "i dont care if
+   * pelzio is first as long as its not from shovelware."
+   *
+   * The mechanism is the blind spot in §7 of the scoring doc. Rarity measures
+   * who BOTHERED, not what it took. A cheap game bought in a sale and never
+   * played shows 30% earn rates — not because it is hard, but because 70% of
+   * buyers never opened it. Flattening the curve is precisely what makes that
+   * band lucrative, and it is the band those libraries are full of.
+   *
+   * So the exponent is a genuine dial between two failure modes, and neither
+   * end is safe:
+   *
+   *   too high (1.0)  the board is "who owns the most ultra-rares" and an
+   *                   ordinary good game is worth nothing
+   *   too low  (0.5)  the 20-50% band pays enough that owning thousands of
+   *                   abandoned cheap games beats hunting
+   *
+   * Judge a change by Pelziowo-vs-Maxxi and by the share of a score coming
+   * from the 20-50% band, not by the synthetic-library ratio — a model built
+   * from banded counts predicted Maxxi comfortably ahead at 0.5, and he was not.
+   * The rescore job takes minutes; measure, do not model.
    *
    * This is also the closest we can get to Esto's original. His numbers came
    * from LOCAL rarity — started_by / earned_by inside a 19-member server — so
@@ -59,25 +83,26 @@ export const DEFAULT_SCORING = {
    * trophies, where Kraken's spread was nearly twice as wide. Global rarity has
    * no such ceiling, so the flattening has to be done explicitly.
    */
-  exponent: 0.5,
+  exponent: 0.65,
 
   /**
    * Scale. Sets the size of the numbers, not their shape — the shape is
    * entirely `exponent`.
    *
    * 20 is chosen so the board's overall magnitude barely moves while the
-   * BALANCE shifts: a 25% platinum goes 3 -> 8, a 1% trophy 99 -> 121, and a
-   * 0.1% trophy 999 -> 427. Mid-rarity trophies gain, ultra-rares give some
-   * back. That redistribution is the entire point of the change, and keeping
-   * the totals familiar means nobody has to relearn what a good score looks
-   * like on the same day the rules change.
+   * BALANCE shifts: a 25% platinum goes 3 -> 11 and a 0.1% trophy 999 -> 1116.
+   * Mid-rarity trophies gain several times over; the very rarest barely move.
+   * That redistribution is the entire point, and keeping the totals familiar
+   * means nobody has to relearn what a good score looks like on the same day
+   * the rules change.
    */
   scale: 20,
 
   /**
-   * Ceiling on a single trophy. With the square-root curve the theoretical
-   * maximum is around 980 at the rarity floor, so this no longer binds — it is
-   * kept as a backstop in case the exponent is ever raised again.
+   * Ceiling on a single trophy. It binds again at exponent 0.65 — the rarity
+   * floor would otherwise pay about 2,700 — which is the point of it: one
+   * glitched or server-shutdown trophy must never outweigh a career. Trophies
+   * rarer than roughly 0.03% all pay the same 2,000.
    */
   cap: 2000,
 
@@ -166,8 +191,8 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
  * 32.78%). Golds are usually "finish chapter eight", earned by everyone who
  * plays; bronzes hide the missables. So trophy type barely predicts rarity, and
  * inventing a bronze < silver < gold ladder would be pretending to a precision
- * the data does not support, as well as putting a gold worth 4 next to a bronze
- * worth 7 on the same card.
+ * the data does not support, as well as putting a gold worth 5 next to a bronze
+ * worth 10 on the same card.
  *
  * Hence one value for everything and a higher one for the platinum, which is
  * the only type the data genuinely separates.
@@ -180,9 +205,9 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
  * rather than every thirty, so a new release is priced properly almost as soon
  * as Sony prices it.
  */
-export const UNRATED_FALLBACK = { platinum: 15, gold: 7, silver: 7, bronze: 7 };
+export const UNRATED_FALLBACK = { platinum: 22, gold: 10, silver: 10, bronze: 10 };
 
-export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 7;
+export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 10;
 
 /**
  * Score every trophy in ONE game together.

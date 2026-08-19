@@ -128,10 +128,19 @@ export async function unlinkMember(env, discordId) {
  * can be waiting behind somebody else's scan, and without telling them so the
  * bot simply looks dead.
  */
+/**
+ * Scans currently running, with which LANE each is in.
+ *
+ * `first_scan` is 1 when that member has never completed a scan — which is
+ * exactly what puts them in the slow lane. Derived rather than stored, so there
+ * is no second copy of the lane rule to fall out of step with the one in
+ * dispatchScan().
+ */
 export const activeScans = (env) =>
   all(
     env,
-    `SELECT m.psn_online_id, u.started_at
+    `SELECT m.psn_online_id, u.started_at,
+            CASE WHEN m.last_update_at IS NULL THEN 1 ELSE 0 END AS first_scan
        FROM updates u
        JOIN members m ON m.psn_account_id = u.psn_account_id
       WHERE u.status = 'running' AND u.started_at > ?

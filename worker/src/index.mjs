@@ -277,13 +277,25 @@ async function runUpdate(interaction, env, ctx, userId) {
 
   ctx.waitUntil(dispatchScan(env, userId, interaction.token));
 
-  // Scans run one at a time server-wide. If somebody's ahead, say so — an
-  // unexplained ten-minute silence is indistinguishable from a broken bot.
+  // Which queue this member is actually standing in. A first-timer waits behind
+  // other first-timers; everyone else waits behind other repeat updates. The
+  // two never block each other, which is the entire point of the split.
+  const lane = laneFor(member);
+  const firstScan = lane === 'first';
+
+  // Only scans in YOUR lane are ahead of you. Counting the other lane's
+  // three-hour first scan against a two-minute refresh is how a queue estimate
+  // becomes a lie.
   const active = (await db.activeScans(env)).filter(
-    (s) => s.psn_online_id !== member.psn_online_id,
+    (s) => s.psn_online_id !== member.psn_online_id && Boolean(s.first_scan) === firstScan,
   );
 
-  let body = `## ${member.psn_online_id} update queued\n\nScanning PSN now — this message will fill itself in.`;
+  let body = firstScan
+    ? `## ${member.psn_online_id} first scan queued\n\n` +
+      `This one reads your whole library, so it takes a while — anything from a few ` +
+      `minutes to a couple of hours if you own thousands of games. Every update after ` +
+      `this is two or three minutes.\n\nYou can close Discord; it carries on without you.`
+    : `## ${member.psn_online_id} update queued\n\nScanning PSN now — this message will fill itself in.`;
 
   if (active.length) {
     const ahead = active[0];
@@ -293,19 +305,23 @@ async function runUpdate(interaction, env, ctx, userId) {
     // behind them is queued at GitHub, invisible from here — so ask GitHub.
     // Without this, the twelfth person in line is told "one person is ahead of
     // you", waits an hour, and reasonably concludes the bot is broken.
-    const waiting = await queueDepth(env);
+    const waiting = await queueDepth(env, lane);
     const position = Math.max(active.length, waiting) + 1;
-    const eta = position * 3; // repeat scans are 2–4 minutes; first scans blow this out
+    // First scans are the long ones; repeat updates are 2-4 minutes.
+    const eta = position * (firstScan ? 25 : 3);
 
     body =
       `## ${member.psn_online_id} update queued\n\n` +
       `**${ahead.psn_online_id}** is scanning right now — ${mins} minute${mins === 1 ? '' : 's'} in.\n\n` +
       (position > 1
-        ? `You're **${ordinal(position)}** in the queue, so roughly **${eta} minutes** — longer if ` +
-          `anyone ahead of you is on their first scan.\n\n`
+        ? `You're **${ordinal(position)}** in the ${firstScan ? 'first-scan ' : ''}queue, so roughly ` +
+          `**${eta} minutes**${firstScan ? ' — big libraries take longer' : ''}.\n\n`
         : `You're next.\n\n`) +
       `This message will fill itself in when it's your turn. Nothing's broken — scans run one ` +
-      `at a time so nobody trips PlayStation's rate limit.`;
+      `at a time so nobody trips PlayStation's rate limit. ` +
+      (firstScan
+        ? 'First scans have their own queue, so you are not stuck behind anyone doing a quick refresh.'
+        : 'Quick refreshes have their own queue, so you are never stuck behind somebody\'s first scan.');
   }
 
   // Private, wherever they ran it. The finished card goes to #updates instead —
@@ -324,7 +340,7 @@ async function runUpdate(interaction, env, ctx, userId) {
  * starts. Returns 0 on any failure: a wrong queue estimate is a far smaller
  * problem than /update falling over because the GitHub API had a moment.
  */
-async function queueDepth(env) {
+async function runsInWorkflow(env, file, timeoutMs = 800) {
   try {
     // HARD TIMEOUT. Discord gives an interaction three seconds, total. This
     // call is a nicety — it turns "queued" into "you're 4th, about 12 minutes"
@@ -333,10 +349,10 @@ async function queueDepth(env) {
     // all, which is what a missed deadline actually looks like to the member:
     // "Kraken didn't respond in time".
     const res = await fetch(
-      `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/scan.yml/runs` +
+      `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/${file}/runs` +
         `?per_page=30&exclude_pull_requests=true`,
       {
-        signal: AbortSignal.timeout(800),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: {
           Authorization: `Bearer ${env.GITHUB_TOKEN}`,
           Accept: 'application/vnd.github+json',
@@ -344,430 +360,27 @@ async function queueDepth(env) {
         },
       },
     );
-    if (!res.ok) return 0;
+    if (!res.ok) return null;
     const { workflow_runs = [] } = await res.json();
     return workflow_runs.filter((r) => r.status === 'queued' || r.status === 'in_progress').length;
   } catch {
-    return 0;
+    // null, not 0 — "I could not find out" and "nothing is running" lead to
+    // opposite decisions in chooseLane(), and conflating them is how an
+    // unreachable GitHub turns into a first scan stuck behind five updates.
+    return null;
   }
-}
-
-async function rank(env, target) {
-  const member = await db.memberByDiscordId(env, target);
-  if (!member) return errorReply('That member is not on the board yet.');
-
-  // The person above, you, and the person below. Two either side was five
-  // cards, which is a wall rather than an answer — and the two extra were
-  // people nobody is racing. Knowing who is four hundred points behind and
-  // closing motivates as much as knowing who you are chasing.
-  const neighbours = await db.neighbours(env, member.rank ?? 1, 1);
-  // rankedCount, not memberCount. memberCount includes anyone registered but
-  // mid-first-scan, which made /rank say "4th of 6" while the board underneath
-  // it said "5 hunters" — and fed a wrong total into the tier boundaries.
-  const total = await db.rankedCount(env);
-  const cards = neighbours.map((m, i) =>
-    memberCard(m, {
-      total,
-      highlight: m.discord_id === member.discord_id,
-      above: neighbours[i - 1] ?? null,
-      showTier: true,
-    }),
-  );
-  return reply(
-    [
-      text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
-      ...cards,
-      row(
-        button('Full leaderboard', `lb:${Math.max(1, Math.ceil((member.rank ?? 1) / 10))}`),
-        button('Refresh my stats', 'do:update', STYLE.PRIMARY),
-        button('Share to channel', `share:rank:${target}`, STYLE.SECONDARY),
-      ),
-    ],
-    // Personal stats are answered privately. With a hundred members, every
-    // /rank posting publicly turns the main channel into a wall of other
-    // people's numbers — so the default is quiet, with a button for when
-    // somebody actually wants to show off.
-    { ephemeral: true },
-  );
-}
-
-async function leaderboard(env, page, viewerId) {
-  const size = Number(env.LEADERBOARD_PAGE_SIZE ?? 25);
-
-  // Count the RANKED members, not every registered row. Someone mid-first-scan
-  // has no finished data and isn't listed, so counting them made the header
-  // claim six hunters above a list of five.
-  const total = await db.rankedCount(env);
-  const pages = Math.max(1, Math.ceil(total / size));
-  const safePage = Math.min(Math.max(1, page), pages);
-  const offset = (safePage - 1) * size;
-  const members = await db.leaderboardPage(env, offset, size);
-
-  const nav = [
-    button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
-    button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
-    button('Jump to me', 'lb:me', STYLE.PRIMARY),
-  ];
-
-  // A door back to the real board. The channel is the one that's pinned and
-  // always current; this command is a private peek for when you don't want to
-  // leave the conversation you're in.
-  if (env.DISCORD_GUILD_ID && env.DISCORD_LEADERBOARD_CHANNEL_ID) {
-    nav.push(
-      linkButton(
-        'Open #leaderboard',
-        `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${env.DISCORD_LEADERBOARD_CHANNEL_ID}`,
-      ),
-    );
-  }
-
-  return reply(
-    [
-      text(
-        `## Platinum Intel\n-# Ranked by rarity points · page ${safePage} of ${pages} · ${n(total)} hunters`,
-      ),
-      // Tier blocks, not cards. Discord counts nested components against a
-      // limit of 40 and a card is 8 of them, so cards broke this the moment a
-      // fifth member registered — reporting itself as "Kraken didn't respond
-      // in time", which points nowhere near the cause. A tier is three
-      // components however many people are in it. See boardBlocks() in ui.mjs.
-      ...boardBlocks(members, { viewerId, total, startRank: offset + 1 }),
-      row(...nav),
-    ],
-    // Private. The pinned board in #leaderboard is the public one; this exists
-    // so nobody has to leave the channel they're chatting in, and it shouldn't
-    // paste a second copy of the standings into general chat every time.
-    { ephemeral: true },
-  );
-}
-
-async function game(env, query, userId) {
-  const found = await db.findGame(env, query);
-  if (!found) {
-    return errorReply(
-      `Nobody here has played anything called **${query}** yet, so I have no rarity data for it. ` +
-        'Once one member owns it, it shows up for everyone.',
-    );
-  }
-
-  const member = await db.memberByDiscordId(env, userId);
-  const trophies = await db.gameTrophies(env, found.np_comm_id);
-  const mine = member ? await db.memberGame(env, member.psn_account_id, found.np_comm_id) : null;
-  const earned = new Set(mine ? JSON.parse(mine.earned_ids || '[]') : []);
-
-  const remaining = trophies.filter((t) => !earned.has(t.trophy_id));
-  const worth = remaining.reduce((sum, t) => sum + (t.points || 0), 0);
-  const plat = trophies.find((t) => t.type === 'platinum');
-
-  // PSN has told us nothing about this game — either it is old enough that Sony
-  // stopped computing rarity, or new enough that it hasn't started. Its points
-  // are estimates, and the card must say so. Rendering an unknown as
-  // "0.00% earned · Ultra rare" is the worst of both: it looks like hard data
-  // AND it claims the rarest band on PlayStation for a trophy we know nothing
-  // about.
-  const estimated = !trophies.some((t) => Number(t.earned_rate) > 0);
-
-  const rarityOf = (t) =>
-    Number(t.earned_rate) > 0
-      ? `${pct(t.earned_rate)} earned · ${RARITY_BANDS[rarityBand(t.earned_rate)]}`
-      : 'rarity not published · estimated';
-
-  const top = [...remaining]
-    .sort((a, b) => (b.points || 0) - (a.points || 0))
-    .slice(0, 3)
-    .map(
-      (t, i) =>
-        `**${i + 1}.** ${t.name} · *${t.type}*\n` +
-        `-# ${rarityOf(t)} · **+${n(t.points)} point${t.points === 1 ? '' : 's'}**`,
-    );
-
-  const owners = await db.gameOwners(env, found.np_comm_id);
-
-  return reply([
-    container(
-      [
-        section(
-          [
-            `## ${found.title}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
-            `**Worth to you:** +${n(worth)} points` +
-              (mine ? `\n**Your progress:** ${mine.progress}%` : '\n**Your progress:** not started'),
-            plat
-              ? `**Plat rarity:** ${Number(plat.earned_rate) > 0
-                  ? `${pct(plat.earned_rate)} · ${RARITY_BANDS[rarityBand(plat.earned_rate)]}`
-                  : 'not published by PSN'}`
-              : '',
-          ].filter(Boolean),
-          thumbnail(found.icon_url || FALLBACK_AVATAR, found.title),
-        ),
-        separator(),
-        text(['**Biggest earners left**', ...top].join('\n')),
-        separator(),
-        ...(estimated
-          ? [text(
-              '-# **PSN has not published rarity for this game.** Every value above is an ' +
-                'estimate — what a typical trophy is worth — and is deliberately on the low ' +
-                'side, because guessing high is how a leaderboard gets farmed. New releases ' +
-                'usually get real figures within a few weeks and this corrects itself.',
-            )]
-          : []),
-        text(
-          `-# ${n(owners.platted)} of ${n(owners.total)} members here have platted this` +
-            (owners.fastest ? ` · fastest was **${owners.fastest}**` : ''),
-        ),
-        row(button("Who's played it", `owners:${found.np_comm_id}`)),
-      ],
-      COLOR.blurple,
-    ),
-  ], { ephemeral: true });
 }
 
 /**
- * What to play next. The old bot told you your backlog was 280 games and left
- * you to it; this ranks them by what finishing them is actually worth.
- */
-const SORT_LABEL = {
-  value: 'biggest prize first',
-  nearly: 'closest to finished first',
-  quick: 'most points per trophy left',
-  rare: 'rarest platinum first',
-};
-
-async function backlog(env, userId, sort) {
-  const member = await db.memberByDiscordId(env, userId);
-  if (!member) return errorReply('You are not registered yet — run `/register` with your PSN ID.');
-
-  const rows = await db.backlog(env, member.psn_account_id, sort, 5);
-  if (!rows.length) {
-    return errorReply('Nothing unfinished on record yet. Run `/update` first.');
-  }
-
-  // Worth TO THIS MEMBER, not the game's raw worth. `remaining_points` is the
-  // rarity value; what actually lands in their score is that multiplied by
-  // their completion. Showing the raw figure would promise a 70.41% member 249
-  // points and then pay them 175 — on the one card in the whole bot whose job
-  // is to make finishing things look worth doing.
-  //
-  // Still an UNDERSTATEMENT, and deliberately so: finishing a game also lifts
-  // completion, which re-prices the entire library. We can't price that here
-  // without storing the completion numerator and denominator, so the card
-  // promises the floor and the update pays more. Better that way round.
-  const worth = (raw) => applyCompletion(raw, member.completion);
-
-  const lines = rows.map((g, i) => {
-    const band = g.plat_rate != null ? ` · ${RARITY_BANDS[rarityBand(g.plat_rate)]}` : '';
-    return (
-      `**${i + 1}. ${g.title}** — +${n(worth(g.remaining_points))} point${worth(g.remaining_points) === 1 ? '' : 's'}\n` +
-      `-# ${n(g.remaining_trophies)} troph${g.remaining_trophies === 1 ? 'y' : 'ies'} left · ${g.progress}% done${band}`
-    );
-  });
-
-  // The line that makes it more than a to-do list.
-  const projected = member.points + rows.slice(0, 3).reduce((s, g) => s + worth(g.remaining_points), 0);
-  const wouldBe = await db.rankForPoints(env, projected);
-  const gain = (member.rank ?? 0) - wouldBe;
-  const passed = gain > 0 ? await db.membersBetween(env, wouldBe, member.rank) : [];
-
-  return reply([
-    container(
-      [
-        text(
-          `## ${member.psn_online_id}'s backlog\n` +
-            `-# ${n(member.projects - member.completed)} unfinished · ${SORT_LABEL[sort] ?? SORT_LABEL.value}\n\n` +
-            lines.join('\n\n'),
-        ),
-        separator(),
-        text(
-          gain > 0
-            ? `-# Finishing the top 3 would put you at **${ordinal(wouldBe)}** — up ${gain} place${gain === 1 ? '' : 's'}` +
-              (passed.length ? `, past ${passed.slice(0, 2).map((p) => `**${p.psn_online_id}**`).join(' and ')}.` : '.')
-            : `-# Finishing the top 3 keeps you at **${ordinal(member.rank)}** — nobody close enough to catch.`,
-        ),
-        ...(member.completion < 100
-          ? [text(
-              `-# Worth at your ${pct(member.completion)} completion — and finishing these raises it, ` +
-                'so every other game you own pays more too.',
-            )]
-          : []),
-        // All four sorts, with the one you're looking at highlighted. The
-        // default had no button at all, so clicking any of the others was a
-        // one-way trip — you could never get back to the biggest-prize list
-        // without running the command again.
-        row(
-          ...[
-            ['Biggest prize', 'value'],
-            ['Nearly done', 'nearly'],
-            ['Best value', 'quick'],
-            ['Rarest first', 'rare'],
-          ].map(([label, key]) =>
-            button(label, `bl:${key}`, key === (sort ?? 'value') ? STYLE.PRIMARY : STYLE.SECONDARY),
-          ),
-        ),
-      ],
-      COLOR.green,
-    ),
-    // Private, like everything else except the board itself. #leaderboard is
-    // the one public surface; a hundred members running /backlog in #general
-    // would bury the conversation the server exists for.
-  ], { ephemeral: true });
-}
-
-// ------------------------------------------------------------ components ---
-
-async function handleComponent(interaction, env, ctx) {
-  const [action, arg] = interaction.data.custom_id.split(':');
-  const userId = interaction.member?.user?.id ?? interaction.user?.id;
-
-  switch (action) {
-    case 'lb': {
-      if (arg === 'me') {
-        const me = await db.memberByDiscordId(env, userId);
-        const page = Math.max(1, Math.ceil((me?.rank ?? 1) / Number(env.LEADERBOARD_PAGE_SIZE ?? 10)));
-        return { ...update((await leaderboard(env, page, userId)).data.components) };
-      }
-      return { ...update((await leaderboard(env, Number(arg), userId)).data.components) };
-    }
-    case 'bl':
-      return { ...update((await backlog(env, userId, arg)).data.components) };
-    case 'profile':
-      return profile(env, arg, userId);
-    case 'rank':
-      return rank(env, arg);
-    // /rank answers privately so a hundred members don't bury the channel in
-    // each other's numbers. This is the opt-in: same cards, posted for real.
-    case 'share': {
-      const shared = await rank(env, interaction.data.custom_id.split(':')[2] || userId);
-      if (shared.data?.flags) shared.data.flags &= ~64; // clear ephemeral
-      shared.data.components = shared.data.components.filter(
-        (c) => !(c.type === 1 && c.components?.some((b) => b.custom_id?.startsWith('share:'))),
-      );
-      return shared;
-    }
-    case 'do':
-      return runUpdate(interaction, env, ctx, userId);
-    case 'owners': {
-      const list = await db.gameOwnerList(env, arg, 15);
-      return reply(
-        [container([text(`### Played by\n${list.map((o) => `${o.progress === 100 ? '✅' : '▫️'} **${o.psn_online_id}** — ${o.progress}%`).join('\n')}`)], COLOR.orange)],
-        { ephemeral: true },
-      );
-    }
-    // Used to be a stub that told you to go and find a thread, styled as a
-    // warning — so a working button looked like a fault. The changelog is in
-    // the database; just show it.
-    case 'changelog':
-      return changelog(env, Number(arg));
-    default:
-      return errorReply('That button has expired.');
-  }
-}
-
-/** Game title autocomplete, straight out of the shared cache. */
-/**
- * A member's profile — the stuff that doesn't fit on a leaderboard row.
+ * How many scans are queued or running in a lane, straight from GitHub Actions.
  *
- * Used to just re-render /rank, which was pointless when you had clicked it
- * FROM /rank. What people actually want to know about somebody is not their
- * position, which they can already see, but what they have done: the rarest
- * thing they own, their best game, what they have been finishing lately.
- *
- * And when you look at someone else, the most useful section is the last one —
- * games you both own where they are ahead of you. That turns "they beat me"
- * into "here are four games where they know something I don't", which is the
- * seed of the /boost co-op idea.
+ * GitHub is the actual queue — `concurrency: queue: max` holds pending runs
+ * there, and D1 never sees them because a row is only written once a scan
+ * starts. Returns 0 on any failure: a wrong queue estimate is a far smaller
+ * problem than /update falling over because the GitHub API had a moment.
  */
-async function profile(env, targetId, viewerId) {
-  const m = await db.memberByDiscordId(env, targetId);
-  if (!m) return errorReply('That member is not on the board yet.');
-
-  const total = await db.rankedCount(env);
-  const tier = TIERS[tierFor(m.rank, total)];
-  const [best, finished] = await Promise.all([
-    db.bestGame(env, m.psn_account_id),
-    db.recentlyFinished(env, m.psn_account_id),
-  ]);
-
-  const lines = [
-    // "4th — Silver". The "of 5" was noise: the leaderboard already says how
-    // many people are on it, and a card should read like a name badge.
-    `**${ordinal(m.rank)}** — ${tier.name}`,
-    `**Points** ${n(m.points)}  ·  **Completion** ${pct(m.completion)}`,
-    `**Games** ${n(m.projects)} started, ${n(m.completed)} finished`,
-  ];
-
-  // Show the working. The score is rarity points x completion, and a member who
-  // can see both halves understands instantly why finishing old games pays —
-  // which no amount of explaining in #rules ever achieves.
-  if (m.raw_points > 0 && m.completion < 100) {
-    lines.push(
-      `-# ${n(m.raw_points)} rarity points × ${pct(m.completion)} completion. ` +
-        `${n(m.raw_points - m.points)} still waiting in the backlog.`,
-    );
-  }
-
-  if (m.rarest_name || m.rarest_game) {
-    lines.push(
-      `**Rarest owned** ${Number(m.rarest_rate).toFixed(2)}%` +
-        (m.rarest_game ? ` — ${m.rarest_game}` : ''),
-    );
-  }
-  if (best) lines.push(`**Best game** ${best.title} — ${n(best.points)} pts at ${best.progress}%`);
-  const blocks = [
-    container(
-      [
-        section(
-          [`## ${m.psn_online_id}`, trophyLine(m), lines.join('\n')],
-          thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
-        ),
-      ],
-      tier.color,
-    ),
-  ];
-
-  if (finished.length) {
-    blocks.push(
-      container(
-        [
-          text(
-            `### Recently finished\n${finished.map((f) => `✅ ${f.title}`).join('\n')}`,
-          ),
-        ],
-        COLOR.green,
-      ),
-    );
-  }
-
-  // Only when looking at somebody else, and only if you actually overlap.
-  if (viewerId && viewerId !== targetId) {
-    const me = await db.memberByDiscordId(env, viewerId);
-    if (me?.psn_account_id) {
-      const ahead = await db.aheadOfMe(env, m.psn_account_id, me.psn_account_id);
-      if (ahead.length) {
-        blocks.push(
-          container(
-            [
-              text(
-                `### Where they're ahead of you\n` +
-                  ahead
-                    .map((a) => `▫️ **${a.title}** — them ${a.their_progress}%, you ${a.my_progress}%`)
-                    .join('\n'),
-              ),
-            ],
-            COLOR.orange,
-          ),
-        );
-      }
-    }
-  }
-
-  blocks.push(
-    row(
-      button('Their rank', `rank:${targetId}`),
-      button('Full leaderboard', 'lb:1'),
-    ),
-  );
-
-  return reply(blocks, { ephemeral: true });
-}
+const queueDepth = async (env, lane = 'update') =>
+  (await runsInWorkflow(env, lane === 'first' ? 'scan-first.yml' : 'scan.yml')) ?? 0;
 
 /** What actually changed in an update, straight from the database. */
 async function changelog(env, updateId) {
@@ -853,8 +466,67 @@ async function handleAutocomplete(interaction, env) {
 
 // -------------------------------------------------------------- dispatch ---
 
+/**
+ * Which lane a member's scan belongs in.
+ *
+ * TWO QUEUES, and the reason is arithmetic. Every scan logs in as the same PSN
+ * account, so they cannot all run at once — but a single queue means a
+ * newcomer's three-hour first scan sits in front of everyone who just wants to
+ * refresh. With ~100 people arriving, all of them needing a first scan, one
+ * queue is days long and person number sixty is told they are sixtieth and
+ * leaves.
+ *
+ * So: first scans get their own lane and never block anybody. A repeat update
+ * is two to four minutes because only games whose trophy count actually moved
+ * are re-fetched.
+ *
+ * This is the single source of truth for the rule. db.activeScans() derives the
+ * same thing in SQL for the queue message; keep them agreeing.
+ */
+const laneFor = (member) => (member?.last_update_at ? 'update' : 'first');
+
+/**
+ * Which lane to actually FIRE this scan into — which is not always the lane the
+ * member belongs to.
+ *
+ * Martin's rule: both lanes should chew through updates when no first scan is
+ * happening, and a first scan arriving should wait out the update in front of
+ * it and then go next.
+ *
+ * That falls out of one decision made here. A repeat update prefers its own
+ * lane, but when the fast lane is busy and the slow lane is completely idle it
+ * borrows the slow lane instead — otherwise half the server's scanning capacity
+ * sits doing nothing while people wait.
+ *
+ * "Completely idle" is doing the work. The moment a first scan is queued or
+ * running, the slow lane stops taking overflow, so the most a first scan ever
+ * waits behind is the one update already in flight — two to four minutes. No
+ * reordering needed, and GitHub's queue is strictly FIFO so none is possible.
+ *
+ * On any GitHub failure this returns the member's own lane. Overflow is an
+ * optimisation; the cost of getting it wrong is a first scan stuck behind a
+ * pile of updates, and the cost of skipping it is a slightly longer wait.
+ */
+async function chooseLane(env, member) {
+  const own = laneFor(member);
+  if (own === 'first') return 'first';
+
+  const [fast, slow] = await Promise.all([
+    // Generous timeouts: this runs in waitUntil, after the member already has
+    // their reply, so it is not on the three-second interaction deadline.
+    runsInWorkflow(env, 'scan.yml', 3000),
+    runsInWorkflow(env, 'scan-first.yml', 3000),
+  ]);
+
+  if (fast === null || slow === null) return 'update';
+  return fast > 0 && slow === 0 ? 'first' : 'update';
+}
+
 /** Hand the slow work to GitHub Actions, which has no subrequest cap. */
 async function dispatchScan(env, discordId, interactionToken, extra = {}) {
+  const member = await db.memberByDiscordId(env, discordId);
+  const lane = await chooseLane(env, member);
+
   const res = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`, {
     method: 'POST',
     headers: {
@@ -864,8 +536,14 @@ async function dispatchScan(env, discordId, interactionToken, extra = {}) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      event_type: 'trophy-scan',
-      client_payload: { discord_id: discordId, interaction_token: interactionToken, ...extra },
+      // Separate event types rather than one with a lane flag, because GitHub
+      // concurrency groups are per WORKFLOW — two files is what actually buys
+      // two independent queues. `lane` here is the lane being FIRED INTO, which
+      // for an overflowing update is not the lane it belongs to.
+      event_type: lane === 'first' ? 'trophy-first-scan' : 'trophy-scan',
+      client_payload: {
+        discord_id: discordId, interaction_token: interactionToken, lane, ...extra,
+      },
     }),
   });
   if (!res.ok) console.error(`Dispatch failed (${res.status}): ${await res.text()}`);

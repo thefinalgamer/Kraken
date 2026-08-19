@@ -558,10 +558,19 @@ async function backlog(env, userId, sort) {
                 'so every other game you own pays more too.',
             )]
           : []),
+        // All four sorts, with the one you're looking at highlighted. The
+        // default had no button at all, so clicking any of the others was a
+        // one-way trip — you could never get back to the biggest-prize list
+        // without running the command again.
         row(
-          button('Nearly done', 'bl:nearly'),
-          button('Best value', 'bl:quick'),
-          button('Rarest first', 'bl:rare'),
+          ...[
+            ['Biggest prize', 'value'],
+            ['Nearly done', 'nearly'],
+            ['Best value', 'quick'],
+            ['Rarest first', 'rare'],
+          ].map(([label, key]) =>
+            button(label, `bl:${key}`, key === (sort ?? 'value') ? STYLE.PRIMARY : STYLE.SECONDARY),
+          ),
         ),
       ],
       COLOR.green,

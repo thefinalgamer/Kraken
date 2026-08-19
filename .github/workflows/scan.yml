@@ -1,12 +1,22 @@
-# Runs a member's /update scan.
+  # The FAST lane — repeat updates.
 #
-# Triggered by the Cloudflare Worker via repository_dispatch when someone runs
-# /update in Discord. The Worker replies instantly with "queued", this job does
-# the slow part, then edits that same message with the result.
+# Two workflows scan trophies, and the only differences are the concurrency
+# group, the timeout and the PSN rate budget. They exist as separate files
+# because GitHub concurrency groups are per workflow: two files is what actually
+# buys two independent queues.
 #
-# It lives here rather than in the Worker because a full scan makes hundreds of
-# PSN calls over several minutes, and Cloudflare's free tier caps a Worker at
-# 50 subrequests per invocation.
+#   scan.yml        this one. Repeat updates. 2-4 minutes.
+#   scan-first.yml  first scans, and repeat updates when this lane is busy and
+#                   that one is idle — so neither lane ever sits doing nothing.
+#
+# Why bother: every scan logs in as the same PSN account, so they cannot all run
+# at once. With one queue, a newcomer's three-hour first scan sits in front of
+# everyone who just wants to refresh — and with ~100 people arriving, all of
+# them needing a first scan, that queue is days long. Person number sixty is
+# told they are sixtieth and leaves.
+#
+# The Worker chooses the lane (see laneFor() in worker/src/index.mjs) and fires
+# the matching event type. Nobody picks by hand.
 
 name: Trophy scan
 
@@ -16,22 +26,21 @@ on:
   workflow_dispatch:
     inputs:
       discord_id:
-        description: Discord user id to scan
+        description: Discord user id to scan (use "Trophy scan (first)" for anyone who has never been scanned)
         required: true
 
 concurrency:
-  # One scan at a time SERVER-WIDE. Every scan logs in as the same PSN account,
-  # so parallel jobs each get their own rate limiter and collectively blow past
-  # Sony's limit. queue: max keeps the others waiting in order rather than
-  # letting GitHub cancel all but the most recent.
-  group: psn-scan
+  group: psn-scan-fast
   cancel-in-progress: false
   queue: max
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # A repeat update touches only games whose trophy count actually moved, plus
+    # a capped background refresh. If one runs an hour, it is stuck, and it must
+    # not hold the fast queue any longer than that.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +55,13 @@ jobs:
         env:
           TARGET_DISCORD_ID: ${{ github.event.client_payload.discord_id || inputs.discord_id }}
           INTERACTION_TOKEN: ${{ github.event.client_payload.interaction_token }}
+          # THE TWO LANES SHARE SONY'S BUDGET, they do not each get their own.
+          # A single scan used to run at 600 requests per 15 minutes; two lanes
+          # at 600 would be 1,200, well past the ~840 the original Nahasis bot
+          # sustained for years. 200 here + 450 in scan-first.yml = 650 total,
+          # comfortably under it. Repeat updates need very few calls, so the
+          # smaller share costs nothing.
+          PSN_RATE_LIMIT: 200
           PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}

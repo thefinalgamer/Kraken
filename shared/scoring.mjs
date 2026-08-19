@@ -235,7 +235,32 @@ export function blendedRate(globalPercent, localEarned = 0, localStarted = 0, k 
   const started = Math.max(earned, Number(localStarted) || 0);
 
   const blended = ((earned + (k * g) / 100) / (started + k)) * 100;
-  return Math.min(100, Math.max(0.01, blended));
+
+  // LOCAL RARITY ONLY EVER MAKES A TROPHY RARER, NEVER COMMONER.
+  //
+  // This is the property that makes it an economy rather than a punishment, and
+  // getting it wrong cost the board 85% of N7_Maxxi's score. Esto's formula was
+  // `flat points x (started_by / earned_by)`, and earned_by can never exceed
+  // started_by — so his multiplier had a floor of 1. Local evidence could
+  // reveal that a game was harder than Sony thought; it could never claim one
+  // was easier.
+  //
+  // Without the clamp, a trophy in a game only you own reads as "1 of 1 people
+  // here have this" — 100% — and gets devalued FOR THE CRIME OF YOU EARNING IT.
+  // It hits rare trophies hardest, because they have the furthest to fall,
+  // which is exactly backwards.
+  //
+  // Martin's "our members completing games was making each others worth less"
+  // still holds, and this is how: a trophy one of fifty of us has managed is
+  // worth far more than Sony's figure, and as more of us earn it that bonus
+  // decays back toward the global rate. It falls from inflated to normal —
+  // never below normal.
+  //
+  // It also makes the whole layer safe to launch at seven members. Local
+  // evidence only overrides Sony once it is genuinely rarer here than
+  // worldwide, which a handful of people can rarely demonstrate — so almost
+  // nothing moves today, and the economy grows in as the server does.
+  return Math.min(g, Math.max(0.01, blended));
 }
 
 /**

@@ -375,33 +375,49 @@ test('with no local evidence, Sony\'s figure is used unchanged', () => {
   assert.equal(blendedRate(45, 0, 0), 45);
 });
 
-test('a trophy the whole server has earned loses its value', () => {
-  // "our members completing games was making each others worth less" — the
-  // sentence this layer exists to reproduce.
+test('local rarity can only ever make a trophy rarer, never commoner', () => {
+  // THE property. Esto's formula was flat x (started_by / earned_by), and
+  // earned_by cannot exceed started_by — so his multiplier had a floor of 1.
+  // Local evidence could reveal a game was harder than Sony thought; it could
+  // never claim one was easier.
+  //
+  // Shipping this without the clamp cost N7_Maxxi 85% of his score in one
+  // rescore: every rare trophy in a game only he owns read as "1 of 1 people
+  // here have this" and was devalued for the crime of him earning it.
   const g = 2.71;
-  const rates = [1, 3, 10, 50].map((n) => blendedRate(g, n, n));
-  for (let i = 1; i < rates.length; i++) {
-    assert.ok(rates[i] > rates[i - 1], 'each new member who earns it makes it commoner here');
+  for (const [earned, started] of [[1, 1], [3, 3], [7, 7], [20, 20], [50, 100], [100, 100]]) {
+    assert.ok(
+      blendedRate(g, earned, started) <= g,
+      `${earned} of ${started} made a ${g}% trophy commoner — local rarity must never devalue`,
+    );
   }
-  assert.ok(rates.at(-1) > 50, 'once the server has ground it down it is worth nothing');
 });
 
-test('a trophy nobody here can do becomes more valuable, not less', () => {
-  // The other half of the economy, and the reason DLC was where the money was
-  // on Esto's board: fifty of us own it, one of us finished it.
+test('a trophy hardly anyone here can do is worth more', () => {
+  // The other half, and why DLC was where the money was on Esto's board.
   const g = 2.71;
-  assert.ok(blendedRate(g, 1, 50) < g, 'rarer here than Sony says');
-  assert.ok(trophyPoints(blendedRate(g, 1, 50)) > trophyPoints(g));
-  assert.ok(trophyPoints(blendedRate(g, 1, 200)) > trophyPoints(blendedRate(g, 1, 50)));
+  assert.ok(trophyPoints(blendedRate(g, 1, 100)) > trophyPoints(g));
+  assert.ok(trophyPoints(blendedRate(g, 1, 300)) > trophyPoints(blendedRate(g, 1, 100)));
+});
+
+test('the bonus decays back to normal as the server grinds it down', () => {
+  // "our members completing games was making each others worth less" — it falls
+  // from inflated to normal, never below normal.
+  const g = 2.71;
+  const values = [1, 5, 20, 50, 100].map((e) => trophyPoints(blendedRate(g, e, 100)));
+  for (let i = 1; i < values.length; i++) {
+    assert.ok(values[i] <= values[i - 1], 'each new earner erodes the bonus');
+  }
+  assert.equal(values.at(-1), trophyPoints(g), 'and it settles at the global value, not below');
 });
 
 test('local rarity converges as the sample grows, and never lurches', () => {
   // One formula the whole way — no switchover, no cliff at any member count.
   const g = 5;
-  let previous = blendedRate(g, 1, 1);
-  for (let n = 2; n <= 300; n++) {
-    const r = blendedRate(g, n, n);
-    assert.ok(Math.abs(r - previous) < 12, `a jump of ${(r - previous).toFixed(1)} at ${n} members`);
+  let previous = blendedRate(g, 1, 300);
+  for (let n = 299; n >= 1; n--) {
+    const r = blendedRate(g, 1, n);
+    assert.ok(Math.abs(r - previous) < 1, `a jump of ${(r - previous).toFixed(2)} at ${n} owners`);
     previous = r;
   }
 });
@@ -411,7 +427,7 @@ test('a drifted count can never produce negative points', () => {
   // nonsense, but it must degrade to a harmless number rather than a rate above
   // 100% coming back out of the curve as a negative score.
   const r = blendedRate(2.71, 99, 3);
-  assert.ok(r > 0 && r <= 100, `blended rate went to ${r}`);
+  assert.ok(r > 0 && r <= 2.71, `blended rate went to ${r}`);
   assert.ok(trophyPoints(r) >= 0);
 });
 
@@ -433,8 +449,8 @@ test('the scan and the rescore price a game differently, on purpose', () => {
   const trophies = [{ id: 1, type: 'platinum', rate: 2.71 }];
   const globalOnly = scoreGameTrophies(trophies);
   const withLocal = scoreGameTrophies(trophies, undefined, {
-    started: 20,
-    earned: new Map([[1, 20]]),
+    started: 200,
+    earned: new Map([[1, 1]]),
   });
-  assert.ok(withLocal[0].points < globalOnly[0].points);
+  assert.ok(withLocal[0].points > globalOnly[0].points);
 });

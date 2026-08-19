@@ -35,6 +35,43 @@ export class D1 {
     return body.result?.[0]?.results ?? [];
   }
 
+  /**
+   * Run many statements in ONE request.
+   *
+   * D1's /query endpoint accepts several statements separated by semicolons,
+   * and the round trip — not the database — is what costs. A rescore rewrites
+   * ~100,000 trophies; sent one statement at a time that is 46,000 HTTP calls
+   * at roughly 150ms each, which is two hours for a few seconds of actual SQL.
+   *
+   * Values are INLINED rather than bound, because parameter binding across
+   * multiple statements is ambiguous. That is only safe for values we generate
+   * ourselves, so everything is checked: numbers must be finite, strings must
+   * look like the PSN ids they are. Anything else throws rather than being
+   * escaped and hoped for.
+   */
+  async runBatch(statements) {
+    if (!statements.length) return;
+    const CHUNK = 200;
+    for (let i = 0; i < statements.length; i += CHUNK) {
+      await this.query(statements.slice(i, i + CHUNK).join(';\n'));
+    }
+  }
+
+  /**
+   * A value safe to inline. Deliberately strict — this is the only place in the
+   * codebase where a value reaches SQL without being bound, so it refuses
+   * anything it does not positively recognise.
+   */
+  static lit(v) {
+    if (v === null || v === undefined) return 'NULL';
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v)) throw new Error(`Refusing to inline ${v}`);
+      return String(v);
+    }
+    if (typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v)) return `'${v}'`;
+    throw new Error(`Refusing to inline unrecognised value: ${JSON.stringify(v)?.slice(0, 60)}`);
+  }
+
   async one(sql, params = []) {
     const rows = await this.query(sql, params);
     return rows[0] ?? null;

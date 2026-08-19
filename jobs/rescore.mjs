@@ -68,26 +68,35 @@ async function rescoreTrophies() {
   const PAGE = D1.chunkSize(1);
   const pending = [];
 
-  // One statement per distinct value, up to 49 trophies each: the value costs
-  // one bound parameter and every trophy costs two.
-  const PER_STATEMENT = 49;
+  // Grouped by value, then sent as ONE request per page.
+  //
+  // The first version issued a separate HTTP call per distinct value, and there
+  // are hundreds of distinct values in a page of 90 games — so a job with a few
+  // seconds of real SQL in it took two hours of round trips. Cloudflare is
+  // 150ms away; that is the entire cost.
+  //
+  // Row-value IN matches the primary key (np_comm_id, trophy_id), so each
+  // statement is still an indexed lookup rather than a scan.
   const flush = async (rows) => {
     const byValue = new Map();
     for (const [points, gameId, trophyId] of rows) {
       if (!byValue.has(points)) byValue.set(points, []);
-      byValue.get(points).push(gameId, trophyId);
+      byValue.get(points).push([gameId, trophyId]);
     }
-    for (const [points, flat] of byValue) {
-      for (let k = 0; k < flat.length; k += PER_STATEMENT * 2) {
-        const part = flat.slice(k, k + PER_STATEMENT * 2);
-        const pairs = part.length / 2;
-        await db.run(
-          `UPDATE trophies SET points = ?
-            WHERE (np_comm_id, trophy_id) IN (VALUES ${Array.from({ length: pairs }, () => '(?,?)').join(',')})`,
-          [points, ...part],
+
+    const statements = [];
+    for (const [points, pairs] of byValue) {
+      const PER = 200; // no bound-parameter ceiling now, only statement length
+      for (let k = 0; k < pairs.length; k += PER) {
+        const part = pairs.slice(k, k + PER);
+        statements.push(
+          `UPDATE trophies SET points = ${D1.lit(points)} WHERE (np_comm_id, trophy_id) IN (VALUES ` +
+            part.map(([g, t]) => `(${D1.lit(g)},${D1.lit(t)})`).join(',') +
+            ')',
         );
       }
     }
+    await db.runBatch(statements);
   };
 
   for (let i = 0; i < games.length; i += PAGE) {
@@ -222,22 +231,24 @@ async function rescoreMember(member) {
     }
   }
 
-  // Grouped by value, so one statement covers up to 98 games instead of one
-  // statement per game. Pelziowo alone has 15,411 rows — a round trip each
-  // would take longer than the entire rest of the job.
+  // Grouped by value and sent in batched requests, same reasoning as the trophy
+  // writes: Pelziowo alone has 15,411 rows, and a round trip each would take
+  // longer than the entire rest of the job.
   let written = 0;
+  const statements = [];
   for (const [points, ids] of changed) {
-    const CHUNK = D1.chunkSize(1) - 2;
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const part = ids.slice(i, i + CHUNK);
-      await db.run(
-        `UPDATE member_games SET points = ?
-          WHERE psn_account_id = ? AND np_comm_id IN (${part.map(() => '?').join(',')})`,
-        [points, member.psn_account_id, ...part],
+    const PER = 200;
+    for (let i = 0; i < ids.length; i += PER) {
+      const part = ids.slice(i, i + PER);
+      statements.push(
+        `UPDATE member_games SET points = ${D1.lit(points)} ` +
+          `WHERE psn_account_id = ${D1.lit(member.psn_account_id)} ` +
+          `AND np_comm_id IN (${part.map((g) => D1.lit(g)).join(',')})`,
       );
       written += part.length;
     }
   }
+  await db.runBatch(statements);
 
   // Completion IS recomputed, because it depends on which games are worth
   // nothing and a scoring change moves that line. Same query the scan uses.

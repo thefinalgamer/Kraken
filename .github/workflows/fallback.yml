@@ -1,43 +1,51 @@
-# The fortnightly safety net.
+# The weekly safety net.
 #
 # The original bot did a full refresh every two weeks if nobody triggered an
 # update, so inactive members' data didn't go stale and the board didn't slowly
-# drift into fiction. Kept exactly.
+# drift into fiction. Kept, but weekly — with the server past twenty members,
+# smaller and more frequent bites get through the whole list instead of rolling
+# half of it over every time.
 #
 # Also acts as the keepalive: GitHub disables scheduled workflows after 60 days
 # of repository inactivity, and this committing its run marker each time counts
 # as activity.
-
-name: Fortnightly refresh
-
+ 
+name: Weekly refresh
+ 
 on:
   schedule:
-    - cron: '0 3 */14 * *' # 03:00 UTC, every 14 days
+    - cron: '0 4 * * 1' # 04:00 UTC every Monday — an hour after the nightly
+                        # rescore, so the two never overlap
   workflow_dispatch:
-
+ 
 concurrency:
   group: fallback
   cancel-in-progress: false
-
+ 
 permissions:
   contents: write
-
+ 
 jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
-
+ 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
+ 
       - run: npm ci --omit=dev
-
+ 
       - name: Refresh every member
         env:
+          # A THIRD share of Sony's budget. This job has its own concurrency
+          # group, so it can run at the same time as both scan lanes — 150 here
+          # plus 200 fast plus 450 first is 800 per 15 minutes, just under the
+          # ~840 the original bot sustained for years.
+          PSN_RATE_LIMIT: 150
           PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
@@ -48,7 +56,7 @@ jobs:
           DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
           DISCORD_OWNER_ID: ${{ vars.DISCORD_OWNER_ID }}
         run: npm run fallback
-
+ 
       - name: Keepalive commit
         run: |
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .last-refresh

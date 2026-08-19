@@ -21,11 +21,15 @@ on:
         options:
           - register-commands
           - migrate
+          - rescore
 
 jobs:
   admin:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A rescore walks 20,000 games and 500,000 trophies over D1's HTTP API.
+    # Registering commands takes seconds; this ceiling exists purely so a
+    # rescore of the big libraries is never cut off half way through.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -59,3 +63,19 @@ jobs:
             echo "── $f"
             npx wrangler d1 execute platinum-intel --remote --yes --file "$f"
           done
+
+      # Re-prices every trophy, game and member from data already in the
+      # database. No PSN calls, so it takes minutes rather than the many hours
+      # a full rescan of the big libraries would. Run this after ANY change to
+      # the scoring rules — otherwise the board keeps showing the old numbers
+      # until each member happens to run an update.
+      - name: Rescore the whole board
+        if: inputs.task == 'rescore'
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
+          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
+        run: npm run rescore

@@ -26,7 +26,7 @@
 import { D1 } from './lib/d1.mjs';
 import { scoreGameTrophies, applyCompletion } from '../shared/scoring.mjs';
 import { memberCompletion } from './lib/completion.mjs';
-import { publishLeaderboard } from './lib/discord.mjs';
+import { publishLeaderboard, syncTierRoles } from './lib/discord.mjs';
 
 const env = process.env;
 const db = new D1({
@@ -410,6 +410,12 @@ async function main() {
       set: (k, v) => db.setState(k, v),
     });
     console.log('\n#leaderboard updated.');
+
+    // A full pass here, unlike the scan's incremental one. A rescore re-prices
+    // everybody, so any number of people can have crossed a tier boundary, and
+    // this is the job that runs when nobody is waiting on it.
+    await syncTierRoles(board);
+    await db.setState('tier_role_board_size', board.length);
   } catch (err) {
     console.error('\nCould not update #leaderboard (the scores are saved regardless):', err.message);
   }

@@ -38,6 +38,7 @@ import {
   postMovements,
   publishLeaderboard,
   warnTokenExpiry,
+  syncTierRoles,
 } from './lib/discord.mjs';
 
 /**
@@ -236,6 +237,26 @@ async function main() {
            FROM members
           WHERE rank IS NOT NULL AND last_update_at IS NOT NULL
           ORDER BY rank ASC`,
+      );
+
+      // Only whoever actually moved, plus the member who just scanned — a full
+      // pass costs one Discord call per member and a tier change is rare.
+      //
+      // EXCEPT when the board has grown. Tier boundaries are percentages, so
+      // one new member can push somebody from Gold to Silver without their rank
+      // moving at all. That is invisible to the movements list, so a change in
+      // the member count forces a full pass.
+      const lastSize = Number(await db.getState('tier_role_board_size', 0)) || 0;
+      const fullPass = board.length !== lastSize;
+      if (fullPass) await db.setState('tier_role_board_size', board.length);
+
+      await announce('the tier roles', () =>
+        syncTierRoles(
+          board,
+          fullPass
+            ? null
+            : new Set([member.discord_id, ...movements.map((mv) => mv.discordId)]),
+        ),
       );
       await publishLeaderboard(board, {
         get: (k, fallback) => db.getState(k, fallback),
@@ -847,6 +868,7 @@ async function recomputeRanks() {
       ]);
       if (oldRank != null) {
         movements.push({
+          discordId: rows[i].discord_id,
           onlineId: rows[i].psn_online_id,
           from: oldRank,
           to: newRank,

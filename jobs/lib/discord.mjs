@@ -8,6 +8,7 @@
 
 import {
   configureEmoji,
+  tierFor,
   message,
   updateCard,
   movementLines,
@@ -330,4 +331,114 @@ export async function publishLeaderboard(members, store) {
 
   await store.set('board_message_ids', ids);
   console.log(`Board published: ${members.length} hunters across ${ids.length} message(s).`);
+}
+
+// ------------------------------------------------------------- tier roles ---
+
+/**
+ * Give members the Discord role that matches where they are on the board.
+ *
+ * These roles were handed out by platinum count before Kraken existed, which is
+ * why the counts look nothing like the leaderboard — 14 Golds and one Platinum
+ * role held by nobody. From now on the role IS the rank: one Platinum, then the
+ * top tenth Gold, the next third Silver, everyone else Bronze, exactly as
+ * tierFor() computes it for the board.
+ *
+ * Three things worth knowing before touching this:
+ *
+ * 1. THE BOT'S ROLE MUST SIT ABOVE ALL FOUR in Server Settings -> Roles.
+ *    Discord refuses to add or remove any role positioned above your own, and
+ *    it refuses with a 403 that says nothing useful. If nobody's roles ever
+ *    change, that is the first thing to check.
+ *
+ * 2. Roles are resolved BY NAME, not by id. Four ids in config would be four
+ *    more things to paste and get wrong, and the names already have to match
+ *    the board for the colours to mean anything.
+ *
+ * 3. Best-effort, always. A completed scan must never be reported as failed
+ *    because Discord had a moment while handing out cosmetics.
+ */
+let roleCache = null;
+
+async function tierRoleIds() {
+  if (roleCache) return roleCache;
+  const roles = await rest(`/guilds/${env.DISCORD_GUILD_ID}/roles`, { method: 'GET' });
+  const byName = new Map(roles.map((r) => [r.name.toLowerCase(), r.id]));
+  roleCache = {
+    platinum: byName.get('platinum'),
+    gold: byName.get('gold'),
+    silver: byName.get('silver'),
+    bronze: byName.get('bronze'),
+  };
+  const missing = Object.entries(roleCache).filter(([, id]) => !id).map(([k]) => k);
+  if (missing.length) {
+    console.warn(`  no Discord role named: ${missing.join(', ')} — those members keep whatever they have`);
+  }
+  return roleCache;
+}
+
+/**
+ * @param {Array<{discord_id:string, rank:number}>} ranked - everyone on the board
+ * @param {Set<string>|null} only - limit to these discord ids (rank movers), or
+ *   null for a full pass. Incremental is the normal case: a scan usually moves
+ *   nobody, and a full pass costs one Discord call per member.
+ */
+export async function syncTierRoles(ranked, only = null) {
+  if (!env.DISCORD_GUILD_ID || !env.DISCORD_BOT_TOKEN) return { changed: 0, skipped: 0 };
+
+  const ids = await tierRoleIds();
+  const all = Object.values(ids).filter(Boolean);
+  if (!all.length) return { changed: 0, skipped: 0 };
+
+  const total = ranked.length;
+  let changed = 0;
+  let skipped = 0;
+
+  for (const m of ranked) {
+    if (only && !only.has(m.discord_id)) continue;
+
+    const wanted = ids[tierFor(m.rank, total)];
+    if (!wanted) continue;
+
+    let current;
+    try {
+      // Per-member lookup rather than listing the whole guild: listing needs
+      // the privileged GUILD_MEMBERS intent, which this bot does not ask for
+      // and should not need just to colour a name.
+      current = await rest(`/guilds/${env.DISCORD_GUILD_ID}/members/${m.discord_id}`, {
+        method: 'GET',
+      });
+    } catch (err) {
+      skipped += 1; // left the server, or Discord hiccuped
+      continue;
+    }
+
+    const held = new Set(current.roles ?? []);
+    const stale = all.filter((id) => id !== wanted && held.has(id));
+    if (held.has(wanted) && !stale.length) continue;
+
+    try {
+      if (!held.has(wanted)) {
+        await rest(`/guilds/${env.DISCORD_GUILD_ID}/members/${m.discord_id}/roles/${wanted}`, {
+          method: 'PUT',
+        });
+      }
+      // Removed AFTER the new one is added, so nobody is briefly tierless — and
+      // so a failure halfway leaves them with too many roles rather than none.
+      for (const id of stale) {
+        await rest(`/guilds/${env.DISCORD_GUILD_ID}/members/${m.discord_id}/roles/${id}`, {
+          method: 'DELETE',
+        });
+      }
+      changed += 1;
+    } catch (err) {
+      skipped += 1;
+      console.warn(`  could not set roles for ${m.discord_id}: ${err.message}`);
+    }
+  }
+
+  if (changed || skipped) {
+    console.log(`  tier roles: ${changed} updated${skipped ? `, ${skipped} skipped` : ''}`);
+  }
+  return { changed, skipped };
 }

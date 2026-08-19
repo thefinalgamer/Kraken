@@ -53,6 +53,7 @@ const safeJson = (raw, fallback) => {
  * scoreGameTrophies() needs.
  */
 async function rescoreTrophies() {
+  const startedAt = Date.now();
   const games = await db.query('SELECT np_comm_id FROM games ORDER BY np_comm_id');
   console.log(`re-scoring ${games.length} games`);
 
@@ -131,8 +132,16 @@ async function rescoreTrophies() {
     await flush(pending);
     pending.length = 0;
 
-    if (Math.floor(i / PAGE) % 20 === 0) {
-      console.log(`  ${Math.min(i + PAGE, games.length)}/${games.length} games`);
+    // Every other page. A silent four-minute gap is indistinguishable from a
+    // hung job, and that ambiguity has now cost two runs.
+    if (Math.floor(i / PAGE) % 2 === 0) {
+      const done = Math.min(i + PAGE, games.length);
+      const secs = Math.round((Date.now() - startedAt) / 1000);
+      const eta = done ? Math.round((secs / done) * (games.length - done)) : 0;
+      console.log(
+        `  ${done}/${games.length} games · ${changedTrophies} trophies re-valued · ` +
+          `${secs}s elapsed, ~${Math.ceil(eta / 60)} min left`,
+      );
     }
   }
 

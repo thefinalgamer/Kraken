@@ -1,0 +1,69 @@
+# The SECOND lane — first scans, plus overflow.
+#
+# The twin of scan.yml. Same job, different queue: a member's first scan reads
+# their entire library, which is minutes for most people and hours for the
+# 15,000-game collections. Putting those in their own lane means they never
+# block somebody who just wants a two-minute refresh, and a hundred people
+# joining at once queue up here without the board going quiet for everyone else.
+#
+# It is NOT reserved for first scans. When the fast lane is busy and this one is
+# completely idle, the Worker sends repeat updates here too — otherwise half the
+# server's scanning capacity sits doing nothing while people wait. The moment a
+# first scan is queued or running, overflow stops, so a first scan never waits
+# behind more than the single update already in flight.
+#
+# All of that is decided in chooseLane() in worker/src/index.mjs. Nothing picks
+# a lane by hand. Use this one for manual runs of anybody big, though — it has
+# the long timeout.
+
+name: Trophy scan (lane 2)
+
+on:
+  repository_dispatch:
+    types: [trophy-first-scan]
+  workflow_dispatch:
+    inputs:
+      discord_id:
+        description: Discord user id to scan (use this lane for anyone with a big library)
+        required: true
+
+concurrency:
+  group: psn-scan-first
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    # Pelziowo's 15,411 games took hours. GitHub's ceiling is 360 minutes and a
+    # scan resumes where it left off — every game is stamped with when it was
+    # scanned — so hitting this is a delay, never lost work.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Run scan
+        env:
+          TARGET_DISCORD_ID: ${{ github.event.client_payload.discord_id || inputs.discord_id }}
+          INTERACTION_TOKEN: ${{ github.event.client_payload.interaction_token }}
+          # The larger share of Sony's budget, because this lane is the one that
+          # actually needs throughput. 450 here + 200 in scan.yml = 650 per 15
+          # minutes across both, under the ~840 the original bot sustained.
+          PSN_RATE_LIMIT: 450
+          PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
+          DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
+          DISCORD_OWNER_ID: ${{ vars.DISCORD_OWNER_ID }}
+        run: npm run scan

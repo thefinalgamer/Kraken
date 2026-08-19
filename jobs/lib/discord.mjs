@@ -384,11 +384,36 @@ async function tierRoleIds() {
  *   nobody, and a full pass costs one Discord call per member.
  */
 export async function syncTierRoles(ranked, only = null) {
-  if (!env.DISCORD_GUILD_ID || !env.DISCORD_BOT_TOKEN) return { changed: 0, skipped: 0 };
+  // Say WHY, out loud. The first run of this did nothing at all and printed
+  // nothing at all, which is the worst possible combination — there was no way
+  // to tell "everyone already had the right role" from "this never ran".
+  if (!env.DISCORD_GUILD_ID) {
+    console.warn(
+      '  tier roles: SKIPPED — DISCORD_GUILD_ID is not set for this job. ' +
+        'Add it under Settings -> Secrets and variables -> Actions -> Variables.',
+    );
+    return { changed: 0, skipped: 0 };
+  }
+  if (!env.DISCORD_BOT_TOKEN) {
+    console.warn('  tier roles: SKIPPED — DISCORD_BOT_TOKEN is not set for this job.');
+    return { changed: 0, skipped: 0 };
+  }
 
-  const ids = await tierRoleIds();
+  let ids;
+  try {
+    ids = await tierRoleIds();
+  } catch (err) {
+    console.warn(`  tier roles: SKIPPED — could not read the server's roles: ${err.message}`);
+    return { changed: 0, skipped: 0 };
+  }
+
   const all = Object.values(ids).filter(Boolean);
-  if (!all.length) return { changed: 0, skipped: 0 };
+  if (!all.length) {
+    console.warn(
+      '  tier roles: SKIPPED — no roles named Platinum, Gold, Silver or Bronze in this server.',
+    );
+    return { changed: 0, skipped: 0 };
+  }
 
   const total = ranked.length;
   let changed = 0;
@@ -437,8 +462,17 @@ export async function syncTierRoles(ranked, only = null) {
     }
   }
 
-  if (changed || skipped) {
-    console.log(`  tier roles: ${changed} updated${skipped ? `, ${skipped} skipped` : ''}`);
+  // Always logged, even when it is zero. "0 updated" means everybody already
+  // had the right role; silence means it never ran.
+  console.log(
+    `  tier roles: ${changed} updated, ${skipped} skipped, ` +
+      `${only ? only.size : ranked.length} checked`,
+  );
+  if (skipped && !changed) {
+    console.warn(
+      '  every role change failed. The usual cause is role order: drag the bot' +
+        " role ABOVE Platinum/Gold/Silver/Bronze in Server Settings -> Roles.",
+    );
   }
   return { changed, skipped };
 }

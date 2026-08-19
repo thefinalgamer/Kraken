@@ -65,5 +65,6 @@ jobs:
           DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
           DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
           DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
-          DISCORD_OWNER_ID: ${{ vars.DISCORD_OWNER_ID }}
+          DISCORD_OWNER_ID: ${{ vars.DISCORD_OWNER_ID }}      
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
         run: npm run scan

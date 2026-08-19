@@ -77,5 +77,6 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
-          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
+          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}  
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
         run: npm run rescore

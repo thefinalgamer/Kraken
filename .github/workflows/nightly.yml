@@ -1,0 +1,54 @@
+# The nightly rescore.
+#
+# Local rarity is the reason this exists. A trophy's value depends on what the
+# whole SERVER has earned, so it changes every time anybody plays — but no
+# single member's scan can recompute it, because a scan only sees one library.
+# Without this, the board silently runs on whatever the rarity was the last time
+# somebody remembered to press the button in Actions -> Admin.
+#
+# It also picks up global rarity drift, re-prices anyone whose completion moved,
+# re-ranks, republishes #leaderboard and syncs the tier roles. No PSN calls at
+# all — everything comes from the database — so it costs nothing and cannot
+# fail in a way that loses data.
+#
+# 03:00 UTC: after the late-night session, before anyone is looking.
+
+name: Nightly rescore
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Shares the fast lane's group so a rescore and a member's update can never
+  # run at once — they both rewrite member_games.points, and the loser's work
+  # would be silently overwritten.
+  group: psn-scan-fast
+  cancel-in-progress: false
+
+jobs:
+  rescore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Rescore the board
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
+          DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
+        run: npm run rescore

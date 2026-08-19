@@ -69,10 +69,7 @@ const commands = [
   },
   {
     name: 'leaderboard',
-    description: 'The full board, ten at a time',
-    options: [
-      { name: 'page', description: 'Jump straight to a page', type: 4, required: false, min_value: 1 },
-    ],
+    description: 'See who is just above and below you on the board',
   },
   {
     name: 'game',

@@ -504,9 +504,18 @@ export async function syncTierRoles(ranked, only = null) {
       `${only ? only.size : ranked.length} checked`,
   );
   if (skipped && !changed) {
+    // Two different faults, two different fixes, and Discord's codes tell them
+    // apart — so read the code rather than guessing. Getting this wrong cost a
+    // round trip: the first version blamed role order for a 50001, which is the
+    // other problem entirely.
     console.warn(
-      '  every role change failed. The usual cause is role order: drag the bot' +
-        " role ABOVE Platinum/Gold/Silver/Bronze in Server Settings -> Roles.",
+      '  every role change failed. Discord returns:\n' +
+        '    50001 Missing Access      -> the bot lacks the MANAGE ROLES permission.\n' +
+        '                                 Server Settings -> Roles -> the bot role ->\n' +
+        '                                 Permissions -> turn on "Manage Roles".\n' +
+        '    50013 Missing Permissions -> role ORDER. Drag the bot role ABOVE\n' +
+        '                                 Platinum/Gold/Silver/Bronze.\n' +
+        '  Both are required; having one is not enough.',
     );
   }
   return { changed, skipped };

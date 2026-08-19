@@ -94,7 +94,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
-    case 'leaderboard':return leaderboard(env, Number(opt('page') ?? 1), userId);
+    case 'leaderboard':return leaderboard(env, 'me', userId);
     case 'game':       return game(env, opt('title'), userId);
     case 'backlog':    return backlog(env, userId, opt('sort') ?? 'value');
     default:           return errorReply(`Unknown command \`/${name}\`.`);
@@ -413,7 +413,7 @@ async function rank(env, target) {
       text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
       ...cards,
       row(
-        button('Full leaderboard', `lb:${Math.max(1, Math.ceil((member.rank ?? 1) / 10))}`),
+        button('Who\'s near me', 'lb:me'),
         button('Refresh my stats', 'do:update', STYLE.PRIMARY),
         button('Share to channel', `share:rank:${target}`, STYLE.SECONDARY),
       ),
@@ -423,24 +423,29 @@ async function rank(env, target) {
 }
 
 /**
- * A private peek at the board.
+ * Who is near you.
  *
- * The real leaderboard lives in #leaderboard and edits itself in place; this is
- * for checking without leaving whatever channel you are in, so it is ephemeral
- * and hands you back to the pinned board with a link.
+ * NOT a copy of the board. The full ranking lives in #leaderboard, edits itself
+ * in place and shows everybody — so repeating it here paginated was answering a
+ * question nobody was asking. What you actually want mid-conversation is the
+ * five people you are chasing and the five closing on you.
  *
- * Rendered as one block per TIER rather than one card per member. Cards broke
- * the day a fifth member joined: Discord counts nested components against a
- * limit of 40 and a card is 8 of them, so five members was 45 and the whole
- * message was rejected — which the member sees as "Kraken didn't respond in
- * time". A tier block is 3 components however many people are in it.
+ * Ephemeral, like everything except the board itself, with a link to hand you
+ * back to the real thing.
  */
-async function leaderboard(env, page, viewerId) {
-  const size = Number(env.LEADERBOARD_PAGE_SIZE ?? 25);
+async function leaderboard(env, mode, viewerId) {
   const total = await db.rankedCount(env);
-  const pages = Math.max(1, Math.ceil(total / size));
-  const safePage = Math.min(Math.max(1, page), pages);
-  const members = await db.leaderboardPage(env, (safePage - 1) * size, size);
+  if (!total) return errorReply('Nobody is on the board yet.');
+
+  const me = await db.memberByDiscordId(env, viewerId);
+  const myRank = me?.rank ?? null;
+
+  // Centre the window, then pull it back inside the board so you always get a
+  // full eleven where there are eleven to give — otherwise being 2nd or last
+  // shows you a stub.
+  const wanted = mode === 'top' || !myRank ? 6 : myRank;
+  const centre = Math.min(Math.max(6, wanted), Math.max(6, total - 5));
+  const rows = await db.neighbours(env, centre, 5);
 
   const openBoard =
     env.DISCORD_GUILD_ID && env.DISCORD_LEADERBOARD_CHANNEL_ID
@@ -450,17 +455,18 @@ async function leaderboard(env, page, viewerId) {
         )]
       : [];
 
+  const heading =
+    mode === 'top' || !myRank
+      ? `# Top of the board\n-# ${n(total)} hunters · rarity points × completion`
+      : `# Around you\n-# ${ordinal(myRank)} of ${n(total)} · five either side`;
+
   return reply(
     [
-      text(
-        `# Platinum Intel\n-# ${n(total)} hunters · rarity points × completion` +
-          (pages > 1 ? ` · page ${safePage} of ${pages}` : ''),
-      ),
-      ...boardBlocks(members, { total, viewerId }),
+      text(heading),
+      ...boardBlocks(rows, { total, viewerId }),
       row(
-        button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
-        button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
-        button('Jump to me', 'lb:me', STYLE.PRIMARY),
+        button('Top of the board', 'lb:top', STYLE.SECONDARY),
+        ...(myRank ? [button('Around me', 'lb:me', STYLE.PRIMARY)] : []),
         ...openBoard,
       ),
     ],
@@ -757,7 +763,7 @@ async function profile(env, targetId, viewerId) {
   }
 
   blocks.push(
-    row(button('Their rank', `rank:${targetId}`), button('Full leaderboard', 'lb:1')),
+    row(button('Their rank', `rank:${targetId}`), button('Who\'s near me', 'lb:me')),
   );
 
   return reply(blocks, { ephemeral: true });
@@ -773,14 +779,13 @@ async function handleComponent(interaction, env, ctx) {
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
 
   switch (action) {
-    case 'lb': {
-      if (arg === 'me') {
-        const me = await db.memberByDiscordId(env, userId);
-        const page = Math.max(1, Math.ceil((me?.rank ?? 1) / Number(env.LEADERBOARD_PAGE_SIZE ?? 25)));
-        return { ...update((await leaderboard(env, page, userId)).data.components) };
-      }
-      return { ...update((await leaderboard(env, Number(arg), userId)).data.components) };
-    }
+    case 'lb':
+      // 'top' or anything else means the head of the board; 'me' re-centres on
+      // the caller. Older buttons carried a page number, which now harmlessly
+      // falls through to the top.
+      return {
+        ...update((await leaderboard(env, arg === 'me' ? 'me' : 'top', userId)).data.components),
+      };
     case 'bl':
       return { ...update((await backlog(env, userId, arg)).data.components) };
     case 'profile':

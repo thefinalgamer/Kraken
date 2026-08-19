@@ -360,16 +360,51 @@ export async function publishLeaderboard(members, store) {
  */
 let roleCache = null;
 
+/**
+ * Role names are matched LOOSELY, on letters only.
+ *
+ * The first attempt compared the exact lowercased name and found nothing,
+ * because the roles are called things like "🏆 Platinum" — a mod had put emoji
+ * in front to make them stand out in the sidebar, which is an entirely
+ * reasonable thing to do to a Discord server and none of the bot's business.
+ *
+ * So everything that is not a letter is stripped before comparing: emoji,
+ * spaces, dashes, brackets, the lot. "🏆 Platinum", "[PLATINUM]" and
+ * "· platinum ·" all resolve to the same role, and anybody can redecorate them
+ * later without quietly breaking the leaderboard.
+ *
+ * An exact match wins over a prefix match, so a "Platinum Hunter" role can
+ * never shadow the real "Platinum" one.
+ */
+const roleKey = (name) => String(name ?? '').replace(/[^a-z]/gi, '').toLowerCase();
+
 async function tierRoleIds() {
   if (roleCache) return roleCache;
   const roles = await rest(`/guilds/${env.DISCORD_GUILD_ID}/roles`, { method: 'GET' });
-  const byName = new Map(roles.map((r) => [r.name.toLowerCase(), r.id]));
+
+  const find = (tier) =>
+    (roles.find((r) => roleKey(r.name) === tier) ??
+      roles.find((r) => roleKey(r.name).startsWith(tier)))?.id;
+
   roleCache = {
-    platinum: byName.get('platinum'),
-    gold: byName.get('gold'),
-    silver: byName.get('silver'),
-    bronze: byName.get('bronze'),
+    platinum: find('platinum'),
+    gold: find('gold'),
+    silver: find('silver'),
+    bronze: find('bronze'),
   };
+
+  // Print what it actually matched, by the role's REAL name. Emoji in names is
+  // exactly the sort of thing that silently resolves to the wrong role, so the
+  // log should let you eyeball it rather than trust it.
+  const found = Object.entries(roleCache).filter(([, id]) => id);
+  if (found.length) {
+    console.log(
+      `  tier roles resolved: ${found
+        .map(([tier, id]) => `${tier} → "${roles.find((r) => r.id === id).name}"`)
+        .join(', ')}`,
+    );
+  }
+
   const missing = Object.entries(roleCache).filter(([, id]) => !id).map(([k]) => k);
   if (missing.length) {
     console.warn(`  no Discord role named: ${missing.join(', ')} — those members keep whatever they have`);

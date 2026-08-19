@@ -64,6 +64,7 @@ async function rescoreTrophies() {
   // size is dictated by that and not by taste. One id per game = 90 games a
   // round trip. Hardcoding 200 here is what broke the first run.
   const PAGE = D1.chunkSize(1);
+  const estimatedIds = [];
 
   for (let i = 0; i < games.length; i += PAGE) {
     const slice = games.slice(i, i + PAGE);
@@ -92,6 +93,7 @@ async function rescoreTrophies() {
       changedGames += 1;
       changedTrophies += moved.length;
       if (scored.some((t) => t.estimated)) estimatedGames += 1;
+      estimatedIds.push([row.np_comm_id, scored.some((t) => t.estimated) ? 1 : 0]);
 
       // Grouped by new value, so a 97-trophy game is one or two statements
       // rather than 97.
@@ -118,6 +120,14 @@ async function rescoreTrophies() {
     if (Math.floor(i / PAGE) % 20 === 0) {
       console.log(`  ${Math.min(i + PAGE, games.length)}/${games.length} games`);
     }
+  }
+
+  // Keep games.estimated honest, so the scan knows which ones to re-check in
+  // days rather than a month.
+  for (const [id, flag] of estimatedIds) {
+    await db.run('UPDATE games SET estimated = ? WHERE np_comm_id = ? AND estimated <> ?', [
+      flag, id, flag,
+    ]);
   }
 
   console.log(

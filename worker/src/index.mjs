@@ -454,13 +454,26 @@ async function game(env, query, userId) {
   const worth = remaining.reduce((sum, t) => sum + (t.points || 0), 0);
   const plat = trophies.find((t) => t.type === 'platinum');
 
+  // PSN has told us nothing about this game — either it is old enough that Sony
+  // stopped computing rarity, or new enough that it hasn't started. Its points
+  // are estimates, and the card must say so. Rendering an unknown as
+  // "0.00% earned · Ultra rare" is the worst of both: it looks like hard data
+  // AND it claims the rarest band on PlayStation for a trophy we know nothing
+  // about.
+  const estimated = !trophies.some((t) => Number(t.earned_rate) > 0);
+
+  const rarityOf = (t) =>
+    Number(t.earned_rate) > 0
+      ? `${pct(t.earned_rate)} earned · ${RARITY_BANDS[rarityBand(t.earned_rate)]}`
+      : 'rarity not published · estimated';
+
   const top = [...remaining]
     .sort((a, b) => (b.points || 0) - (a.points || 0))
     .slice(0, 3)
     .map(
       (t, i) =>
         `**${i + 1}.** ${t.name} · *${t.type}*\n` +
-        `-# ${pct(t.earned_rate)} earned · ${RARITY_BANDS[rarityBand(t.earned_rate)]} · **+${n(t.points)} points**`,
+        `-# ${rarityOf(t)} · **+${n(t.points)} point${t.points === 1 ? '' : 's'}**`,
     );
 
   const owners = await db.gameOwners(env, found.np_comm_id);
@@ -473,13 +486,25 @@ async function game(env, query, userId) {
             `## ${found.title}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
             `**Worth to you:** +${n(worth)} points` +
               (mine ? `\n**Your progress:** ${mine.progress}%` : '\n**Your progress:** not started'),
-            plat ? `**Plat rarity:** ${pct(plat.earned_rate)} · ${RARITY_BANDS[rarityBand(plat.earned_rate)]}` : '',
+            plat
+              ? `**Plat rarity:** ${Number(plat.earned_rate) > 0
+                  ? `${pct(plat.earned_rate)} · ${RARITY_BANDS[rarityBand(plat.earned_rate)]}`
+                  : 'not published by PSN'}`
+              : '',
           ].filter(Boolean),
           thumbnail(found.icon_url || FALLBACK_AVATAR, found.title),
         ),
         separator(),
         text(['**Biggest earners left**', ...top].join('\n')),
         separator(),
+        ...(estimated
+          ? [text(
+              '-# **PSN has not published rarity for this game.** Every value above is an ' +
+                'estimate — what a typical trophy is worth — and is deliberately on the low ' +
+                'side, because guessing high is how a leaderboard gets farmed. New releases ' +
+                'usually get real figures within a few weeks and this corrects itself.',
+            )]
+          : []),
         text(
           `-# ${n(owners.platted)} of ${n(owners.total)} members here have platted this` +
             (owners.fastest ? ` · fastest was **${owners.fastest}**` : ''),

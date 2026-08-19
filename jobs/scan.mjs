@@ -59,6 +59,22 @@ const GAME_CACHE_TTL_MS = Number(process.env.GAME_CACHE_TTL_DAYS || 30) * 24 * 6
 const STALE_REFRESH_BUDGET = Number(process.env.STALE_REFRESH_BUDGET) || 150;
 
 /**
+ * How long an ESTIMATED game stays good for — one whose trophies PSN has
+ * published no rarity for, so its points come from UNRATED_FALLBACK.
+ *
+ * Much shorter than the normal TTL, because the two things that land in this
+ * bucket behave very differently. Old PS3 titles will never get figures and
+ * re-checking them is nearly free (there are only ~150). New releases —
+ * Assassin's Creed Black Flag Resynced was the one that made this obvious —
+ * get real rarity within weeks of launch, and on a 30-day cache they would sit
+ * on a guess for a month after the truth was available.
+ *
+ * Checking every three days costs a handful of calls and means a new game is
+ * priced properly almost as soon as Sony prices it.
+ */
+const ESTIMATE_TTL_MS = Number(process.env.ESTIMATE_TTL_DAYS || 3) * 24 * 60 * 60 * 1000;
+
+/**
  * A PSN profile's About Me, for the bio verification code.
  *
  * psn-api has shuffled this between the top level and a nested `profile` object
@@ -324,6 +340,8 @@ async function scanMember(psn, member, updateNo) {
 
   // Refresh any globally-stale game definitions. Shared across all members.
   const cutoff = Date.now() - GAME_CACHE_TTL_MS;
+  const estimateCutoff = Date.now() - ESTIMATE_TTL_MS;
+  const estimated = new Set();
   const freshness = new Map();
   // Chunked, because D1 rejects any statement with more than 100 bound
   // parameters and a member with 800 games would otherwise build an IN()
@@ -332,13 +350,21 @@ async function scanMember(psn, member, updateNo) {
   for (let i = 0; i < gameRows.length; i += CHUNK) {
     const slice = gameRows.slice(i, i + CHUNK);
     const cached = await db.query(
-      `SELECT np_comm_id, refreshed_at FROM games WHERE np_comm_id IN (${placeholders(slice.length)})`,
+      `SELECT np_comm_id, refreshed_at, estimated FROM games
+        WHERE np_comm_id IN (${placeholders(slice.length)})`,
       slice.map((t) => t.npCommunicationId),
     );
-    for (const r of cached) freshness.set(r.np_comm_id, r.refreshed_at);
+    for (const r of cached) {
+      freshness.set(r.np_comm_id, r.refreshed_at);
+      if (r.estimated) estimated.add(r.np_comm_id);
+    }
   }
   const stale = new Set(
-    gameRows.filter((t) => (freshness.get(t.npCommunicationId) ?? 0) < cutoff)
+    gameRows
+      .filter((t) => {
+        const by = estimated.has(t.npCommunicationId) ? estimateCutoff : cutoff;
+        return (freshness.get(t.npCommunicationId) ?? 0) < by;
+      })
       .map((t) => t.npCommunicationId),
   );
 
@@ -522,8 +548,8 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
     await db.run(
       `INSERT OR REPLACE INTO games
          (np_comm_id, np_service_name, title, platform, icon_url,
-          trophy_count, has_platinum, max_points, refreshed_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+          trophy_count, has_platinum, max_points, estimated, refreshed_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [
         title.npCommunicationId,
         title.npServiceName ?? null,
@@ -533,6 +559,8 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
         rated.length,
         rated.some((t) => t.type === 'platinum') ? 1 : 0,
         rated.reduce((n, t) => n + t.points, 0),
+        // Flagged so the next scan re-checks it in days rather than a month.
+        rated.some((t) => t.estimated) ? 1 : 0,
         Date.now(),
       ],
     );

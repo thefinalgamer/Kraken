@@ -383,6 +383,445 @@ async function runsInWorkflow(env, file, timeoutMs = 800) {
 const queueDepth = async (env, lane = 'update') =>
   (await runsInWorkflow(env, lane === 'first' ? 'scan-first.yml' : 'scan.yml')) ?? 0;
 
+/**
+ * Your position, plus whoever is directly above and below you.
+ *
+ * One either side, not two: five cards is a wall rather than an answer, and the
+ * two extra were people nobody is racing. Knowing who is four hundred points
+ * behind and closing motivates as much as knowing who you are chasing.
+ */
+async function rank(env, target) {
+  const member = await db.memberByDiscordId(env, target);
+  if (!member) return errorReply('That member is not on the board yet.');
+
+  const neighbours = await db.neighbours(env, member.rank ?? 1, 1);
+  // rankedCount, not memberCount. memberCount includes anyone registered but
+  // mid-first-scan, which made /rank say "4th of 6" while the board underneath
+  // it said "5 hunters" — and fed a wrong total into the tier boundaries.
+  const total = await db.rankedCount(env);
+  const cards = neighbours.map((m, i) =>
+    memberCard(m, {
+      total,
+      highlight: m.discord_id === member.discord_id,
+      above: neighbours[i - 1] ?? null,
+      showTier: true,
+    }),
+  );
+
+  return reply(
+    [
+      text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
+      ...cards,
+      row(
+        button('Full leaderboard', `lb:${Math.max(1, Math.ceil((member.rank ?? 1) / 10))}`),
+        button('Refresh my stats', 'do:update', STYLE.PRIMARY),
+        button('Share to channel', `share:rank:${target}`, STYLE.SECONDARY),
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * A private peek at the board.
+ *
+ * The real leaderboard lives in #leaderboard and edits itself in place; this is
+ * for checking without leaving whatever channel you are in, so it is ephemeral
+ * and hands you back to the pinned board with a link.
+ *
+ * Rendered as one block per TIER rather than one card per member. Cards broke
+ * the day a fifth member joined: Discord counts nested components against a
+ * limit of 40 and a card is 8 of them, so five members was 45 and the whole
+ * message was rejected — which the member sees as "Kraken didn't respond in
+ * time". A tier block is 3 components however many people are in it.
+ */
+async function leaderboard(env, page, viewerId) {
+  const size = Number(env.LEADERBOARD_PAGE_SIZE ?? 25);
+  const total = await db.rankedCount(env);
+  const pages = Math.max(1, Math.ceil(total / size));
+  const safePage = Math.min(Math.max(1, page), pages);
+  const members = await db.leaderboardPage(env, (safePage - 1) * size, size);
+
+  const openBoard =
+    env.DISCORD_GUILD_ID && env.DISCORD_LEADERBOARD_CHANNEL_ID
+      ? [linkButton(
+          'Open #leaderboard',
+          `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${env.DISCORD_LEADERBOARD_CHANNEL_ID}`,
+        )]
+      : [];
+
+  return reply(
+    [
+      text(
+        `# Platinum Intel\n-# ${n(total)} hunters · rarity points × completion` +
+          (pages > 1 ? ` · page ${safePage} of ${pages}` : ''),
+      ),
+      ...boardBlocks(members, { total, viewerId }),
+      row(
+        button('◀ Prev', `lb:${safePage - 1}`, STYLE.SECONDARY, { disabled: safePage <= 1 }),
+        button('Next ▶', `lb:${safePage + 1}`, STYLE.SECONDARY, { disabled: safePage >= pages }),
+        button('Jump to me', 'lb:me', STYLE.PRIMARY),
+        ...openBoard,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * The website's scan feature, brought into Discord — except it knows who is
+ * asking, so it shows what the game is worth to YOU with anything already
+ * earned subtracted.
+ */
+async function game(env, query, userId) {
+  const found = await db.findGame(env, query);
+  if (!found) {
+    return errorReply(
+      `Nobody here has played anything called **${query}** yet, so I have no rarity data for it. ` +
+        'Once one member owns it, it shows up for everyone.',
+    );
+  }
+
+  const member = await db.memberByDiscordId(env, userId);
+  const trophies = await db.gameTrophies(env, found.np_comm_id);
+  const mine = member ? await db.memberGame(env, member.psn_account_id, found.np_comm_id) : null;
+  const earned = new Set(mine ? JSON.parse(mine.earned_ids || '[]') : []);
+
+  const remaining = trophies.filter((t) => !earned.has(t.trophy_id));
+  const worth = remaining.reduce((sum, t) => sum + (t.points || 0), 0);
+  const plat = trophies.find((t) => t.type === 'platinum');
+
+  // PSN has told us nothing about this game — either it is old enough that Sony
+  // stopped computing rarity, or new enough that it hasn't started. Its points
+  // are estimates, and the card must say so. Rendering an unknown as
+  // "0.00% earned · Ultra rare" is the worst of both: it looks like hard data
+  // AND it claims the rarest band on PlayStation for a trophy we know nothing
+  // about.
+  const estimated = !trophies.some((t) => Number(t.earned_rate) > 0);
+
+  const rarityOf = (t) =>
+    Number(t.earned_rate) > 0
+      ? `${pct(t.earned_rate)} earned · ${RARITY_BANDS[rarityBand(t.earned_rate)]}` +
+        (found.local_started > 0 ? ` · ${n(t.local_earned ?? 0)}/${n(found.local_started)} here` : '')
+      : 'rarity not published · estimated';
+
+  const top = [...remaining]
+    .sort((a, b) => (b.points || 0) - (a.points || 0))
+    .slice(0, 3)
+    .map(
+      (t, i) =>
+        `**${i + 1}.** ${t.name} · *${t.type}*\n` +
+        `-# ${rarityOf(t)} · **+${n(t.points)} point${t.points === 1 ? '' : 's'}**`,
+    );
+
+  const owners = await db.gameOwners(env, found.np_comm_id);
+
+  return reply(
+    [
+      container(
+        [
+          section(
+            [
+              `## ${found.title}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
+              `**Worth to you:** +${n(worth)} points` +
+                (mine ? `\n**Your progress:** ${mine.progress}%` : '\n**Your progress:** not started'),
+              plat
+                ? `**Plat rarity:** ${Number(plat.earned_rate) > 0
+                    ? `${pct(plat.earned_rate)} · ${RARITY_BANDS[rarityBand(plat.earned_rate)]}`
+                    : 'not published by PSN'}`
+                : '',
+            ].filter(Boolean),
+            thumbnail(found.icon_url || FALLBACK_AVATAR, found.title),
+          ),
+          separator(),
+          text(['**Biggest earners left**', ...top].join('\n')),
+          separator(),
+          ...(estimated
+            ? [text(
+                '-# **PSN has not published rarity for this game.** Every value above is an ' +
+                  'estimate — what a typical trophy is worth — and is deliberately on the low ' +
+                  'side, because guessing high is how a leaderboard gets farmed. New releases ' +
+                  'usually get real figures within a few weeks and this corrects itself.',
+              )]
+            : []),
+          text(
+            `-# ${n(owners.platted)} of ${n(owners.total)} members here have platted this` +
+              (owners.fastest ? ` · fastest was **${owners.fastest}**` : ''),
+          ),
+          // Local rarity is invisible unless the card says it out loud — the
+          // points just quietly differ from what PSNProfiles would tell you,
+          // and that reads as a bug rather than as the system working.
+          ...(found.local_started > 0
+            ? [text(
+                `-# **${n(found.local_started)}** ${found.local_started === 1 ? 'member owns' : 'members own'} this here. ` +
+                  'Trophies are priced partly on how rare they are **in this server** — so a ' +
+                  'game the rest of us have already ground down is worth less, and one nobody ' +
+                  'can finish is worth more.',
+              )]
+            : []),
+          row(button("Who's played it", `owners:${found.np_comm_id}`)),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+const SORT_LABEL = {
+  value: 'biggest prize first',
+  nearly: 'closest to finished first',
+  quick: 'most points per trophy left',
+  rare: 'rarest platinum first',
+};
+
+/**
+ * What to play next. The old bot told you your backlog was 280 games and left
+ * you to it; this ranks them by what finishing them is actually worth.
+ */
+async function backlog(env, userId, sort) {
+  const member = await db.memberByDiscordId(env, userId);
+  if (!member) return errorReply('You are not registered yet — run `/register` with your PSN ID.');
+
+  const rows = await db.backlog(env, member.psn_account_id, sort, 5);
+  if (!rows.length) {
+    return errorReply('Nothing unfinished on record yet. Run `/update` first.');
+  }
+
+  // Worth TO THIS MEMBER, not the game's raw worth. `remaining_points` is the
+  // rarity value; what actually lands in their score is that multiplied by
+  // their completion. Showing the raw figure would promise a 70.41% member 249
+  // points and then pay them 175 — on the one card in the whole bot whose job
+  // is to make finishing things look worth doing.
+  //
+  // Still an UNDERSTATEMENT, and deliberately so: finishing a game also lifts
+  // completion, which re-prices the entire library. We can't price that here
+  // without storing the completion numerator and denominator, so the card
+  // promises the floor and the update pays more. Better that way round.
+  const worth = (raw) => applyCompletion(raw, member.completion);
+
+  const lines = rows.map((g, i) => {
+    const band = g.plat_rate != null ? ` · ${RARITY_BANDS[rarityBand(g.plat_rate)]}` : '';
+    const value = worth(g.remaining_points);
+    return (
+      `**${i + 1}. ${g.title}** — +${n(value)} point${value === 1 ? '' : 's'}\n` +
+      `-# ${n(g.remaining_trophies)} troph${g.remaining_trophies === 1 ? 'y' : 'ies'} left · ${g.progress}% done${band}`
+    );
+  });
+
+  // The line that makes it more than a to-do list.
+  const projected = member.points + rows.slice(0, 3).reduce((s, g) => s + worth(g.remaining_points), 0);
+  const wouldBe = await db.rankForPoints(env, projected);
+  const gain = (member.rank ?? 0) - wouldBe;
+  const passed = gain > 0 ? await db.membersBetween(env, wouldBe, member.rank) : [];
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `## ${member.psn_online_id}'s backlog\n` +
+              `-# ${n(member.projects - member.completed)} unfinished · ${SORT_LABEL[sort] ?? SORT_LABEL.value}\n\n` +
+              lines.join('\n\n'),
+          ),
+          separator(),
+          text(
+            gain > 0
+              ? `-# Finishing the top 3 would put you at **${ordinal(wouldBe)}** — up ${gain} place${gain === 1 ? '' : 's'}` +
+                (passed.length ? `, past ${passed.slice(0, 2).map((p) => `**${p.psn_online_id}**`).join(' and ')}.` : '.')
+              : `-# Finishing the top 3 keeps you at **${ordinal(member.rank)}** — nobody close enough to catch.`,
+          ),
+          ...(member.completion < 100
+            ? [text(
+                `-# Worth at your ${pct(member.completion)} completion — and finishing these raises it, ` +
+                  'so every other game you own pays more too.',
+              )]
+            : []),
+          // All four sorts, with the one you're looking at highlighted. The
+          // default had no button at all, so clicking any of the others was a
+          // one-way trip — you could never get back to the biggest-prize list
+          // without running the command again.
+          row(
+            ...[
+              ['Biggest prize', 'value'],
+              ['Nearly done', 'nearly'],
+              ['Best value', 'quick'],
+              ['Rarest first', 'rare'],
+            ].map(([label, key]) =>
+              button(label, `bl:${key}`, key === (sort ?? 'value') ? STYLE.PRIMARY : STYLE.SECONDARY),
+            ),
+          ),
+        ],
+        COLOR.green,
+      ),
+      // Private, like everything else except the board itself. #leaderboard is
+      // the one public surface; a hundred members running /backlog in #general
+      // would bury the conversation the server exists for.
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * A member's profile — the stuff that doesn't fit on a leaderboard row.
+ *
+ * Used to just re-render /rank, which was pointless when you had clicked it
+ * FROM /rank. What people actually want to know about somebody is not their
+ * position, which they can already see, but what they have done: the rarest
+ * thing they own, their best game, what they have been finishing lately.
+ *
+ * And when you look at someone else, the most useful section is the last one —
+ * games you BOTH own where they are further ahead. That turns "they are better
+ * than me" into "here are four games where they know something I don't", which
+ * is the seed of the co-op idea.
+ */
+async function profile(env, targetId, viewerId) {
+  const m = await db.memberByDiscordId(env, targetId);
+  if (!m) return errorReply('That member is not on the board yet.');
+
+  const total = await db.rankedCount(env);
+  const tier = TIERS[tierFor(m.rank, total)];
+  const [best, finished] = await Promise.all([
+    db.bestGame(env, m.psn_account_id),
+    db.recentlyFinished(env, m.psn_account_id),
+  ]);
+
+  const lines = [
+    // "4th — Silver". The "of 5" was noise: the leaderboard already says how
+    // many people are on it, and a card should read like a name badge.
+    `**${ordinal(m.rank)}** — ${tier.name}`,
+    `**Points** ${n(m.points)}  ·  **Completion** ${pct(m.completion)}`,
+    `**Games** ${n(m.projects)} started, ${n(m.completed)} finished`,
+  ];
+
+  // Show the working. The score is rarity points x completion, and a member who
+  // can see both halves understands instantly why finishing old games pays —
+  // which no amount of explaining in #rules ever achieves.
+  if (m.raw_points > 0 && m.completion < 100) {
+    lines.push(
+      `-# ${n(m.raw_points)} rarity points × ${pct(m.completion)} completion. ` +
+        `${n(m.raw_points - m.points)} still waiting in the backlog.`,
+    );
+  }
+
+  if (m.rarest_name || m.rarest_game) {
+    lines.push(
+      `**Rarest owned** ${Number(m.rarest_rate).toFixed(2)}%` +
+        (m.rarest_game ? ` — ${m.rarest_game}` : ''),
+    );
+  }
+  if (best) lines.push(`**Best game** ${best.title} — ${n(best.points)} pts at ${best.progress}%`);
+
+  const blocks = [
+    container(
+      [
+        section(
+          [`## ${m.psn_online_id}`, trophyLine(m), lines.join('\n')],
+          thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
+        ),
+      ],
+      tier.color,
+    ),
+  ];
+
+  if (finished.length) {
+    blocks.push(
+      container(
+        [text(`### Recently finished\n${finished.map((f) => `✅ ${f.title}`).join('\n')}`)],
+        COLOR.green,
+      ),
+    );
+  }
+
+  // Only when looking at somebody else, and only if you actually overlap.
+  if (viewerId && viewerId !== targetId) {
+    const me = await db.memberByDiscordId(env, viewerId);
+    if (me?.psn_account_id) {
+      const ahead = await db.aheadOfMe(env, m.psn_account_id, me.psn_account_id);
+      if (ahead.length) {
+        blocks.push(
+          container(
+            [
+              text(
+                `### Where they're ahead of you\n` +
+                  ahead
+                    .map((a) => `▫️ **${a.title}** — them ${a.their_progress}%, you ${a.my_progress}%`)
+                    .join('\n'),
+              ),
+            ],
+            COLOR.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  blocks.push(
+    row(button('Their rank', `rank:${targetId}`), button('Full leaderboard', 'lb:1')),
+  );
+
+  return reply(blocks, { ephemeral: true });
+}
+
+// ------------------------------------------------------------ components ---
+
+async function handleComponent(interaction, env, ctx) {
+  // `share:rank:123` has two colons, so the rest is kept intact rather than
+  // split away and lost.
+  const [action, ...rest] = interaction.data.custom_id.split(':');
+  const arg = rest.join(':');
+  const userId = interaction.member?.user?.id ?? interaction.user?.id;
+
+  switch (action) {
+    case 'lb': {
+      if (arg === 'me') {
+        const me = await db.memberByDiscordId(env, userId);
+        const page = Math.max(1, Math.ceil((me?.rank ?? 1) / Number(env.LEADERBOARD_PAGE_SIZE ?? 25)));
+        return { ...update((await leaderboard(env, page, userId)).data.components) };
+      }
+      return { ...update((await leaderboard(env, Number(arg), userId)).data.components) };
+    }
+    case 'bl':
+      return { ...update((await backlog(env, userId, arg)).data.components) };
+    case 'profile':
+      return profile(env, arg, userId);
+    case 'rank':
+      return rank(env, arg);
+    case 'do':
+      return runUpdate(interaction, env, ctx, userId);
+    case 'share': {
+      // The escape hatch from everything being private: /rank is ephemeral, so
+      // this is how you put your card in the channel deliberately rather than
+      // by default.
+      const [, target] = arg.split(':');
+      const card = await rank(env, target || userId);
+      return { type: REPLY.MESSAGE, data: { ...card.data, flags: 32768 } };
+    }
+    case 'owners': {
+      const list = await db.gameOwnerList(env, arg, 15);
+      return reply(
+        [
+          container(
+            [
+              text(
+                `### Played by\n${list
+                  .map((o) => `${o.progress === 100 ? '✅' : '▫️'} **${o.psn_online_id}** — ${o.progress}%`)
+                  .join('\n')}`,
+              ),
+            ],
+            COLOR.orange,
+          ),
+        ],
+        { ephemeral: true },
+      );
+    }
+    case 'changelog':
+      return changelog(env, Number(arg));
+    default:
+      return errorReply('That button has expired.');
+  }
+}
+
 /** What actually changed in an update, straight from the database. */
 async function changelog(env, updateId) {
   const rows = await db.changelogFor(env, updateId);

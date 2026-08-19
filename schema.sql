@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS games (
   max_points        INTEGER,              -- full-plat value at last refresh
   estimated         INTEGER NOT NULL DEFAULT 0,  -- 1 = PSN published no rarity; points are a guess
   completion_weight INTEGER NOT NULL DEFAULT 0,  -- gold*90+silver*30+bronze*15, platinum excluded
+  local_started     INTEGER NOT NULL DEFAULT 0,  -- members here who own this game
   refreshed_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_games_title     ON games(title);
@@ -64,7 +65,8 @@ CREATE TABLE IF NOT EXISTS trophies (
   icon_url          TEXT,
   hidden            INTEGER DEFAULT 0,
   earned_rate       REAL,                 -- percent, 2.71
-  points            INTEGER,              -- denormalised trophyPoints(earned_rate)
+  points            INTEGER,              -- denormalised, and BLENDED with local rarity
+  local_earned      INTEGER NOT NULL DEFAULT 0,  -- members here who have this trophy
   PRIMARY KEY (np_comm_id, trophy_id),
   FOREIGN KEY (np_comm_id) REFERENCES games(np_comm_id) ON DELETE CASCADE
 );

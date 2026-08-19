@@ -8,6 +8,7 @@ import {
   explainDelta,
   applyCompletion,
   scoreGameTrophies,
+  blendedRate,
   UNRATED_FALLBACK,
   flatPoints,
   DEFAULT_SCORING,
@@ -363,4 +364,77 @@ test('common trophies never outweigh a genuinely rare one', () => {
     `one 1% trophy (${fromHard}) must beat 45 tutorial trophies (${fromEasy}) — ` +
       'if this fails, the scale has been dropped too far and volume beats skill',
   );
+});
+
+// --------------------------------------------------- local rarity ---------
+
+test('with no local evidence, Sony\'s figure is used unchanged', () => {
+  // The property that makes it safe to ship at seven members: a game nobody
+  // here owns scores exactly as it did before local rarity existed.
+  assert.equal(blendedRate(2.71, 0, 0), 2.71);
+  assert.equal(blendedRate(45, 0, 0), 45);
+});
+
+test('a trophy the whole server has earned loses its value', () => {
+  // "our members completing games was making each others worth less" — the
+  // sentence this layer exists to reproduce.
+  const g = 2.71;
+  const rates = [1, 3, 10, 50].map((n) => blendedRate(g, n, n));
+  for (let i = 1; i < rates.length; i++) {
+    assert.ok(rates[i] > rates[i - 1], 'each new member who earns it makes it commoner here');
+  }
+  assert.ok(rates.at(-1) > 50, 'once the server has ground it down it is worth nothing');
+});
+
+test('a trophy nobody here can do becomes more valuable, not less', () => {
+  // The other half of the economy, and the reason DLC was where the money was
+  // on Esto's board: fifty of us own it, one of us finished it.
+  const g = 2.71;
+  assert.ok(blendedRate(g, 1, 50) < g, 'rarer here than Sony says');
+  assert.ok(trophyPoints(blendedRate(g, 1, 50)) > trophyPoints(g));
+  assert.ok(trophyPoints(blendedRate(g, 1, 200)) > trophyPoints(blendedRate(g, 1, 50)));
+});
+
+test('local rarity converges as the sample grows, and never lurches', () => {
+  // One formula the whole way — no switchover, no cliff at any member count.
+  const g = 5;
+  let previous = blendedRate(g, 1, 1);
+  for (let n = 2; n <= 300; n++) {
+    const r = blendedRate(g, n, n);
+    assert.ok(Math.abs(r - previous) < 12, `a jump of ${(r - previous).toFixed(1)} at ${n} members`);
+    previous = r;
+  }
+});
+
+test('a drifted count can never produce negative points', () => {
+  // Counters can disagree if a scan dies mid-write. More earners than owners is
+  // nonsense, but it must degrade to a harmless number rather than a rate above
+  // 100% coming back out of the curve as a negative score.
+  const r = blendedRate(2.71, 99, 3);
+  assert.ok(r > 0 && r <= 100, `blended rate went to ${r}`);
+  assert.ok(trophyPoints(r) >= 0);
+});
+
+test('unrated trophies are not invented into existence by local rarity', () => {
+  // A trophy PSN has no figure for stays unrated — local evidence cannot
+  // manufacture a rarity for something we have no baseline for.
+  // Both come back as 0, which isUnrated() already treats as "no data" — so
+  // they fall through to the unrated path rather than being scored.
+  assert.equal(blendedRate(0, 5, 5), 0);
+  assert.equal(blendedRate(null, 5, 5), 0);
+  assert.ok(isUnrated(blendedRate(null, 5, 5)));
+});
+
+test('the scan and the rescore price a game differently, on purpose', () => {
+  // A scan passes no local counts, so it scores on Sony's figures alone; the
+  // rescore passes them and prices against the whole server. If these ever
+  // silently became the same call, local rarity would start depending on who
+  // scanned last.
+  const trophies = [{ id: 1, type: 'platinum', rate: 2.71 }];
+  const globalOnly = scoreGameTrophies(trophies);
+  const withLocal = scoreGameTrophies(trophies, undefined, {
+    started: 20,
+    earned: new Map([[1, 20]]),
+  });
+  assert.ok(withLocal[0].points < globalOnly[0].points);
 });

@@ -53,7 +53,86 @@ const safeJson = (raw, fallback) => {
  * are the natural page boundary because a game is exactly the unit
  * scoreGameTrophies() needs.
  */
-async function rescoreTrophies() {
+/**
+ * Count what the SERVER has earned, from scratch.
+ *
+ * This is the input to local rarity, and it has to be recomputed rather than
+ * maintained incrementally: a counter that is nudged up and down by every scan
+ * drifts the first time one dies mid-write, and a drifted rarity figure is
+ * invisible — it does not error, it just quietly misprices a game forever.
+ * Recounting is cheap enough (one pass over member_games) that there is no
+ * reason to risk it.
+ *
+ * Done in memory rather than SQL. The obvious query — a correlated json_each
+ * per trophy row — is half a million subqueries and would run for hours.
+ */
+async function countLocalRarity() {
+  const earned = new Map();  // "npCommId\u0000trophyId" -> members holding it
+  const started = new Map(); // npCommId -> members owning the game
+
+  let offset = 0;
+  const PAGE = 2000;
+  for (;;) {
+    const rows = await db.query(
+      `SELECT np_comm_id, earned_ids FROM member_games
+        ORDER BY psn_account_id, np_comm_id LIMIT ? OFFSET ?`,
+      [PAGE, offset],
+    );
+    if (!rows.length) break;
+
+    for (const row of rows) {
+      started.set(row.np_comm_id, (started.get(row.np_comm_id) ?? 0) + 1);
+      for (const id of safeJson(row.earned_ids, [])) {
+        const key = `${row.np_comm_id}\u0000${id}`;
+        earned.set(key, (earned.get(key) ?? 0) + 1);
+      }
+    }
+    offset += rows.length;
+    if (rows.length < PAGE) break;
+  }
+
+  console.log(
+    `  local rarity: ${started.size} games owned by members, ` +
+      `${earned.size} distinct trophies held by at least one`,
+  );
+  return { earned, started };
+}
+
+/** Persist the counts, so /game can show them without recounting. */
+async function writeLocalCounts({ earned, started }) {
+  const byStarted = new Map();
+  for (const [game, n] of started) {
+    if (!byStarted.has(n)) byStarted.set(n, []);
+    byStarted.get(n).push(game);
+  }
+  const statements = [];
+  for (const [n, games] of byStarted) {
+    for (let i = 0; i < games.length; i += 200) {
+      statements.push(
+        `UPDATE games SET local_started = ${D1.lit(n)} WHERE np_comm_id IN (` +
+          games.slice(i, i + 200).map((g) => D1.lit(g)).join(',') + ')',
+      );
+    }
+  }
+
+  const byEarned = new Map();
+  for (const [key, n] of earned) {
+    if (!byEarned.has(n)) byEarned.set(n, []);
+    byEarned.get(n).push(key.split('\u0000'));
+  }
+  for (const [n, pairs] of byEarned) {
+    for (let i = 0; i < pairs.length; i += 200) {
+      statements.push(
+        `UPDATE trophies SET local_earned = ${D1.lit(n)} WHERE (np_comm_id, trophy_id) IN (VALUES ` +
+          pairs.slice(i, i + 200).map(([g, t]) => `(${D1.lit(g)},${D1.lit(Number(t))})`).join(',') +
+          ')',
+      );
+    }
+  }
+  await db.runBatch(statements);
+}
+
+async function rescoreTrophies(local) {
   const startedAt = Date.now();
   const games = await db.query('SELECT np_comm_id FROM games ORDER BY np_comm_id');
   console.log(`re-scoring ${games.length} games`);
@@ -112,8 +191,19 @@ async function rescoreTrophies() {
 
     for (const row of rows) {
       const defs = safeJson(row.defs, []);
+      // The whole point of doing this centrally: every trophy in the game is
+      // priced against what the entire server has earned, at one instant.
       const scored = scoreGameTrophies(
         defs.map(([id, type, rate]) => ({ id, type, rate })),
+        undefined,
+        local
+          ? {
+              started: local.started.get(row.np_comm_id) ?? 0,
+              earned: new Map(
+                defs.map(([id]) => [id, local.earned.get(`${row.np_comm_id}\u0000${id}`) ?? 0]),
+              ),
+            }
+          : null,
       );
       const wasByeId = new Map(defs.map(([id, , , pts]) => [id, pts ?? 0]));
 
@@ -291,7 +381,11 @@ async function main() {
   const started = Date.now();
   console.log('Rescoring the board from stored data — no PSN calls.\n');
 
-  await rescoreTrophies();
+  console.log('counting what the server has earned...');
+  const local = await countLocalRarity();
+  await writeLocalCounts(local);
+
+  await rescoreTrophies(local);
   await rescoreGames();
 
   const members = await db.query(

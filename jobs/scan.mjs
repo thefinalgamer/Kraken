@@ -551,12 +551,27 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
   // haven't changed burns D1's 100,000-writes-a-day allowance for nothing —
   // and on a large library that allowance binds long before the API does.
   if (needsRarityWrite) {
+    // ON CONFLICT, not INSERT OR REPLACE. REPLACE deletes the row and writes a
+    // new one, which would silently reset `local_started` to its default every
+    // time a game's rarity was refreshed — quietly destroying the local rarity
+    // data on the most-played games first.
     await db.run(
-      `INSERT OR REPLACE INTO games
+      `INSERT INTO games
          (np_comm_id, np_service_name, title, platform, icon_url,
           trophy_count, has_platinum, max_points, estimated, completion_weight,
           refreshed_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(np_comm_id) DO UPDATE SET
+         np_service_name = excluded.np_service_name,
+         title = excluded.title,
+         platform = excluded.platform,
+         icon_url = excluded.icon_url,
+         trophy_count = excluded.trophy_count,
+         has_platinum = excluded.has_platinum,
+         max_points = excluded.max_points,
+         estimated = excluded.estimated,
+         completion_weight = excluded.completion_weight,
+         refreshed_at = excluded.refreshed_at`,
       [
         title.npCommunicationId,
         title.npServiceName ?? null,
@@ -589,8 +604,16 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
          ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
            type = excluded.type,
            hidden = excluded.hidden,
-           earned_rate = excluded.earned_rate,
-           points = excluded.points`,
+           earned_rate = excluded.earned_rate`,
+      // NOTE: `points` is deliberately NOT updated on conflict, and neither is
+      // local_earned. Once local rarity is live, a trophy's value depends on
+      // what the whole server has earned, so it belongs to the rescore job
+      // which sees every member at once. A scan writing a global-only figure
+      // here would undo the blend for whichever games that member happened to
+      // touch — and two members would disagree about what one trophy is worth
+      // depending on who scanned last. New rows still get a sensible global
+      // value on insert, which is exactly right: a game nobody here owns has no
+      // local evidence yet.
         slice.flatMap((t) => [
           title.npCommunicationId, t.id, t.type, t.hidden, t.rate, t.points,
         ]),

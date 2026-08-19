@@ -179,6 +179,66 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
 }
 
 /**
+ * How much local rarity is trusted before it has enough evidence behind it.
+ *
+ * Local rarity is the number that made Esto's board an economy: a trophy is
+ * rare HERE if few of us have earned it, and quietly loses value as the server
+ * grinds the game down. Martin remembered it as "our members completing games
+ * was making each others worth less", and reconstructing it from one screenshot
+ * of his old site fit the real figures to within 1.4% — where a global-rarity
+ * model was off by 36x. It is also, for what it is worth, how PSNProfiles does
+ * it: rarity computed from their own registered users, not Sony's numbers.
+ *
+ * The problem is small samples. With one member owning a game, "everybody here
+ * has it" and "nobody here has it" are both true and both meaningless. Esto had
+ * nineteen members and lived with it; a board that opens at seven cannot.
+ *
+ * So local rarity is blended toward Sony's global figure by how much evidence
+ * there is — a shrinkage estimator, k pseudo-observations of the global rate:
+ *
+ *     rate = (localEarned + k x globalRate) / (localStarted + k)
+ *
+ * At k = 10 a game nobody here owns scores exactly its global rarity; at ten
+ * local owners the two count equally; past fifty it is essentially pure local
+ * rarity. One formula the whole way, no switchover, no lurch at any member
+ * count — and it converges on Esto's system by itself as people arrive.
+ *
+ * Deliberately conservative at launch. With seven members the global figure
+ * dominates almost everywhere, so this changes very little today and grows into
+ * itself over the next few weeks. That is the intended behaviour, not a
+ * limitation: a rarity figure derived from four people would be noise.
+ */
+export const LOCAL_RARITY_K = 10;
+
+/**
+ * Blend the server's own evidence with Sony's.
+ *
+ * @param {number} globalPercent - PSN's earn rate, e.g. 2.71 for 2.71%
+ * @param {number} localEarned   - members here who have this trophy
+ * @param {number} localStarted  - members here who own the game
+ * @returns {number} a percentage, on the same scale as globalPercent
+ */
+export function blendedRate(globalPercent, localEarned = 0, localStarted = 0, k = LOCAL_RARITY_K) {
+  const g = Number(globalPercent);
+  if (!Number.isFinite(g) || g <= 0) return g;
+
+  // Short-circuit rather than letting the arithmetic return g plus a rounding
+  // error. A game nobody here owns must score EXACTLY what it scored before
+  // local rarity existed, or every untouched game in the database shifts by a
+  // floating-point crumb the first time this runs.
+  if (!localStarted && !localEarned) return g;
+
+  const earned = Math.max(0, Number(localEarned) || 0);
+  // Guard against a count that outruns its denominator. It should be
+  // impossible, but incremental counters drift when a scan dies mid-write, and
+  // a rate above 100% would come back out of the curve as negative points.
+  const started = Math.max(earned, Number(localStarted) || 0);
+
+  const blended = ((earned + (k * g) / 100) / (started + k)) * 100;
+  return Math.min(100, Math.max(0.01, blended));
+}
+
+/**
  * What a trophy is worth when PSN has told us NOTHING about the game.
  *
  * 152 games have not a single rated trophy — Sony publishes no rarity for them
@@ -244,16 +304,25 @@ export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 2;
  * @param {Array<{type:string, rate:number|null}>} trophies - every trophy in the game
  * @returns the same objects with `points` and `estimated` set
  */
-export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING) {
+export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING, local = null) {
   const anyRated = trophies.some((t) => !isUnrated(t.rate));
 
   if (!anyRated) {
     return trophies.map((t) => ({ ...t, points: fallbackPoints(t.type), estimated: true }));
   }
 
+  // `local` is { started, earned: Map(trophyId -> count) }, or null to score on
+  // Sony's figures alone. Null is the honest answer during a scan: local counts
+  // move every time anybody plays, so the rescore job owns the blended value
+  // and applies it to the whole board at once. Scoring one member's games
+  // against counts that shift under them would make two members disagree about
+  // what the same trophy is worth.
+  const rateOf = (t) =>
+    local ? blendedRate(t.rate, local.earned.get(t.id) ?? 0, local.started) : t.rate;
+
   const scored = trophies.map((t) => ({
     ...t,
-    points: isUnrated(t.rate) ? cfg.unratedPoints : trophyPoints(t.rate, cfg),
+    points: isUnrated(t.rate) ? cfg.unratedPoints : trophyPoints(rateOf(t), cfg),
     estimated: false,
   }));
 

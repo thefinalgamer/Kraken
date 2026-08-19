@@ -8,7 +8,7 @@ import {
   explainDelta,
   applyCompletion,
   scoreGameTrophies,
-  blendedRate,
+  localMultiplier,
   UNRATED_FALLBACK,
   flatPoints,
   DEFAULT_SCORING,
@@ -368,77 +368,64 @@ test('common trophies never outweigh a genuinely rare one', () => {
 
 // --------------------------------------------------- local rarity ---------
 
-test('with no local evidence, Sony\'s figure is used unchanged', () => {
-  // The property that makes it safe to ship at seven members: a game nobody
-  // here owns scores exactly as it did before local rarity existed.
-  assert.equal(blendedRate(2.71, 0, 0), 2.71);
-  assert.equal(blendedRate(45, 0, 0), 45);
+test('a game only you own is worth exactly its Sony value', () => {
+  // The property that makes this safe: local rarity never charges you for
+  // being the only person here who has a game.
+  assert.equal(localMultiplier(1, 1), 1);
+  assert.equal(localMultiplier(0, 0), 1);
+  assert.equal(localMultiplier(19, 19), 1);
 });
 
-test('local rarity can only ever make a trophy rarer, never commoner', () => {
-  // THE property. Esto's formula was flat x (started_by / earned_by), and
-  // earned_by cannot exceed started_by — so his multiplier had a floor of 1.
-  // Local evidence could reveal a game was harder than Sony thought; it could
-  // never claim one was easier.
-  //
-  // Shipping this without the clamp cost N7_Maxxi 85% of his score in one
-  // rescore: every rare trophy in a game only he owns read as "1 of 1 people
-  // here have this" and was devalued for the crime of him earning it.
-  const g = 2.71;
-  for (const [earned, started] of [[1, 1], [3, 3], [7, 7], [20, 20], [50, 100], [100, 100]]) {
-    assert.ok(
-      blendedRate(g, earned, started) <= g,
-      `${earned} of ${started} made a ${g}% trophy commoner — local rarity must never devalue`,
-    );
+test('"omg my points, you started it" — the whole point of layer two', () => {
+  // Martin's memory of the old board, as a test. Somebody else picks up a game
+  // you have finished, and it becomes worth more while they are stuck on it.
+  const alone = localMultiplier(1, 1);
+  const leonIsStuck = localMultiplier(1, 2);
+  const leonFinished = localMultiplier(2, 2);
+
+  assert.ok(leonIsStuck > alone, 'a second owner who has not finished it raises the value');
+  assert.equal(leonFinished, alone, 'and finishing it puts it back where it started');
+  assert.ok(leonIsStuck < 1.5, `a single extra owner should nudge, not lurch — got ${leonIsStuck}`);
+});
+
+test('it can never, ever go below 1', () => {
+  // An earlier attempt at this layer could price a trophy BELOW Sony's value
+  // when everyone here had earned it. It cost N7_Maxxi 85% of his score in one
+  // rescore, because it hit rare trophies hardest — they had furthest to fall.
+  for (let started = 0; started <= 60; started++) {
+    for (const finished of [0, 1, started >> 1, started, started + 5]) {
+      assert.ok(
+        localMultiplier(finished, started) >= 1,
+        `${finished} of ${started} priced below Sony's value`,
+      );
+    }
   }
 });
 
-test('a trophy hardly anyone here can do is worth more', () => {
-  // The other half, and why DLC was where the money was on Esto's board.
-  const g = 2.71;
-  assert.ok(trophyPoints(blendedRate(g, 1, 100)) > trophyPoints(g));
-  assert.ok(trophyPoints(blendedRate(g, 1, 300)) > trophyPoints(blendedRate(g, 1, 100)));
-});
-
-test('the bonus decays back to normal as the server grinds it down', () => {
-  // "our members completing games was making each others worth less" — it falls
-  // from inflated to normal, never below normal.
-  const g = 2.71;
-  const values = [1, 5, 20, 50, 100].map((e) => trophyPoints(blendedRate(g, e, 100)));
-  for (let i = 1; i < values.length; i++) {
-    assert.ok(values[i] <= values[i - 1], 'each new earner erodes the bonus');
+test('the bonus decays as the server grinds a game down', () => {
+  // "our members completing games was making each others worth less" — from
+  // inflated back to normal, never below normal.
+  const owned = 20;
+  let previous = Infinity;
+  for (const finished of [0, 1, 3, 8, 15, 20]) {
+    const m = localMultiplier(finished, owned);
+    assert.ok(m <= previous, 'each member who finishes it erodes the bonus');
+    previous = m;
   }
-  assert.equal(values.at(-1), trophyPoints(g), 'and it settles at the global value, not below');
+  assert.equal(localMultiplier(owned, owned), 1, 'and it settles at Sony\'s value');
 });
 
-test('local rarity converges as the sample grows, and never lurches', () => {
-  // One formula the whole way — no switchover, no cliff at any member count.
-  const g = 5;
-  let previous = blendedRate(g, 1, 300);
-  for (let n = 299; n >= 1; n--) {
-    const r = blendedRate(g, 1, n);
-    assert.ok(Math.abs(r - previous) < 1, `a jump of ${(r - previous).toFixed(2)} at ${n} owners`);
-    previous = r;
-  }
+test('nothing runs away with it', () => {
+  // Esto's could reach 19x with nineteen members and no ceiling. A whole server
+  // owning something nobody can finish is a real prize, not a jackpot.
+  assert.ok(localMultiplier(0, 300) <= 3);
+  assert.ok(localMultiplier(1, 1000) <= 3);
 });
 
-test('a drifted count can never produce negative points', () => {
-  // Counters can disagree if a scan dies mid-write. More earners than owners is
-  // nonsense, but it must degrade to a harmless number rather than a rate above
-  // 100% coming back out of the curve as a negative score.
-  const r = blendedRate(2.71, 99, 3);
-  assert.ok(r > 0 && r <= 2.71, `blended rate went to ${r}`);
-  assert.ok(trophyPoints(r) >= 0);
-});
-
-test('unrated trophies are not invented into existence by local rarity', () => {
-  // A trophy PSN has no figure for stays unrated — local evidence cannot
-  // manufacture a rarity for something we have no baseline for.
-  // Both come back as 0, which isUnrated() already treats as "no data" — so
-  // they fall through to the unrated path rather than being scored.
-  assert.equal(blendedRate(0, 5, 5), 0);
-  assert.equal(blendedRate(null, 5, 5), 0);
-  assert.ok(isUnrated(blendedRate(null, 5, 5)));
+test('a drifted count cannot invert the multiplier', () => {
+  // More finishers than owners is nonsense, but counters disagree when a scan
+  // dies mid-write, and it must degrade to 1 rather than to a devaluation.
+  assert.equal(localMultiplier(99, 3), 1);
 });
 
 test('the scan and the rescore price a game differently, on purpose', () => {
@@ -449,7 +436,7 @@ test('the scan and the rescore price a game differently, on purpose', () => {
   const trophies = [{ id: 1, type: 'platinum', rate: 2.71 }];
   const globalOnly = scoreGameTrophies(trophies);
   const withLocal = scoreGameTrophies(trophies, undefined, {
-    started: 200,
+    started: 10,
     earned: new Map([[1, 1]]),
   });
   assert.ok(withLocal[0].points > globalOnly[0].points);

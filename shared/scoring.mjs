@@ -179,88 +179,70 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
 }
 
 /**
- * How much local rarity is trusted before it has enough evidence behind it.
+ * LOCAL RARITY — layer two. How many of us started it, versus finished it.
  *
- * Local rarity is the number that made Esto's board an economy: a trophy is
- * rare HERE if few of us have earned it, and quietly loses value as the server
- * grinds the game down. Martin remembered it as "our members completing games
- * was making each others worth less", and reconstructing it from one screenshot
- * of his old site fit the real figures to within 1.4% — where a global-rarity
- * model was off by 36x. It is also, for what it is worth, how PSNProfiles does
- * it: rarity computed from their own registered users, not Sony's numbers.
+ * Martin, on what the old board felt like:
  *
- * The problem is small samples. With one member owning a game, "everybody here
- * has it" and "nobody here has it" are both true and both meaningless. Esto had
- * nineteen members and lived with it; a board that opens at seven cannot.
+ *   "i remember going oh this is a good game, 'omg my points you started it????'
+ *    it was good times"
  *
- * So local rarity is blended toward Sony's global figure by how much evidence
- * there is — a shrinkage estimator, k pseudo-observations of the global rate:
+ * That is the whole design brief. A game gets more valuable the moment someone
+ * else picks it up and is still stuck on it, and settles back down when they
+ * finish. Points visibly move because of what other people are doing, which is
+ * what turns a leaderboard into an economy instead of a spreadsheet.
  *
- *     rate = (localEarned + k x globalRate) / (localStarted + k)
+ *     multiplier = ((started + s) / (finished + s)) ^ p,  capped
  *
- * At k = 10 a game nobody here owns scores exactly its global rarity; at ten
- * local owners the two count equally; past fifty it is essentially pure local
- * rarity. One formula the whole way, no switchover, no lurch at any member
- * count — and it converges on Esto's system by itself as people arrive.
+ * This is Esto's shape, straight from the reconstruction of his site:
+ * `flat points x (started_by / earned_by)`. Two properties come from that form
+ * and both matter:
  *
- * Deliberately conservative at launch. With seven members the global figure
- * dominates almost everywhere, so this changes very little today and grows into
- * itself over the next few weeks. That is the intended behaviour, not a
- * limitation: a rarity figure derived from four people would be noise.
+ * 1. IT CAN NEVER GO BELOW 1. `finished` can never exceed `started`, so a
+ *    trophy everybody here has earned is worth exactly its Sony value — never
+ *    less. Devaluing a trophy because you earned it is not an economy, it is a
+ *    penalty for playing, and an earlier attempt at this layer did exactly that
+ *    and cost N7_Maxxi 85% of his score in one rescore.
+ *
+ * 2. THE BONUS DECAYS AS PEOPLE FINISH. Two of us own it and one is stuck:
+ *    1.29x. He finishes: back to 1.00x. That is Martin's "our members
+ *    completing games was making each others worth less" — falling from
+ *    inflated back to normal.
+ *
+ * On the constants:
+ *
+ * - `p = 0.5`. The raw ratio is far too violent at this size — one person
+ *   buying a game would double what it is worth to everyone who owns it. The
+ *   square root turns that into a noticeable nudge rather than a lurch.
+ * - `s = 0.5` smooths the tiny counts, so 1-of-1 is exactly 1.00x rather than
+ *   an artefact, and 0-finished does not divide by zero.
+ * - `cap = 3`. Esto's could reach 19x with nineteen members and no ceiling.
+ *   A trophy none of us can do being worth three times Sony's price is a real
+ *   prize without letting one obscure game outweigh a career.
+ *
+ * REPLACED a shrinkage estimator that asked "is this rarer here than Sony says".
+ * That was statistically tidier and completely wrong for this server: at
+ * nineteen members two people can never out-evidence millions, so it did
+ * nothing at all — 87 points across the entire board. This reacts to the second
+ * person who picks up a game, which is the point.
  */
-export const LOCAL_RARITY_K = 10;
+export const LOCAL_RARITY = { exponent: 0.5, smoothing: 0.5, cap: 3 };
 
 /**
- * Blend the server's own evidence with Sony's.
- *
- * @param {number} globalPercent - PSN's earn rate, e.g. 2.71 for 2.71%
- * @param {number} localEarned   - members here who have this trophy
- * @param {number} localStarted  - members here who own the game
- * @returns {number} a percentage, on the same scale as globalPercent
+ * @param {number} finished - members here who have this trophy
+ * @param {number} started  - members here who own the game
+ * @returns {number} a multiplier >= 1
  */
-export function blendedRate(globalPercent, localEarned = 0, localStarted = 0, k = LOCAL_RARITY_K) {
-  const g = Number(globalPercent);
-  if (!Number.isFinite(g) || g <= 0) return g;
-
-  // Short-circuit rather than letting the arithmetic return g plus a rounding
-  // error. A game nobody here owns must score EXACTLY what it scored before
-  // local rarity existed, or every untouched game in the database shifts by a
-  // floating-point crumb the first time this runs.
-  if (!localStarted && !localEarned) return g;
-
-  const earned = Math.max(0, Number(localEarned) || 0);
+export function localMultiplier(finished = 0, started = 0, cfg = LOCAL_RARITY) {
+  const done = Math.max(0, Number(finished) || 0);
   // Guard against a count that outruns its denominator. It should be
-  // impossible, but incremental counters drift when a scan dies mid-write, and
-  // a rate above 100% would come back out of the curve as negative points.
-  const started = Math.max(earned, Number(localStarted) || 0);
+  // impossible, but if it ever happened the ratio would drop below 1 and start
+  // devaluing trophies — the exact failure this layer is shaped to avoid.
+  const owned = Math.max(done, Number(started) || 0);
+  if (!owned) return 1;
 
-  const blended = ((earned + (k * g) / 100) / (started + k)) * 100;
-
-  // LOCAL RARITY ONLY EVER MAKES A TROPHY RARER, NEVER COMMONER.
-  //
-  // This is the property that makes it an economy rather than a punishment, and
-  // getting it wrong cost the board 85% of N7_Maxxi's score. Esto's formula was
-  // `flat points x (started_by / earned_by)`, and earned_by can never exceed
-  // started_by — so his multiplier had a floor of 1. Local evidence could
-  // reveal that a game was harder than Sony thought; it could never claim one
-  // was easier.
-  //
-  // Without the clamp, a trophy in a game only you own reads as "1 of 1 people
-  // here have this" — 100% — and gets devalued FOR THE CRIME OF YOU EARNING IT.
-  // It hits rare trophies hardest, because they have the furthest to fall,
-  // which is exactly backwards.
-  //
-  // Martin's "our members completing games was making each others worth less"
-  // still holds, and this is how: a trophy one of fifty of us has managed is
-  // worth far more than Sony's figure, and as more of us earn it that bonus
-  // decays back toward the global rate. It falls from inflated to normal —
-  // never below normal.
-  //
-  // It also makes the whole layer safe to launch at seven members. Local
-  // evidence only overrides Sony once it is genuinely rarer here than
-  // worldwide, which a handful of people can rarely demonstrate — so almost
-  // nothing moves today, and the economy grows in as the server does.
-  return Math.min(g, Math.max(0.01, blended));
+  const { exponent, smoothing, cap } = cfg;
+  const ratio = (owned + smoothing) / (done + smoothing);
+  return Math.min(cap, Math.max(1, ratio ** exponent));
 }
 
 /**
@@ -338,16 +320,18 @@ export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING, local = null)
 
   // `local` is { started, earned: Map(trophyId -> count) }, or null to score on
   // Sony's figures alone. Null is the honest answer during a scan: local counts
-  // move every time anybody plays, so the rescore job owns the blended value
-  // and applies it to the whole board at once. Scoring one member's games
-  // against counts that shift under them would make two members disagree about
-  // what the same trophy is worth.
-  const rateOf = (t) =>
-    local ? blendedRate(t.rate, local.earned.get(t.id) ?? 0, local.started) : t.rate;
+  // move every time anybody plays, so the rescore job owns the multiplier and
+  // applies it to the whole board at once. Scoring one member's games against
+  // counts that shift under them would make two members disagree about what the
+  // same trophy is worth depending on who scanned last.
+  const boost = (t) =>
+    local ? localMultiplier(local.earned.get(t.id) ?? 0, local.started) : 1;
 
   const scored = trophies.map((t) => ({
     ...t,
-    points: isUnrated(t.rate) ? cfg.unratedPoints : trophyPoints(rateOf(t), cfg),
+    points: isUnrated(t.rate)
+      ? cfg.unratedPoints
+      : Math.min(cfg.cap, Math.round(trophyPoints(t.rate, cfg) * boost(t))),
     estimated: false,
   }));
 

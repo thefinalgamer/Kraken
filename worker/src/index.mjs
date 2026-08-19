@@ -557,12 +557,15 @@ async function game(env, query, userId) {
           // Local rarity is invisible unless the card says it out loud — the
           // points just quietly differ from what PSNProfiles would tell you,
           // and that reads as a bug rather than as the system working.
-          ...(found.local_started > 0
+          // Layer two, said out loud. Without this the points just quietly
+          // differ from PSNProfiles and it reads as a bug rather than as the
+          // best part of the system.
+          ...(found.local_started > 1
             ? [text(
-                `-# **${n(found.local_started)}** ${found.local_started === 1 ? 'member owns' : 'members own'} this here. ` +
-                  'Trophies are priced partly on how rare they are **in this server** — so a ' +
-                  'game the rest of us have already ground down is worth less, and one nobody ' +
-                  'can finish is worth more.',
+                `-# **${n(found.local_started)}** members here own this. Every trophy is worth ` +
+                  'more while people are still stuck on it, and settles back to its normal ' +
+                  'value once everyone who owns it has finished — so somebody else picking ' +
+                  'this up right now makes it worth more to you.',
               )]
             : []),
           row(button("Who's played it", `owners:${found.np_comm_id}`)),

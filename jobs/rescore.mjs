@@ -59,7 +59,11 @@ async function rescoreTrophies() {
   let changedTrophies = 0;
   let changedGames = 0;
   let estimatedGames = 0;
-  const PAGE = 200;
+
+  // D1 rejects any statement with more than 100 bound parameters, so the page
+  // size is dictated by that and not by taste. One id per game = 90 games a
+  // round trip. Hardcoding 200 here is what broke the first run.
+  const PAGE = D1.chunkSize(1);
 
   for (let i = 0; i < games.length; i += PAGE) {
     const slice = games.slice(i, i + PAGE);
@@ -97,7 +101,9 @@ async function rescoreTrophies() {
         byValue.get(t.points).push(t.id);
       }
       for (const [points, ids] of byValue) {
-        const CHUNK = 80;
+        // points + np_comm_id + the ids, all bound — so the id list has to
+        // leave room for the other two.
+        const CHUNK = D1.chunkSize(1) - 2;
         for (let j = 0; j < ids.length; j += CHUNK) {
           const part = ids.slice(j, j + CHUNK);
           await db.run(
@@ -109,7 +115,9 @@ async function rescoreTrophies() {
       }
     }
 
-    if ((i + PAGE) % 2000 < PAGE) console.log(`  ${Math.min(i + PAGE, games.length)}/${games.length} games`);
+    if (Math.floor(i / PAGE) % 20 === 0) {
+      console.log(`  ${Math.min(i + PAGE, games.length)}/${games.length} games`);
+    }
   }
 
   console.log(

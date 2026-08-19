@@ -16,11 +16,33 @@ import {
 
 const UNCAPPED = { ...DEFAULT_SCORING, cap: Infinity };
 
-test('matches the PSN100 reference values', () => {
-  assert.equal(trophyPoints(50, UNCAPPED), 1);
-  assert.equal(trophyPoints(10, UNCAPPED), 9);
-  assert.equal(trophyPoints(1, UNCAPPED), 99);
-  assert.equal(trophyPoints(0.1, UNCAPPED), 999);
+test('the curve is flat enough that ordinary games are worth playing', () => {
+  // The change of August 19th. The old curve made a 0.1% trophy worth 333x a
+  // 25% platinum, so beating Bloodborne paid 3 points and one dead
+  // server-shutdown trophy paid a thousand — a board that measured who owned
+  // the most ultra-rares rather than who hunted best.
+  assert.equal(trophyPoints(25), 8);
+  assert.equal(trophyPoints(10), 25);
+  assert.equal(trophyPoints(1), 121);
+  assert.equal(trophyPoints(0.1), 427);
+
+  // Ultra-rares stay clearly the best thing on the board, just not the ONLY
+  // thing. Guard the ratio rather than the values, so retuning `scale` alone
+  // never trips this.
+  const ratio = trophyPoints(0.1) / trophyPoints(25);
+  assert.ok(ratio > 20 && ratio < 100, `0.1% is worth ${ratio.toFixed(0)}x a 25% platinum`);
+});
+
+test('nothing over half of players have is worth anything', () => {
+  // The anti-shovelware line, and the most load-bearing number in the file.
+  // 16,200 of 20,238 games in the real database score zero because of it, and
+  // the rarest trophy in all of them is 50.1%.
+  assert.equal(trophyPoints(50), 0);
+  assert.equal(trophyPoints(50.1), 0);
+  assert.equal(trophyPoints(90), 0);
+
+  // ...and it is a step down to zero, not a cliff off a large number.
+  assert.equal(trophyPoints(49.9), 1);
 });
 
 test('rarer trophies are always worth at least as much', () => {
@@ -32,18 +54,17 @@ test('rarer trophies are always worth at least as much', () => {
   }
 });
 
-test('the cap stops one glitched trophy dominating a leaderboard', () => {
-  // At the rarity floor an uncapped trophy is worth nearly 5,000 points —
-  // more than a hundred ordinary platinums.
-  assert.equal(trophyPoints(0.02, UNCAPPED), 4999);
-  assert.equal(trophyPoints(0.02), 2000);
+test('no single trophy can dominate a leaderboard', () => {
+  // Under the old curve one 0.02% trophy was worth 4,999 points — more than a
+  // hundred ordinary platinums — and only an explicit cap held it back. The
+  // square-root curve does the job itself: the worst case at the rarity floor
+  // is under 1,000, so the cap no longer binds at all.
+  assert.ok(trophyPoints(0.02, UNCAPPED) < 1000);
+  assert.equal(trophyPoints(0.02), trophyPoints(0.02, UNCAPPED));
 
-  // The cap only bites below roughly 0.05%.
-  assert.equal(trophyPoints(0.05, UNCAPPED), 1999);
-  assert.equal(trophyPoints(0.05), 1999);
-
-  // A 2.71% trophy is nowhere near it, so normal scoring is untouched.
-  assert.equal(trophyPoints(2.71), trophyPoints(2.71, UNCAPPED));
+  // Which is the property that actually matters: the rarest trophy in the world
+  // is worth a few good games, not a career.
+  assert.ok(trophyPoints(0.02) < trophyPoints(5) * 25);
 });
 
 test('unrated trophies score nothing, not everything', () => {
@@ -79,8 +100,9 @@ test('game points only count what was actually earned', () => {
     { trophyId: 1, earnedRate: 10 },   // 9
     { trophyId: 2, earnedRate: 1 },    // 99
   ];
-  assert.equal(gamePoints(defs, [0, 1, 2]), 109);
-  assert.equal(gamePoints(defs, [0]), 1);
+  // 50% -> 0, 10% -> 25, 1% -> 121
+  assert.equal(gamePoints(defs, [0, 1, 2]), 146);
+  assert.equal(gamePoints(defs, [0]), 0);
   assert.equal(gamePoints(defs, []), 0);
 });
 
@@ -90,7 +112,7 @@ test('remaining value drives /game and /backlog', () => {
     { trophyId: 1, earnedRate: 10 },
     { trophyId: 2, earnedRate: 1 },
   ];
-  assert.deepEqual(remainingValue(defs, [0]), { points: 108, count: 2 });
+  assert.deepEqual(remainingValue(defs, [0]), { points: 146, count: 2 });
   assert.deepEqual(remainingValue(defs, [0, 1, 2]), { points: 0, count: 0 });
 });
 
@@ -169,21 +191,41 @@ test('the old bot was not using flat per-type points', () => {
   assert.ok(flat > 47873 * 3, 'flat scoring overshoots the real figure threefold');
 });
 
-test('reproduces the observed points-per-trophy band', () => {
-  // Every member card in the old screenshots lands between 8.6 and 10.6
-  // points per trophy, implying an average rarity near 9-10%. A collection
-  // built at that average rarity must land in the same band.
-  const defs = Array.from({ length: 1000 }, (_, i) => ({
-    trophyId: i,
-    // spread around 10% the way a real library does
-    earnedRate: [2, 5, 8, 10, 12, 15, 20, 30, 45, 60][i % 10],
+test('the curve compresses the gap between hunters, the way Esto\'s did', () => {
+  // The one unexplained gap in the whole model: every member card from the old
+  // bot landed between 8.87 and 10.59 points per trophy across players holding
+  // 3,687 to 16,548 trophies — a 1.19x spread. Kraken's was 1.90x.
+  //
+  // His system was BOUNDED: local rarity in a 19-member server tops out at
+  // 19x, so no trophy could run away with it. Global rarity has no ceiling, so
+  // the compression has to come from the exponent instead. This asserts the
+  // direction rather than a figure, because the figure depends on `scale`.
+  const OLD = { ...DEFAULT_SCORING, zeroAbovePercent: 100, exponent: 1, scale: 1 };
+
+  // Two libraries of the same size: one built on ultra-rares, one on the
+  // ordinary good games most people actually play.
+  const rareHunter = Array.from({ length: 500 }, (_, i) => ({
+    trophyId: i, earnedRate: [0.1, 0.5, 1, 2, 5][i % 5],
   }));
-  const total = gamePoints(defs, defs.map((d) => d.trophyId));
-  const perTrophy = total / defs.length;
+  const normalHunter = Array.from({ length: 500 }, (_, i) => ({
+    trophyId: i, earnedRate: [8, 12, 18, 25, 35][i % 5],
+  }));
+
+  const spread = (cfg) =>
+    gamePoints(rareHunter, rareHunter.map((d) => d.trophyId), cfg) /
+    gamePoints(normalHunter, normalHunter.map((d) => d.trophyId), cfg);
+
+  const before = spread(OLD);
+  const after = spread(DEFAULT_SCORING);
+
   assert.ok(
-    perTrophy > 6 && perTrophy < 16,
-    `expected the realistic 6-16 band, got ${perTrophy.toFixed(2)}`,
+    after < before / 3,
+    `the gap should close sharply: was ${before.toFixed(1)}x, now ${after.toFixed(1)}x`,
   );
+
+  // But the rare hunter must still be comfortably ahead — flattening the curve
+  // is meant to make ordinary games count, not to make rarity stop mattering.
+  assert.ok(after > 2, `rarity still has to win: only ${after.toFixed(1)}x`);
 });
 
 test('completion weighting excludes platinums', () => {
@@ -227,8 +269,8 @@ test('an easy trophy in a real game is worth 1, not 0', () => {
   );
   assert.equal(scored[0].points, 1, '"Be Greater" should be worth 1');
   assert.equal(scored[1].points, 1);
-  assert.equal(scored[2].points, 3, 'the 25% trophy keeps its real value');
-  assert.equal(scored[3].points, 24);
+  assert.equal(scored[2].points, 8, 'the 25% trophy keeps its real value');
+  assert.equal(scored[3].points, 51);
 });
 
 test('one hard trophy is what separates a real game from shovelware', () => {
@@ -265,7 +307,9 @@ test('a 59-trophy unknown game lands in the small-game band', () => {
     ['platinum', null],
   ];
   const total = scoreGameTrophies(game(...trophies)).reduce((n, t) => n + t.points, 0);
-  assert.ok(total > 50 && total < 400, `estimated at ${total} points`);
+  // Roughly what 59 median-rarity trophies are worth: real, modest, and well
+  // below the 3,900-5,900 that a substantial game scores.
+  assert.ok(total > 200 && total < 800, `estimated at ${total} points`);
 });
 
 test('a partly-rated game does not get free value through the back door', () => {
@@ -281,7 +325,7 @@ test('a partly-rated game does not get free value through the back door', () => 
 
 test('the floor never touches unrated trophies in a rated game', () => {
   const scored = scoreGameTrophies(game(['platinum', 2], ['bronze', 99], ['bronze', null]));
-  assert.equal(scored[0].points, 49, 'the rare one is untouched');
+  assert.equal(scored[0].points, 80, 'the rare one is untouched');
   assert.equal(scored[1].points, 1, 'the common one gets the floor');
   assert.equal(scored[2].points, 0, 'the unknown one gets nothing');
 });

@@ -17,10 +17,67 @@
 
 export const DEFAULT_SCORING = {
   /**
-   * Ceiling on a single trophy. Uncapped, a 0.01% trophy is worth 9,999 points,
-   * so one broken or server-shutdown trophy can outweigh a member's entire back
-   * catalogue. 2,000 corresponds to a 0.05% trophy — still extraordinarily rare.
-   * Set to Infinity to match PSN100 exactly.
+   * The rate at or above which a trophy is worth NOTHING.
+   *
+   * This is the anti-shovelware mechanism and the single most load-bearing
+   * number in the file. Games where no trophy anywhere clears this line score
+   * zero in total — 16,200 of the 20,238 games in the database, including
+   * every one of Pelziowo's 13,000 asset flips. Verified: the rarest trophy in
+   * all of them is 50.1%.
+   *
+   * It arrived by accident. The original curve was floor(100/pct - 1), which
+   * happens to return 0 above 50%, and nobody designed that. It is still a
+   * better rule than anything deliberate would have been, because it asks
+   * "is this trophy hard" rather than "is this game hard", and millions of
+   * players answer it for free.
+   *
+   * DO NOT RAISE THIS without re-running the shovelware measurements in
+   * claude/scoring-model.md §7.
+   */
+  zeroAbovePercent: 50,
+
+  /**
+   * How steep the curve is below that line. THE dial for what kind of board
+   * this is.
+   *
+   * The old curve was effectively exponent 1.0 — value proportional to 1/rate —
+   * which made a 0.1% trophy worth 333x a 25% platinum. The consequence was a
+   * board that measured "who owns the most ultra-rare trophies" rather than
+   * "who is the best hunter": beating Bloodborne paid 3 points while one dead
+   * server-shutdown trophy paid a thousand, and an ordinary good game was worth
+   * about as much as nothing.
+   *
+   * Square root (0.5) brings that ratio to roughly 50x. Ultra-rares stay
+   * clearly the most valuable thing on the board — they just stop being the
+   * ONLY thing on it.
+   *
+   * This is also the closest we can get to Esto's original. His numbers came
+   * from LOCAL rarity — started_by / earned_by inside a 19-member server — so
+   * the rarest possible trophy was 19x its base and the whole system was
+   * bounded by the member count. That is why his cards sat in a tight
+   * 8.87-10.59 points-per-trophy band across players holding 3,687 to 16,548
+   * trophies, where Kraken's spread was nearly twice as wide. Global rarity has
+   * no such ceiling, so the flattening has to be done explicitly.
+   */
+  exponent: 0.5,
+
+  /**
+   * Scale. Sets the size of the numbers, not their shape — the shape is
+   * entirely `exponent`.
+   *
+   * 20 is chosen so the board's overall magnitude barely moves while the
+   * BALANCE shifts: a 25% platinum goes 3 -> 8, a 1% trophy 99 -> 121, and a
+   * 0.1% trophy 999 -> 427. Mid-rarity trophies gain, ultra-rares give some
+   * back. That redistribution is the entire point of the change, and keeping
+   * the totals familiar means nobody has to relearn what a good score looks
+   * like on the same day the rules change.
+   */
+  scale: 20,
+
+  /**
+   * Ceiling on a single trophy. With the square-root curve the theoretical
+   * maximum is around 980 at the rarity floor, so this no longer binds — it is
+   * kept as a backstop in case the exponent is ever raised again.
    */
   cap: 2000,
 
@@ -30,35 +87,47 @@ export const DEFAULT_SCORING = {
   floorPercent: 0.02,
 
   /**
-   * What an UNRATED trophy is worth — one PSN reports as 0.00%.
+   * What an UNRATED trophy is worth — one PSN reports as 0.00% or omits.
    *
-   * This is not a hypothetical. PSNProfiles hides trophies past the 255th in a
-   * title, and PSN itself returns 0.00% for large swathes of them — every Sea
-   * of Thieves trophy after Season 13, for instance.
+   * Zero HERE, but see scoreGameTrophies(): when a whole game is unrated, every
+   * trophy in it gets UNRATED_FALLBACK instead. This value only applies to an
+   * unrated trophy sitting inside a game we do have rarity for, where the
+   * evidence we have says the game is shovelware.
    *
    * The reasoning for zero: if a player has earned a trophy, the proportion of
    * players who have earned it cannot be zero. A 0.00% rate on an earned trophy
    * is therefore missing data, not extreme rarity.
    *
    * The asymmetry decides it. Scoring unknown as zero undervalues a genuinely
-   * brutal new trophy until PSN fills the figure in — and that corrects itself
-   * automatically. Scoring it as maximum rarity hands someone 2,000 points a
-   * trophy, hundreds of thousands across a title like SoT, and that does not
-   * correct itself. It just wrecks the leaderboard and starts an argument.
+   * brutal new trophy until PSN fills the figure in — and that corrects itself.
+   * Scoring it as maximum rarity hands someone 2,000 points a trophy, hundreds
+   * of thousands across a title like Sea of Thieves, and that does not correct
+   * itself. It just wrecks the leaderboard and starts an argument.
    */
   unratedPoints: 0,
 };
 
 /**
  * Points for a single trophy.
+ *
+ *     points = scale x ((zeroAbove / rate) ^ exponent  -  1)
+ *
+ * The "- 1" is what makes it continuous: a trophy at exactly the threshold is
+ * worth zero rather than falling off a cliff from some large number. Below the
+ * threshold everything is worth at least 1, so the boundary stays exactly where
+ * the shovelware measurements say it is.
+ *
  * @param {number} earnedRatePercent - PSN's `trophyEarnedRate`, e.g. 2.71 for 2.71%
  * @returns {number} whole points
  *
- *   50%   -> 1
- *   10%   -> 9
- *    5%   -> 19
- *    1%   -> 99
- *    0.1% -> 999
+ *   50%   ->    0     over half of players have it — not an achievement
+ *   40%   ->    2
+ *   25%   ->    8     a decent platinum
+ *   10%   ->   25
+ *    5%   ->   43
+ *    1%   ->  121
+ *  0.1%   ->  427
+ * 0.01%   -> 1394
  */
 export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
   const rate = Number(earnedRatePercent);
@@ -68,72 +137,74 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
   if (!Number.isFinite(rate) || rate <= 0) return cfg.unratedPoints;
 
   const pct = Math.max(rate, cfg.floorPercent);
-  const raw = Math.floor(100 / pct - 1);
-  return Math.min(Math.max(raw, 0), cfg.cap);
+  if (pct >= cfg.zeroAbovePercent) return 0;
+
+  const raw = cfg.scale * (Math.pow(cfg.zeroAbovePercent / pct, cfg.exponent) - 1);
+  return Math.max(1, Math.min(Math.round(raw), cfg.cap));
 }
 
 /**
  * What a trophy is worth when PSN has told us NOTHING about the game.
  *
- * 152 games in the database have not a single rated trophy — Sony returns no
- * rarity figure at all for them. They are mostly old PS3 titles: Red Faction:
- * Armageddon, Euro Fishing, Grand Ages Medieval. Scoring them zero says "this
- * game is worthless", which is a claim we have no evidence for; the truth is we
- * don't know. So they get what a TYPICAL trophy is worth instead, and the
- * estimate is replaced by a real figure the moment local rarity lands.
+ * 152 games have not a single rated trophy — Sony publishes no rarity for them
+ * at all. Two very different populations land here: old PS3 titles that will
+ * never get figures (Red Faction: Armageddon, Euro Fishing), and brand-new
+ * releases Sony has not computed yet (Assassin's Creed Black Flag Resynced).
+ * Scoring them zero claims the game is worthless, which is a claim we have no
+ * evidence for — the truth is we do not know.
  *
- * The numbers are measured, not chosen — median earn rate per type across
- * 124,869 trophies in games we know contain real challenge (shovelware
- * excluded), run through the normal curve:
+ * Measured, not chosen. Median earn rate per type across 124,869 trophies in
+ * games known to contain real challenge (shovelware excluded), run through the
+ * curve above:
  *
- *   bronze   26.9%  ->  2
- *   silver   26.3%  ->  2
- *   gold     35.7%  ->  1
- *   platinum 16.2%  ->  5
+ *   bronze   26.9%  ->  7
+ *   silver   26.3%  ->  8
+ *   gold     35.7%  ->  4
+ *   platinum 16.2%  -> 15
  *
- * Note gold comes out COMMONER than bronze — that is not noise, the mean says
- * it too (35.83% vs 32.78%). Golds are usually "finish chapter eight", earned
- * by everyone who plays; bronzes hide the missables and the grind. So trophy
- * type barely predicts rarity, and inventing a bronze < silver < gold ladder
- * here would be pretending to a precision the data does not support — as well
- * as putting a gold worth 1 next to a bronze worth 2 on the same card.
+ * Note gold comes out COMMONER than bronze — the mean agrees (35.83% vs
+ * 32.78%). Golds are usually "finish chapter eight", earned by everyone who
+ * plays; bronzes hide the missables. So trophy type barely predicts rarity, and
+ * inventing a bronze < silver < gold ladder would be pretending to a precision
+ * the data does not support, as well as putting a gold worth 4 next to a bronze
+ * worth 7 on the same card.
  *
- * Hence: one value for everything, and a higher one for the platinum, which is
+ * Hence one value for everything and a higher one for the platinum, which is
  * the only type the data genuinely separates.
  *
- * Deliberately conservative. A 59-trophy game lands around 120 points — real,
- * modest, and nowhere near enough to be worth farming if the guess is wrong.
+ * RECALCULATE THESE IF THE CURVE CHANGES. They are the curve applied to fixed
+ * rarities, so a new exponent or scale silently makes them wrong.
+ *
+ * Deliberately conservative: if the guess is wrong it is too low, never worth
+ * farming. Games flagged `games.estimated` are re-checked every three days
+ * rather than every thirty, so a new release is priced properly almost as soon
+ * as Sony prices it.
  */
-export const UNRATED_FALLBACK = { platinum: 5, gold: 2, silver: 2, bronze: 2 };
+export const UNRATED_FALLBACK = { platinum: 15, gold: 7, silver: 7, bronze: 7 };
 
-export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 2;
+export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 7;
 
 /**
  * Score every trophy in ONE game together.
  *
  * Per-trophy scoring alone cannot answer two questions that need the whole
- * game in view, and both of them came straight from Martin:
+ * game in view, and both came straight from Martin:
  *
  * 1. "Spider-Man has easy trophies in it, no problem — it also has hard ones."
- *    Putting the suit on is earned by 98% of players and pays nothing under
- *    the curve. But it is still a trophy in a real game, and a board of 157
- *    backlog entries all reading "+0 points" tells the member nothing. So any
- *    trophy in a game that contains at least one genuinely hard trophy is
- *    worth AT LEAST 1.
+ *    Putting the suit on is earned by 98% of players and pays nothing under the
+ *    curve. But it is still a trophy in a real game, and a backlog of 157
+ *    entries all reading "+0 points" tells the member nothing. So any trophy in
+ *    a game containing at least one genuinely hard trophy is worth AT LEAST 1.
  *
- *    Measured before shipping: this hands the whole board under 3% and moves
- *    nobody's rank. Lucas +2.08%, Pelzio +2.77%, everyone else under 0.35%.
- *
- * 2. Shovelware must stay at zero. A game where no trophy anywhere is earned
- *    by under half of players gets NO floor — every trophy stays worth nothing,
- *    however many of them there are. That is the whole anti-shovelware
- *    mechanism and it is why a timer was never needed: the system never asks
+ * 2. Shovelware must stay at zero. A game where no trophy anywhere is earned by
+ *    under half of players gets NO floor — every trophy in it stays worth
+ *    nothing, however many there are. That is the whole anti-shovelware
+ *    mechanism, and why a time limit was never needed: the system never asks
  *    "is this game hard", it asks "is this trophy hard", forty times a game.
  *
  * The floor only ever applies to trophies we have real rarity for. An unrated
- * trophy sitting inside a partly-rated game stays at zero — otherwise a
- * shovelware title with a couple of missing figures could buy itself a value
- * through the back door.
+ * trophy inside a partly-rated game stays at zero — otherwise a shovelware
+ * title with a couple of missing figures could buy value through the back door.
  *
  * @param {Array<{type:string, rate:number|null}>} trophies - every trophy in the game
  * @returns the same objects with `points` and `estimated` set
@@ -141,7 +212,6 @@ export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 2;
 export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING) {
   const anyRated = trophies.some((t) => !isUnrated(t.rate));
 
-  // Sony gave us nothing for this game. Estimate the lot.
   if (!anyRated) {
     return trophies.map((t) => ({ ...t, points: fallbackPoints(t.type), estimated: true }));
   }
@@ -152,7 +222,6 @@ export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING) {
     estimated: false,
   }));
 
-  // Does anything in here ask something of the player?
   if (scored.some((t) => t.points > 0)) {
     for (const t of scored) {
       if (!isUnrated(t.rate) && t.points === 0) t.points = 1;

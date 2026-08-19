@@ -498,7 +498,7 @@ async function game(env, query, userId) {
 const SORT_LABEL = {
   value: 'biggest prize first',
   nearly: 'closest to finished first',
-  quick: 'fewest trophies left first',
+  quick: 'most points per trophy left',
   rare: 'rarest platinum first',
 };
 
@@ -526,8 +526,8 @@ async function backlog(env, userId, sort) {
   const lines = rows.map((g, i) => {
     const band = g.plat_rate != null ? ` · ${RARITY_BANDS[rarityBand(g.plat_rate)]}` : '';
     return (
-      `**${i + 1}. ${g.title}** — +${n(worth(g.remaining_points))} points\n` +
-      `-# ${n(g.remaining_trophies)} trophies left · ${g.progress}% done${band}`
+      `**${i + 1}. ${g.title}** — +${n(worth(g.remaining_points))} point${worth(g.remaining_points) === 1 ? '' : 's'}\n` +
+      `-# ${n(g.remaining_trophies)} troph${g.remaining_trophies === 1 ? 'y' : 'ies'} left · ${g.progress}% done${band}`
     );
   });
 
@@ -560,7 +560,7 @@ async function backlog(env, userId, sort) {
           : []),
         row(
           button('Nearly done', 'bl:nearly'),
-          button('Quickest wins', 'bl:quick'),
+          button('Best value', 'bl:quick'),
           button('Rarest first', 'bl:rare'),
         ),
       ],

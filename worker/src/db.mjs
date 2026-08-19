@@ -262,10 +262,15 @@ export const gameOwnerList = (env, npCommId, limit = 15) =>
  * remaining prize rather than a big one.
  */
 export function backlog(env, accountId, sort = 'value', limit = 5) {
+  // Four genuinely different questions. `quick` used to be "fewest trophies
+  // left", which returned almost exactly the same list as `nearly` — a game at
+  // 98% has two trophies left, so the two sorts agreed on everything and one
+  // button was wasted. Points-per-remaining-trophy is the question neither of
+  // the others answers: where is the best return for the least work.
   const order = {
     value: 'remaining_points DESC',
     nearly: 'mg.progress DESC, remaining_points DESC',
-    quick: 'remaining_trophies ASC, remaining_points DESC',
+    quick: 'remaining_points * 1.0 / MAX(remaining_trophies, 1) DESC, remaining_points DESC',
     rare: 'plat_rate ASC, remaining_points DESC',
   }[sort] ?? 'remaining_points DESC';
 

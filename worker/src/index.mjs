@@ -308,7 +308,12 @@ async function runUpdate(interaction, env, ctx, userId) {
       `at a time so nobody trips PlayStation's rate limit.`;
   }
 
-  return reply([container([text(body)], active.length ? COLOR.orange : COLOR.grey)]);
+  // Private, wherever they ran it. The finished card goes to #updates instead —
+  // so someone hammering /update in #general fills #updates, not the channel
+  // people are trying to talk in.
+  return reply([container([text(body)], active.length ? COLOR.orange : COLOR.grey)], {
+    ephemeral: true,
+  });
 }
 
 /**

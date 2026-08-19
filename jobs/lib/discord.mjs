@@ -46,7 +46,20 @@ async function rest(path, { method = 'POST', body, useBotToken = true } = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-/** Replace the "queued" placeholder with the finished update card. */
+/**
+ * Publish a finished update.
+ *
+ * The result ALWAYS goes to #updates, whichever channel the member happened to
+ * run /update in. Martin's call, and the right one: someone spamming /update in
+ * #general used to spam #general, and with a hundred members that is how a chat
+ * channel dies. Now the noise lands in the channel that exists for it, and the
+ * person who ran the command gets a private pointer wherever they are.
+ *
+ * It also fixes something that was quietly broken: the changelog thread hangs
+ * off this message, and threads cannot be created on an ephemeral interaction
+ * reply. Posting to a real channel first means the thread always has somewhere
+ * to live.
+ */
 export async function postUpdateResult({ member, result, interactionToken }) {
   const body = message([
     container([text(`## ${member.psn_online_id} update finished!`)], COLOR.grey),
@@ -62,20 +75,42 @@ export async function postUpdateResult({ member, result, interactionToken }) {
     }),
   ]);
 
-  let msg;
-  if (interactionToken) {
-    msg = await rest(
-      `/webhooks/${env.DISCORD_APPLICATION_ID}/${interactionToken}/messages/@original`,
-      { method: 'PATCH', body, useBotToken: false },
-    );
-  } else {
-    msg = await rest(`/channels/${env.DISCORD_UPDATES_CHANNEL_ID}/messages`, { body });
-  }
+  const msg = await rest(`/channels/${env.DISCORD_UPDATES_CHANNEL_ID}/messages`, { body });
 
   if (result.changelog?.length && msg?.id) {
     await postChangelogThread(msg, member, result);
   }
+
+  // Then a private nudge back to whoever ran it. Best-effort: the scan is
+  // finished and saved, and a Discord hiccup here must not fail the job.
+  if (interactionToken) {
+    await pointAtUpdates(interactionToken, member, result, msg).catch((err) =>
+      console.error('Could not update the private reply:', err.message),
+    );
+  }
   return msg;
+}
+
+/**
+ * Edit the member's own (private) /update reply into a short pointer.
+ *
+ * A channel mention rather than a message link, because that needs no guild id
+ * and Discord renders it as a proper clickable channel either way.
+ */
+async function pointAtUpdates(interactionToken, member, result, msg) {
+  const net = result.delta?.net ?? 0;
+  const sign = net >= 0 ? '+' : '';
+  const line =
+    `## Update finished\n\n` +
+    `**${sign}${net.toLocaleString('en-GB')} points**` +
+    (result.gamesChanged ? ` across ${result.gamesChanged} game${result.gamesChanged === 1 ? '' : 's'}` : '') +
+    `.\n\nThe full card is in <#${env.DISCORD_UPDATES_CHANNEL_ID}>` +
+    (msg?.id ? ' — click through for the breakdown and changelog.' : '.');
+
+  await rest(
+    `/webhooks/${env.DISCORD_APPLICATION_ID}/${interactionToken}/messages/@original`,
+    { method: 'PATCH', body: message([container([text(line)], COLOR.green)]), useBotToken: false },
+  );
 }
 
 /**

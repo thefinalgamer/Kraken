@@ -64,7 +64,29 @@ async function rescoreTrophies() {
   // size is dictated by that and not by taste. One id per game = 90 games a
   // round trip. Hardcoding 200 here is what broke the first run.
   const PAGE = D1.chunkSize(1);
-  const estimatedIds = [];
+  const pending = [];
+
+  // One statement per distinct value, up to 49 trophies each: the value costs
+  // one bound parameter and every trophy costs two.
+  const PER_STATEMENT = 49;
+  const flush = async (rows) => {
+    const byValue = new Map();
+    for (const [points, gameId, trophyId] of rows) {
+      if (!byValue.has(points)) byValue.set(points, []);
+      byValue.get(points).push(gameId, trophyId);
+    }
+    for (const [points, flat] of byValue) {
+      for (let k = 0; k < flat.length; k += PER_STATEMENT * 2) {
+        const part = flat.slice(k, k + PER_STATEMENT * 2);
+        const pairs = part.length / 2;
+        await db.run(
+          `UPDATE trophies SET points = ?
+            WHERE (np_comm_id, trophy_id) IN (VALUES ${Array.from({ length: pairs }, () => '(?,?)').join(',')})`,
+          [points, ...part],
+        );
+      }
+    }
+  };
 
   for (let i = 0; i < games.length; i += PAGE) {
     const slice = games.slice(i, i + PAGE);
@@ -93,29 +115,21 @@ async function rescoreTrophies() {
       changedGames += 1;
       changedTrophies += moved.length;
       if (scored.some((t) => t.estimated)) estimatedGames += 1;
-      estimatedIds.push([row.np_comm_id, scored.some((t) => t.estimated) ? 1 : 0]);
 
-      // Grouped by new value, so a 97-trophy game is one or two statements
-      // rather than 97.
-      const byValue = new Map();
-      for (const t of moved) {
-        if (!byValue.has(t.points)) byValue.set(t.points, []);
-        byValue.get(t.points).push(t.id);
-      }
-      for (const [points, ids] of byValue) {
-        // points + np_comm_id + the ids, all bound — so the id list has to
-        // leave room for the other two.
-        const CHUNK = D1.chunkSize(1) - 2;
-        for (let j = 0; j < ids.length; j += CHUNK) {
-          const part = ids.slice(j, j + CHUNK);
-          await db.run(
-            `UPDATE trophies SET points = ?
-              WHERE np_comm_id = ? AND trophy_id IN (${part.map(() => '?').join(',')})`,
-            [points, row.np_comm_id, ...part],
-          );
-        }
-      }
+      for (const t of moved) pending.push([t.points, row.np_comm_id, t.id]);
     }
+
+    // Written a PAGE at a time rather than a game at a time. The first version
+    // grouped by value WITHIN a game, which meant a game holding twelve
+    // differently-priced trophies cost twelve round trips to Cloudflare — over
+    // a hundred thousand HTTP calls across the board, and hours of runtime for
+    // a job that should take minutes.
+    //
+    // Row-value IN matches on the primary key (np_comm_id, trophy_id), so each
+    // statement is an indexed lookup rather than a scan, and 49 trophies fit in
+    // one request against D1's 100-parameter ceiling.
+    await flush(pending);
+    pending.length = 0;
 
     if (Math.floor(i / PAGE) % 20 === 0) {
       console.log(`  ${Math.min(i + PAGE, games.length)}/${games.length} games`);
@@ -123,12 +137,13 @@ async function rescoreTrophies() {
   }
 
   // Keep games.estimated honest, so the scan knows which ones to re-check in
-  // days rather than a month.
-  for (const [id, flag] of estimatedIds) {
-    await db.run('UPDATE games SET estimated = ? WHERE np_comm_id = ? AND estimated <> ?', [
-      flag, id, flag,
-    ]);
-  }
+  // days rather than a month. One statement — a game is estimated exactly when
+  // none of its trophies has a published rarity, which SQL can answer itself.
+  await db.run(
+    `UPDATE games SET estimated = CASE WHEN NOT EXISTS (
+       SELECT 1 FROM trophies t WHERE t.np_comm_id = games.np_comm_id AND t.earned_rate > 0
+     ) THEN 1 ELSE 0 END`,
+  );
 
   console.log(
     `  ${changedTrophies} trophies re-valued across ${changedGames} games ` +
@@ -168,7 +183,8 @@ async function rescoreMember(member) {
   );
 
   let rawPoints = 0;
-  let written = 0;
+  const changed = new Map(); // new value -> the games that now hold it
+
   for (const row of rows) {
     const earned = new Set(safeJson(row.earned_ids, []));
     const defs = safeJson(row.defs, []);
@@ -176,12 +192,28 @@ async function rescoreMember(member) {
     for (const [trophyId, pts] of defs) if (earned.has(trophyId)) points += pts || 0;
     rawPoints += points;
 
+    // Only rows whose value actually moved. For Lucas that skips 13,334
+    // shovelware games sitting at zero before and after.
     if (points !== (row.was_points ?? null)) {
+      if (!changed.has(points)) changed.set(points, []);
+      changed.get(points).push(row.np_comm_id);
+    }
+  }
+
+  // Grouped by value, so one statement covers up to 98 games instead of one
+  // statement per game. Pelziowo alone has 15,411 rows — a round trip each
+  // would take longer than the entire rest of the job.
+  let written = 0;
+  for (const [points, ids] of changed) {
+    const CHUNK = D1.chunkSize(1) - 2;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const part = ids.slice(i, i + CHUNK);
       await db.run(
-        'UPDATE member_games SET points = ? WHERE psn_account_id = ? AND np_comm_id = ?',
-        [points, member.psn_account_id, row.np_comm_id],
+        `UPDATE member_games SET points = ?
+          WHERE psn_account_id = ? AND np_comm_id IN (${part.map(() => '?').join(',')})`,
+        [points, member.psn_account_id, ...part],
       );
-      written += 1;
+      written += part.length;
     }
   }
 

@@ -72,6 +72,96 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
   return Math.min(Math.max(raw, 0), cfg.cap);
 }
 
+/**
+ * What a trophy is worth when PSN has told us NOTHING about the game.
+ *
+ * 152 games in the database have not a single rated trophy — Sony returns no
+ * rarity figure at all for them. They are mostly old PS3 titles: Red Faction:
+ * Armageddon, Euro Fishing, Grand Ages Medieval. Scoring them zero says "this
+ * game is worthless", which is a claim we have no evidence for; the truth is we
+ * don't know. So they get what a TYPICAL trophy is worth instead, and the
+ * estimate is replaced by a real figure the moment local rarity lands.
+ *
+ * The numbers are measured, not chosen — median earn rate per type across
+ * 124,869 trophies in games we know contain real challenge (shovelware
+ * excluded), run through the normal curve:
+ *
+ *   bronze   26.9%  ->  2
+ *   silver   26.3%  ->  2
+ *   gold     35.7%  ->  1
+ *   platinum 16.2%  ->  5
+ *
+ * Note gold comes out COMMONER than bronze — that is not noise, the mean says
+ * it too (35.83% vs 32.78%). Golds are usually "finish chapter eight", earned
+ * by everyone who plays; bronzes hide the missables and the grind. So trophy
+ * type barely predicts rarity, and inventing a bronze < silver < gold ladder
+ * here would be pretending to a precision the data does not support — as well
+ * as putting a gold worth 1 next to a bronze worth 2 on the same card.
+ *
+ * Hence: one value for everything, and a higher one for the platinum, which is
+ * the only type the data genuinely separates.
+ *
+ * Deliberately conservative. A 59-trophy game lands around 120 points — real,
+ * modest, and nowhere near enough to be worth farming if the guess is wrong.
+ */
+export const UNRATED_FALLBACK = { platinum: 5, gold: 2, silver: 2, bronze: 2 };
+
+export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 2;
+
+/**
+ * Score every trophy in ONE game together.
+ *
+ * Per-trophy scoring alone cannot answer two questions that need the whole
+ * game in view, and both of them came straight from Martin:
+ *
+ * 1. "Spider-Man has easy trophies in it, no problem — it also has hard ones."
+ *    Putting the suit on is earned by 98% of players and pays nothing under
+ *    the curve. But it is still a trophy in a real game, and a board of 157
+ *    backlog entries all reading "+0 points" tells the member nothing. So any
+ *    trophy in a game that contains at least one genuinely hard trophy is
+ *    worth AT LEAST 1.
+ *
+ *    Measured before shipping: this hands the whole board under 3% and moves
+ *    nobody's rank. Lucas +2.08%, Pelzio +2.77%, everyone else under 0.35%.
+ *
+ * 2. Shovelware must stay at zero. A game where no trophy anywhere is earned
+ *    by under half of players gets NO floor — every trophy stays worth nothing,
+ *    however many of them there are. That is the whole anti-shovelware
+ *    mechanism and it is why a timer was never needed: the system never asks
+ *    "is this game hard", it asks "is this trophy hard", forty times a game.
+ *
+ * The floor only ever applies to trophies we have real rarity for. An unrated
+ * trophy sitting inside a partly-rated game stays at zero — otherwise a
+ * shovelware title with a couple of missing figures could buy itself a value
+ * through the back door.
+ *
+ * @param {Array<{type:string, rate:number|null}>} trophies - every trophy in the game
+ * @returns the same objects with `points` and `estimated` set
+ */
+export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING) {
+  const anyRated = trophies.some((t) => !isUnrated(t.rate));
+
+  // Sony gave us nothing for this game. Estimate the lot.
+  if (!anyRated) {
+    return trophies.map((t) => ({ ...t, points: fallbackPoints(t.type), estimated: true }));
+  }
+
+  const scored = trophies.map((t) => ({
+    ...t,
+    points: isUnrated(t.rate) ? cfg.unratedPoints : trophyPoints(t.rate, cfg),
+    estimated: false,
+  }));
+
+  // Does anything in here ask something of the player?
+  if (scored.some((t) => t.points > 0)) {
+    for (const t of scored) {
+      if (!isUnrated(t.rate) && t.points === 0) t.points = 1;
+    }
+  }
+
+  return scored;
+}
+
 /** True when PSN gave us no usable rarity for this trophy. */
 export const isUnrated = (earnedRatePercent) => {
   const rate = Number(earnedRatePercent);

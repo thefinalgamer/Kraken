@@ -259,7 +259,7 @@ export async function publishLeaderboard(members, store) {
   for (const [i, chunk] of chunks.entries()) {
     const first = i === 0;
     const heading = first
-      ? `# Platinum Intel\n-# ${members.length} hunters · ranked by rarity points · updated ${stamp} UTC`
+      ? `# Platinum Intel\n-# ${members.length} hunters · rarity points × completion · updated ${stamp} UTC`
       : `-# ranks ${chunk[0].rank}–${chunk[chunk.length - 1].rank}`;
 
     const body = message([

@@ -356,7 +356,10 @@ async function rank(env, target) {
   // people nobody is racing. Knowing who is four hundred points behind and
   // closing motivates as much as knowing who you are chasing.
   const neighbours = await db.neighbours(env, member.rank ?? 1, 1);
-  const total = await db.memberCount(env);
+  // rankedCount, not memberCount. memberCount includes anyone registered but
+  // mid-first-scan, which made /rank say "4th of 6" while the board underneath
+  // it said "5 hunters" — and fed a wrong total into the tier boundaries.
+  const total = await db.rankedCount(env);
   const cards = neighbours.map((m, i) =>
     memberCard(m, {
       total,
@@ -764,8 +767,17 @@ async function changelog(env, updateId) {
 }
 
 async function handleAutocomplete(interaction, env) {
-  const focused = interaction.data.options?.find((o) => o.focused)?.value ?? '';
-  const games = await db.searchGames(env, focused, 25);
+  const focused = String(interaction.data.options?.find((o) => o.focused)?.value ?? '').trim();
+
+  // Empty box: offer their own library rather than the shortest titles in the
+  // database, which is what produced a dropdown of "%" and "67".
+  let games = [];
+  if (!focused) {
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+    const me = userId ? await db.memberByDiscordId(env, userId) : null;
+    if (me?.psn_account_id) games = await db.myRecentGames(env, me.psn_account_id, 25);
+  }
+  if (!games.length) games = await db.searchGames(env, focused, 25);
   return {
     type: REPLY.AUTOCOMPLETE,
     data: { choices: games.map((g) => ({ name: g.title.slice(0, 100), value: g.title.slice(0, 100) })) },

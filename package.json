@@ -8,6 +8,7 @@
   "scripts": {
     "setup": "node setup.mjs",
     "scan": "node jobs/scan.mjs",
+    "rescore": "node jobs/rescore.mjs",
     "fallback": "node jobs/fallback.mjs",
     "register-commands": "node jobs/register-commands.mjs",
     "db:init": "wrangler d1 execute platinum-intel --remote --file=schema.sql",

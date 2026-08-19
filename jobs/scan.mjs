@@ -29,7 +29,7 @@
 import { D1 } from './lib/d1.mjs';
 import { PsnClient, PsnPrivateError } from './lib/psn.mjs';
 import {
-  trophyPoints, isUnrated, explainDelta, completionWeight, applyCompletion,
+  isUnrated, explainDelta, completionWeight, applyCompletion, scoreGameTrophies,
 } from '../shared/scoring.mjs';
 import {
   postUpdateResult,
@@ -499,14 +499,19 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
     }
   }
 
-  const rated = trophies.map((t) => ({
-    id: t.trophyId,
-    type: t.trophyType ?? null,
-    hidden: t.trophyHidden ? 1 : 0,
-    rate: t.trophyEarnedRate != null ? Number(t.trophyEarnedRate) : null,
-    points: t.trophyEarnedRate != null ? trophyPoints(Number(t.trophyEarnedRate)) : 0,
-    earned: Boolean(t.earned),
-  }));
+  // Scored a whole game at a time, not trophy by trophy, because two of the
+  // rules need the rest of the game in view: the floor of 1 for easy trophies
+  // in real games, and the estimate for games PSN has no rarity for at all.
+  // See scoreGameTrophies().
+  const rated = scoreGameTrophies(
+    trophies.map((t) => ({
+      id: t.trophyId,
+      type: t.trophyType ?? null,
+      hidden: t.trophyHidden ? 1 : 0,
+      rate: t.trophyEarnedRate != null ? Number(t.trophyEarnedRate) : null,
+      earned: Boolean(t.earned),
+    })),
+  );
 
   // -- shared game record + rarity ------------------------------------------
   // Skipped entirely when another member already cached this game recently.

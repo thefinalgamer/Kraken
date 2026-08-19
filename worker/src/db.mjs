@@ -163,11 +163,46 @@ export const findGame = (env, query) =>
     [query, `%${query}%`],
   );
 
+/**
+ * Game title autocomplete.
+ *
+ * Three faults in the original, all visible in one screenshot: it returned the
+ * same title once per platform (eight identical rows of "%"), it ranked purely
+ * by title length so the junk floated to the top, and with an empty box it
+ * offered the shortest titles in a 20,000-game database rather than anything to
+ * do with the person typing.
+ *
+ * GROUP BY dedupes. The CASE puts titles that START with what you typed above
+ * ones that merely contain it, so "spider" offers Spider-Man before
+ * Rise of the Spiders.
+ */
 export const searchGames = (env, query, limit = 25) =>
   all(
     env,
-    'SELECT title FROM games WHERE title LIKE ? COLLATE NOCASE ORDER BY LENGTH(title) ASC LIMIT ?',
-    [`%${query}%`, limit],
+    `SELECT title FROM games
+      WHERE title LIKE ? COLLATE NOCASE AND TRIM(COALESCE(title, '')) <> ''
+      GROUP BY title COLLATE NOCASE
+      ORDER BY CASE WHEN title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+               LENGTH(title) ASC, title ASC
+      LIMIT ?`,
+    [`%${query}%`, `${query}%`, limit],
+  );
+
+/**
+ * What to offer before they've typed anything: their own games, most recently
+ * played first. Nobody opens /game to look up a title they don't own.
+ */
+export const myRecentGames = (env, accountId, limit = 25) =>
+  all(
+    env,
+    `SELECT g.title, MAX(mg.last_played_at) AS played
+       FROM member_games mg
+       JOIN games g ON g.np_comm_id = mg.np_comm_id
+      WHERE mg.psn_account_id = ? AND TRIM(COALESCE(g.title, '')) <> ''
+      GROUP BY g.title COLLATE NOCASE
+      ORDER BY played DESC
+      LIMIT ?`,
+    [accountId, limit],
   );
 
 export const gameTrophies = (env, npCommId) =>

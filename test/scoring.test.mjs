@@ -7,6 +7,8 @@ import {
   remainingValue,
   explainDelta,
   applyCompletion,
+  scoreGameTrophies,
+  UNRATED_FALLBACK,
   flatPoints,
   DEFAULT_SCORING,
   completionWeight,
@@ -200,4 +202,101 @@ test('completion weighting excludes platinums', () => {
   const defined = { platinum: 321, gold: 1566, silver: 3811, bronze: 10923 };
   const pct = (completionWeight(earned) / completionWeight(defined)) * 100;
   assert.ok(Math.abs(pct - 49.20) < 0.6, `expected ~49.20, got ${pct.toFixed(2)}`);
+});
+
+// ------------------------------------------- game-level scoring rules ------
+
+const game = (...specs) => specs.map(([type, rate], i) => ({ id: i + 1, type, rate }));
+
+test('shovelware stays worth exactly nothing', () => {
+  // Waifu Impact 2: nothing in it is earned by under half of players. This is
+  // the single most important assertion in the file — it is the whole
+  // anti-shovelware mechanism, and Pelziowo owns 13,000 games like this.
+  const scored = scoreGameTrophies(
+    game(['bronze', 95], ['bronze', 88], ['silver', 74], ['gold', 61], ['platinum', 58]),
+  );
+  assert.equal(scored.reduce((n, t) => n + t.points, 0), 0);
+});
+
+test('an easy trophy in a real game is worth 1, not 0', () => {
+  // Spider-Man. "Be Greater" is earned by 98% of players and pays nothing on
+  // the curve, but the game also contains a 4% trophy — so it is a real game
+  // and everything in it counts for something.
+  const scored = scoreGameTrophies(
+    game(['bronze', 98], ['bronze', 71], ['gold', 25], ['platinum', 4]),
+  );
+  assert.equal(scored[0].points, 1, '"Be Greater" should be worth 1');
+  assert.equal(scored[1].points, 1);
+  assert.equal(scored[2].points, 3, 'the 25% trophy keeps its real value');
+  assert.equal(scored[3].points, 24);
+});
+
+test('one hard trophy is what separates a real game from shovelware', () => {
+  // The exact boundary, both sides of it. 50.1% is the rarest trophy found in
+  // any of the 16,200 zero-value games in the real database.
+  const justShovelware = scoreGameTrophies(game(['bronze', 90], ['platinum', 50.1]));
+  assert.equal(justShovelware.reduce((n, t) => n + t.points, 0), 0);
+
+  const justReal = scoreGameTrophies(game(['bronze', 90], ['platinum', 49.9]));
+  assert.ok(justReal.reduce((n, t) => n + t.points, 0) > 0);
+  assert.equal(justReal[0].points, 1, 'the common trophy is carried by the rare one');
+});
+
+test('games PSN knows nothing about are estimated, not zeroed', () => {
+  // Red Faction: Armageddon — 59 trophies, not one rated. 152 games are like
+  // this. Scoring them zero claims they are worthless; we simply do not know.
+  const scored = scoreGameTrophies(
+    game(['bronze', null], ['silver', null], ['gold', null], ['platinum', null]),
+  );
+  assert.ok(scored.every((t) => t.estimated));
+  assert.equal(scored[0].points, UNRATED_FALLBACK.bronze);
+  assert.equal(scored[3].points, UNRATED_FALLBACK.platinum);
+  assert.ok(scored.reduce((n, t) => n + t.points, 0) > 0);
+});
+
+test('a 59-trophy unknown game lands in the small-game band', () => {
+  // Sanity on magnitude. Real games on the board average 3,900-5,900 points;
+  // small ones 77-280. An estimate must land in the second group — if a guess
+  // is wrong it should be too low, never worth farming.
+  const trophies = [
+    ...Array.from({ length: 47 }, () => ['bronze', null]),
+    ...Array.from({ length: 8 }, () => ['silver', null]),
+    ...Array.from({ length: 3 }, () => ['gold', null]),
+    ['platinum', null],
+  ];
+  const total = scoreGameTrophies(game(...trophies)).reduce((n, t) => n + t.points, 0);
+  assert.ok(total > 50 && total < 400, `estimated at ${total} points`);
+});
+
+test('a partly-rated game does not get free value through the back door', () => {
+  // Otherwise a shovelware title with a few missing rarity figures could buy
+  // itself a score. Unrated trophies only get an estimate when the game has NO
+  // rarity at all — here the known trophies say plainly that it is shovelware.
+  const scored = scoreGameTrophies(
+    game(['bronze', 95], ['bronze', null], ['silver', 80], ['platinum', null]),
+  );
+  assert.equal(scored.reduce((n, t) => n + t.points, 0), 0);
+  assert.ok(scored.every((t) => !t.estimated));
+});
+
+test('the floor never touches unrated trophies in a rated game', () => {
+  const scored = scoreGameTrophies(game(['platinum', 2], ['bronze', 99], ['bronze', null]));
+  assert.equal(scored[0].points, 49, 'the rare one is untouched');
+  assert.equal(scored[1].points, 1, 'the common one gets the floor');
+  assert.equal(scored[2].points, 0, 'the unknown one gets nothing');
+});
+
+test('the floor is worth a rounding error, not a rank', () => {
+  // Measured against the real board before shipping: the biggest gain was
+  // Pelziowo at 2.77% and nobody moved a position. A regression here would
+  // mean easy trophies had started paying real money.
+  const spiderman = game(
+    ...Array.from({ length: 45 }, () => ['bronze', 80]),
+    ['platinum', 4],
+  );
+  const scored = scoreGameTrophies(spiderman);
+  const fromEasy = scored.filter((t) => t.rate === 80).reduce((n, t) => n + t.points, 0);
+  const fromHard = scored.find((t) => t.rate === 4).points;
+  assert.equal(fromEasy, 45);
+  assert.ok(fromHard >= fromEasy / 2, `45 easy trophies (${fromEasy}) vs one 4% trophy (${fromHard})`);
 });

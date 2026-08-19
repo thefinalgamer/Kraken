@@ -89,20 +89,30 @@ export const DEFAULT_SCORING = {
    * Scale. Sets the size of the numbers, not their shape — the shape is
    * entirely `exponent`.
    *
-   * 20 is chosen so the board's overall magnitude barely moves while the
-   * BALANCE shifts: a 25% platinum goes 3 -> 11 and a 0.1% trophy 999 -> 1116.
-   * Mid-rarity trophies gain several times over; the very rarest barely move.
-   * That redistribution is the entire point, and keeping the totals familiar
-   * means nobody has to relearn what a good score looks like on the same day
-   * the rules change.
+   * 5 is not a matter of taste. Two members have cards from ESTO'S ORIGINAL
+   * BOT — RabbitSquared on 47,873 and YT-WilkoX on 39,057 — so the scale can be
+   * checked against the only real evidence that exists:
+   *
+   *   scale 20   Rabbit 226,170 (4.72x his old score)   WilkoX 168,323 (4.31x)
+   *   scale 10   Rabbit 113,085 (2.36x)                 WilkoX  84,161 (2.15x)
+   *   scale  5   Rabbit  56,542 (1.18x)                 WilkoX  42,080 (1.08x)
+   *   scale  4   Rabbit  45,234 (0.94x)                 WilkoX  33,664 (0.86x)
+   *
+   * At 5 both land just above where they were, which is what should happen —
+   * they have each earned trophies in the years since. Two independent members,
+   * two independent matches.
+   *
+   * Anyone changing this: re-derive it the same way. The old cards are the only
+   * ground truth this project has for absolute scale, and there will never be
+   * any more of them.
    */
-  scale: 20,
+  scale: 5,
 
   /**
-   * Ceiling on a single trophy. It binds again at exponent 0.65 — the rarity
-   * floor would otherwise pay about 2,700 — which is the point of it: one
-   * glitched or server-shutdown trophy must never outweigh a career. Trophies
-   * rarer than roughly 0.03% all pay the same 2,000.
+   * Ceiling on a single trophy. At scale 5 the rarity floor pays about 1,300, so
+   * this does not bind — kept as a backstop for anyone who raises the scale or
+   * the exponent without rechecking. One glitched or server-shutdown trophy must
+   * never outweigh a career.
    */
   cap: 2000,
 
@@ -191,8 +201,8 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
  * 32.78%). Golds are usually "finish chapter eight", earned by everyone who
  * plays; bronzes hide the missables. So trophy type barely predicts rarity, and
  * inventing a bronze < silver < gold ladder would be pretending to a precision
- * the data does not support, as well as putting a gold worth 5 next to a bronze
- * worth 10 on the same card.
+ * the data does not support, as well as putting a gold worth 1 next to a bronze
+ * worth 2 on the same card.
  *
  * Hence one value for everything and a higher one for the platinum, which is
  * the only type the data genuinely separates.
@@ -205,9 +215,9 @@ export function trophyPoints(earnedRatePercent, cfg = DEFAULT_SCORING) {
  * rather than every thirty, so a new release is priced properly almost as soon
  * as Sony prices it.
  */
-export const UNRATED_FALLBACK = { platinum: 22, gold: 10, silver: 10, bronze: 10 };
+export const UNRATED_FALLBACK = { platinum: 5, gold: 2, silver: 2, bronze: 2 };
 
-export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 10;
+export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 2;
 
 /**
  * Score every trophy in ONE game together.

@@ -488,7 +488,7 @@ async function game(env, query, userId) {
       ],
       COLOR.blurple,
     ),
-  ]);
+  ], { ephemeral: true });
 }
 
 /**
@@ -575,7 +575,10 @@ async function backlog(env, userId, sort) {
       ],
       COLOR.green,
     ),
-  ]);
+    // Private, like everything else except the board itself. #leaderboard is
+    // the one public surface; a hundred members running /backlog in #general
+    // would bury the conversation the server exists for.
+  ], { ephemeral: true });
 }
 
 // ------------------------------------------------------------ components ---

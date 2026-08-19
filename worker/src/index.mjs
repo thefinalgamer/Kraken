@@ -18,7 +18,7 @@ import {
   memberCard, boardBlocks, configureEmoji, COLOR, STYLE, n, pct, ordinal,
   trophyLine, FALLBACK_AVATAR, TIERS, tierFor,
 } from '../../shared/ui.mjs';
-import { trophyPoints, rarityBand, RARITY_BANDS } from '../../shared/scoring.mjs';
+import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
 const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 8 };
@@ -495,6 +495,13 @@ async function game(env, query, userId) {
  * What to play next. The old bot told you your backlog was 280 games and left
  * you to it; this ranks them by what finishing them is actually worth.
  */
+const SORT_LABEL = {
+  value: 'biggest prize first',
+  nearly: 'closest to finished first',
+  quick: 'fewest trophies left first',
+  rare: 'rarest platinum first',
+};
+
 async function backlog(env, userId, sort) {
   const member = await db.memberByDiscordId(env, userId);
   if (!member) return errorReply('You are not registered yet — run `/register` with your PSN ID.');
@@ -504,16 +511,28 @@ async function backlog(env, userId, sort) {
     return errorReply('Nothing unfinished on record yet. Run `/update` first.');
   }
 
+  // Worth TO THIS MEMBER, not the game's raw worth. `remaining_points` is the
+  // rarity value; what actually lands in their score is that multiplied by
+  // their completion. Showing the raw figure would promise a 70.41% member 249
+  // points and then pay them 175 — on the one card in the whole bot whose job
+  // is to make finishing things look worth doing.
+  //
+  // Still an UNDERSTATEMENT, and deliberately so: finishing a game also lifts
+  // completion, which re-prices the entire library. We can't price that here
+  // without storing the completion numerator and denominator, so the card
+  // promises the floor and the update pays more. Better that way round.
+  const worth = (raw) => applyCompletion(raw, member.completion);
+
   const lines = rows.map((g, i) => {
     const band = g.plat_rate != null ? ` · ${RARITY_BANDS[rarityBand(g.plat_rate)]}` : '';
     return (
-      `**${i + 1}. ${g.title}** — +${n(g.remaining_points)} points\n` +
+      `**${i + 1}. ${g.title}** — +${n(worth(g.remaining_points))} points\n` +
       `-# ${n(g.remaining_trophies)} trophies left · ${g.progress}% done${band}`
     );
   });
 
   // The line that makes it more than a to-do list.
-  const projected = member.points + rows.slice(0, 3).reduce((s, g) => s + g.remaining_points, 0);
+  const projected = member.points + rows.slice(0, 3).reduce((s, g) => s + worth(g.remaining_points), 0);
   const wouldBe = await db.rankForPoints(env, projected);
   const gain = (member.rank ?? 0) - wouldBe;
   const passed = gain > 0 ? await db.membersBetween(env, wouldBe, member.rank) : [];
@@ -523,7 +542,7 @@ async function backlog(env, userId, sort) {
       [
         text(
           `## ${member.psn_online_id}'s backlog\n` +
-            `-# ${n(member.projects - member.completed)} unfinished · sorted by points per remaining trophy\n\n` +
+            `-# ${n(member.projects - member.completed)} unfinished · ${SORT_LABEL[sort] ?? SORT_LABEL.value}\n\n` +
             lines.join('\n\n'),
         ),
         separator(),
@@ -533,6 +552,12 @@ async function backlog(env, userId, sort) {
               (passed.length ? `, past ${passed.slice(0, 2).map((p) => `**${p.psn_online_id}**`).join(' and ')}.` : '.')
             : `-# Finishing the top 3 keeps you at **${ordinal(member.rank)}** — nobody close enough to catch.`,
         ),
+        ...(member.completion < 100
+          ? [text(
+              `-# Worth at your ${pct(member.completion)} completion — and finishing these raises it, ` +
+                'so every other game you own pays more too.',
+            )]
+          : []),
         row(
           button('Nearly done', 'bl:nearly'),
           button('Quickest wins', 'bl:quick'),

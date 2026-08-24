@@ -77,6 +77,23 @@ const STALE_REFRESH_BUDGET = Number(process.env.STALE_REFRESH_BUDGET) || 150;
 const ESTIMATE_TTL_MS = Number(process.env.ESTIMATE_TTL_DAYS || 3) * 24 * 60 * 60 * 1000;
 
 /**
+ * How many games may have their trophy NAMES fetched in a single scan.
+ *
+ * `earnedForTitle` — the one call this scan makes per game — returns rarity and
+ * earned state but NOT trophy names. Only `titleTrophies` returns those, and
+ * until now nothing in the codebase called it, so `trophies.name` was never
+ * populated for anything this build scanned. That is the whole cause of
+ * "1. null · bronze" on /game and of rarest_name staying null after a scan;
+ * the queries were always fine, the column was simply empty.
+ *
+ * Names are immutable, so a game pays this exactly once ever and then never
+ * again for anybody. The cap exists so the first pass over a large library
+ * doesn't double that scan's call count — the remainder is picked up by the
+ * next update, and by other members who own the same games.
+ */
+const NAME_BACKFILL_PER_SCAN = Number(process.env.NAME_BACKFILL_PER_SCAN || 60);
+
+/**
  * A PSN profile's About Me, for the bio verification code.
  *
  * psn-api has shuffled this between the top level and a nested `profile` object
@@ -312,17 +329,35 @@ async function connect() {
 async function scanMember(psn, member, updateNo) {
   const accountId = member.psn_account_id;
 
+  // WHAT THE MEMBER WAS LAST TOLD, not what they are worth right now.
+  //
+  // These differ, and the difference is the whole economy. The rescore job
+  // rewrites members.points every time it runs — that is how local rarity
+  // reaches the board — so diffing against the live row silently cancels out
+  // every change caused by somebody else. Martin earned eight trophies on a
+  // game his brother owns, the rescore correctly took three points off Wilko,
+  // and Wilko's next update reported "Points: 0" because by then the loss was
+  // already on both sides of the subtraction.
+  //
+  // Diffing against the last REPORTED figures instead means anything that
+  // happened between two updates surfaces on the next one, bucketed by
+  // explainDelta() as `drift` — which is exactly what it is.
+  //
+  // NULL means this member has not been reported to since the column existed,
+  // so fall back to the live row. That understates one update for everybody
+  // currently on the board and is correct from then on; the alternative is
+  // inventing a first-update delta out of history nobody recorded.
   const before = {
     platinum: member.platinum,
     gold: member.gold,
     silver: member.silver,
     bronze: member.bronze,
-    completion: member.completion,
-    points: member.points,
+    completion: member.reported_completion ?? member.completion,
+    points: member.reported_points ?? member.points,
     // The rarity sum before the completion multiplier. Older rows predate the
     // column, so fall back to the stored score rather than reading zero and
     // reporting the member's entire library as this session's gain.
-    rawPoints: member.raw_points ?? member.points,
+    rawPoints: member.reported_raw_points ?? member.raw_points ?? member.points,
     projects: member.projects,
     completed: member.completed,
   };
@@ -365,6 +400,11 @@ async function scanMember(psn, member, updateNo) {
   const estimateCutoff = Date.now() - ESTIMATE_TTL_MS;
   const estimated = new Set();
   const freshness = new Map();
+  // Games whose trophy rows have no names. `earnedForTitle` does not return
+  // them — only `titleTrophies` does — and until now nothing called it, so
+  // `trophies.name` was never written for anything scanned by this build. See
+  // backfillNames().
+  const unnamed = new Set();
   // Chunked, because D1 rejects any statement with more than 100 bound
   // parameters and a member with 800 games would otherwise build an IN()
   // clause with 800 of them.
@@ -372,13 +412,17 @@ async function scanMember(psn, member, updateNo) {
   for (let i = 0; i < gameRows.length; i += CHUNK) {
     const slice = gameRows.slice(i, i + CHUNK);
     const cached = await db.query(
-      `SELECT np_comm_id, refreshed_at, estimated FROM games
-        WHERE np_comm_id IN (${placeholders(slice.length)})`,
+      `SELECT g.np_comm_id, g.refreshed_at, g.estimated,
+              EXISTS (SELECT 1 FROM trophies t
+                       WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL) AS has_names
+         FROM games g
+        WHERE g.np_comm_id IN (${placeholders(slice.length)})`,
       slice.map((t) => t.npCommunicationId),
     );
     for (const r of cached) {
       freshness.set(r.np_comm_id, r.refreshed_at);
       if (r.estimated) estimated.add(r.np_comm_id);
+      if (!r.has_names) unnamed.add(r.np_comm_id);
     }
   }
   const stale = new Set(
@@ -455,8 +499,12 @@ async function scanMember(psn, member, updateNo) {
   );
 
   const changelog = [];
-  const stats = { unrated: 0, gamesWithUnrated: 0 };
+  const stats = { unrated: 0, gamesWithUnrated: 0, named: 0 };
   let done = 0;
+  // Fetching names costs one extra PSN call per game, so it is capped per scan.
+  // Names never change, so a game only ever pays this once and the backlog
+  // drains across successive updates rather than blocking any single one.
+  let nameBudget = NAME_BACKFILL_PER_SCAN;
   for (const t of toScan) {
     // Only write the shared rarity rows when they're actually absent or stale.
     // The PSN response carries them regardless, but re-writing rows another
@@ -464,11 +512,21 @@ async function scanMember(psn, member, updateNo) {
     // for a big library that allowance is the binding constraint, not the API.
     const needsRarityWrite =
       !freshness.has(t.npCommunicationId) || stale.has(t.npCommunicationId);
+    // A game needs names if it has none stored, or if we have never seen it at
+    // all. Only ever true once per game across the whole server.
+    const needsNames =
+      nameBudget > 0 &&
+      (unnamed.has(t.npCommunicationId) || !freshness.has(t.npCommunicationId));
+    if (needsNames) nameBudget -= 1;
     const entry = await scanGame(
-      psn, accountId, t, prior.get(t.npCommunicationId), needsRarityWrite, stats,
+      psn, accountId, t, prior.get(t.npCommunicationId), needsRarityWrite, stats, needsNames,
     );
     if (entry) changelog.push(entry);
     if (++done % 50 === 0) console.log(`  ${done}/${toScan.length} games`);
+  }
+
+  if (stats.named) {
+    console.log(`  fetched trophy names for ${stats.named} games`);
   }
 
   if (stats.unrated) {
@@ -514,6 +572,57 @@ async function scanMember(psn, member, updateNo) {
 }
 
 /**
+ * Fill in trophy names, details and icons for one game.
+ *
+ * A second PSN call, and the only place in the codebase that calls
+ * `titleTrophies`. It is worth the call because the name is what makes a
+ * trophy a thing rather than a row: "Biggest earners left" and the rarest-trophy
+ * brag line on /rank are both unreadable without it.
+ *
+ * Only ever runs for a game with no names stored, so the cost is one call per
+ * game across the entire server, forever — not one per member per game.
+ *
+ * Never throws. A missing name is cosmetic; a scan that dies trying to fetch
+ * one is not.
+ */
+async function backfillNames(psn, title, stats = null) {
+  try {
+    const defs = await psn.titleTrophies(
+      title.npCommunicationId,
+      title.trophyTitlePlatform,
+    );
+    const named = defs.filter((t) => t.trophyName);
+    if (!named.length) return;
+
+    // name/detail/icon only. Rarity and points are owned by the earned-trophies
+    // path and the rescore job respectively, and must not be touched here.
+    const cols = ['np_comm_id', 'trophy_id', 'name', 'detail', 'icon_url'];
+    const perChunk = D1.chunkSize(cols.length);
+    for (let i = 0; i < named.length; i += perChunk) {
+      const slice = named.slice(i, i + perChunk);
+      await db.run(
+        `INSERT INTO trophies (${cols.join(',')})
+         VALUES ${slice.map(() => '(?,?,?,?,?)').join(',')}
+         ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
+           name = excluded.name,
+           detail = excluded.detail,
+           icon_url = excluded.icon_url`,
+        slice.flatMap((t) => [
+          title.npCommunicationId,
+          t.trophyId,
+          t.trophyName ?? null,
+          t.trophyDetail ?? null,
+          t.trophyIconUrl ?? null,
+        ]),
+      );
+    }
+    if (stats) stats.named += 1;
+  } catch (err) {
+    console.error(`  could not fetch trophy names for ${title.trophyTitleName}:`, err.message);
+  }
+}
+
+/**
  * Scan one game for one member, in a single PSN call.
  *
  * `getUserTrophiesEarnedForTitle` returns EVERY trophy in the title, whether
@@ -522,7 +631,9 @@ async function scanMember(psn, member, updateNo) {
  * record, the shared rarity data, and this member's earned list. The separate
  * getTitleTrophies call this used to make was pure duplication.
  */
-async function scanGame(psn, accountId, title, was, needsRarityWrite = true, stats = null) {
+async function scanGame(
+  psn, accountId, title, was, needsRarityWrite = true, stats = null, needsNames = false,
+) {
   let trophies;
   try {
     trophies = await psn.earnedForTitle(
@@ -613,7 +724,7 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
     );
 
     // ON CONFLICT rather than INSERT OR REPLACE, because this endpoint doesn't
-    // return trophy names — replacing would wipe any names /game has since
+    // return trophy names — replacing would wipe the ones backfillNames() has
     // filled in.
     const cols = ['np_comm_id', 'trophy_id', 'type', 'hidden', 'earned_rate', 'points'];
     const perChunk = D1.chunkSize(cols.length);
@@ -641,6 +752,8 @@ async function scanGame(psn, accountId, title, was, needsRarityWrite = true, sta
       );
     }
   }
+
+  if (needsNames) await backfillNames(psn, title, stats);
 
   // -- this member's progress ----------------------------------------------
   const mine = rated.filter((t) => t.earned);
@@ -835,12 +948,19 @@ async function finaliseUpdate(updateNo, result, member) {
     `UPDATE members SET
        platinum = ?, gold = ?, silver = ?, bronze = ?,
        completion = ?, points = ?, raw_points = ?, projects = ?, completed = ?,
+       reported_points = ?, reported_raw_points = ?, reported_completion = ?,
        rarest_name = ?, rarest_rate = ?, rarest_game = ?,
        last_update_at = ?, last_scan_ok = 1
      WHERE discord_id = ?`,
     [
       after.platinum, after.gold, after.silver, after.bronze,
       after.completion, after.points, after.rawPoints, after.projects, after.completed,
+      // The same three numbers again, under different names. `points` is what
+      // this member is worth and the rescore will overwrite it freely; these
+      // are what the card in front of them says, and only an update may change
+      // them. The gap between the two pairs is what the next update reports as
+      // drift — see migrations/009-reported-snapshot.sql.
+      after.points, after.rawPoints, after.completion,
       rarest?.name ?? null, rarest?.earned_rate ?? null, rarest?.title ?? null,
       Date.now(), member.discord_id,
     ],

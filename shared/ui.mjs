@@ -488,8 +488,31 @@ export function updateCard({
     );
   }
 
-  // The fix: never show a bare negative number without saying why.
-  if (delta.net < 0 && delta.drift < 0 && backlog >= 0) {
+  // NOTHING EARNED, BUT THE NUMBER MOVED. This is the whole of layer two seen
+  // from the receiving end: somebody else picked up a game you own and yours
+  // got more valuable, or somebody finished one and it settled back down. It
+  // needs its own branch because both of the cases below assume the member
+  // earned something this session, and the entire point of local rarity is
+  // that your score moves when you weren't playing at all.
+  //
+  // No threshold. Martin's call, and it is the right one — a board that only
+  // speaks up above some floor teaches people the small moves aren't real, and
+  // small moves compounding is exactly what an economy is. If it was three
+  // points, it says three points.
+  if (delta.drift && !delta.earned) {
+    lines.push(
+      delta.drift > 0
+        ? `> ### ${EMOJI.up} Rarity drift: ${signed(delta.drift)}\n` +
+            '> You earned nothing this session and gained anyway — other members ' +
+            'picked up games you own, and a game is worth more while people are ' +
+            'still stuck on it.'
+        : `> **Rarity drift: ${signed(delta.drift)}**\n` +
+            "> You earned nothing this session and the number still moved. That's " +
+            'other members finishing games you own — trophies settle back towards ' +
+            'their normal value once everybody who owns them has done them. ' +
+            'Nothing was taken away.',
+    );
+  } else if (delta.net < 0 && delta.drift < 0 && backlog >= 0) {
     lines.push(
       `> **Why the drop?** You earned ${signed(delta.earned)} points from new trophies, ` +
         `but trophies you already had have become more common as other players caught up ` +

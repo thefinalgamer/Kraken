@@ -136,6 +136,36 @@ test('a negative update is explained, not just shown', () => {
   assert.ok(d.drift < 0, 'drift must be negative for the explanation to make sense');
 });
 
+test('an update with nothing earned still reports what others did to you', () => {
+  // THE WILKO CASE. Martin earned eight trophies on a game his brother owns.
+  // Local rarity correctly took three points off Wilko — and his update card
+  // said "Points: 0", because the scan diffed against members.points, which the
+  // rescore had already rewritten. The loss sat on both sides of the
+  // subtraction and cancelled.
+  //
+  // Reading the last REPORTED figures instead makes it visible. Nothing else
+  // changes: explainDelta already buckets "the part new trophies don't explain"
+  // as drift, which is exactly what another member's play is.
+  const d = explainDelta({
+    earnedRaw: 0,
+    rawBefore: 103809, // what his card last said
+    rawAfter: 103806,  // what the rescore left him on
+    completionBefore: 100, completionAfter: 100,
+  });
+  assert.equal(d.earned, 0);
+  assert.equal(d.drift, -3);
+  assert.equal(d.net, -3, 'a three point loss is still a loss and must be shown');
+
+  // And the same in reverse — someone starting a game you own pays you, with
+  // no trophies earned on your side at all.
+  const up = explainDelta({
+    earnedRaw: 0, rawBefore: 103806, rawAfter: 104100,
+    completionBefore: 100, completionAfter: 100,
+  });
+  assert.equal(up.drift, 294);
+  assert.equal(up.net, 294);
+});
+
 test('the completion multiplier pays what Esto paid', () => {
   // The sentence Martin and Rabbit both remembered, as a test.
   assert.equal(applyCompletion(1000, 70), 700);

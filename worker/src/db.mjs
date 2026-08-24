@@ -239,7 +239,10 @@ export const myRecentGames = (env, accountId, limit = 25) =>
 export const gameTrophies = (env, npCommId) =>
   all(
     env,
-    'SELECT trophy_id, name, type, earned_rate, points FROM trophies WHERE np_comm_id = ?',
+    // local_earned is needed by the "N/M here" line on /game. It was missing
+    // from this list, so that line rendered 0 for every trophy in every game
+    // regardless of what the rescore had counted.
+    'SELECT trophy_id, name, type, earned_rate, points, local_earned FROM trophies WHERE np_comm_id = ?',
     [npCommId],
   );
 
@@ -254,7 +257,7 @@ export async function gameOwners(env, npCommId) {
   const row = await first(
     env,
     `SELECT COUNT(*) AS total,
-            SUM(CASE WHEN progress = 100 THEN 1 ELSE 0 END) AS platted
+            SUM(CASE WHEN progress = 100 THEN 1 ELSE 0 END) AS completed
        FROM member_games WHERE np_comm_id = ?`,
     [npCommId],
   );
@@ -268,7 +271,12 @@ export async function gameOwners(env, npCommId) {
   );
   return {
     total: row?.total ?? 0,
-    platted: row?.platted ?? 0,
+    // `progress = 100` is 100% COMPLETION, not platinum ownership. It was
+    // called `platted` and the card said "have platted this", which is wrong
+    // twice over: it misdescribes what is counted, and it cannot be true at all
+    // for a game with no platinum — DLC-only lists and plenty of small titles.
+    // The number was always right; only the word was wrong.
+    completed: row?.completed ?? 0,
     fastest: fastest?.psn_online_id ?? null,
   };
 }

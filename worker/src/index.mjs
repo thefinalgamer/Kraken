@@ -495,6 +495,13 @@ async function game(env, query, userId) {
 
   const remaining = trophies.filter((t) => !earned.has(t.trophy_id));
   const worth = remaining.reduce((sum, t) => sum + (t.points || 0), 0);
+  // What the whole game is worth at 100%, and what this member has taken out of
+  // it so far. Martin: "i want it saying you have x amount out of x amount so
+  // people can see how much the games worth still." A bare "worth to you"
+  // figure answers what is left without ever saying what it is left OF, so a
+  // big number and a nearly-finished game look identical.
+  const fullValue = trophies.reduce((sum, t) => sum + (t.points || 0), 0);
+  const banked = fullValue - worth;
   const plat = trophies.find((t) => t.type === 'platinum');
 
   // PSN has told us nothing about this game — either it is old enough that Sony
@@ -516,7 +523,11 @@ async function game(env, query, userId) {
     .slice(0, 3)
     .map(
       (t, i) =>
-        `**${i + 1}.** ${t.name} · *${t.type}*\n` +
+        // `name` is null until the scan has backfilled it — see backfillNames()
+        // in jobs/scan.mjs. Printing it raw is where "1. null · bronze" came
+        // from. A game gets its names on the next scan that touches it, so this
+        // fallback is temporary for any given game but must never render null.
+        `**${i + 1}.** ${t.name || `Trophy #${t.trophy_id}`} · *${t.type}*\n` +
         `-# ${rarityOf(t)} · **+${n(t.points)} point${t.points === 1 ? '' : 's'}**`,
     );
 
@@ -529,7 +540,8 @@ async function game(env, query, userId) {
           section(
             [
               `## ${found.title}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
-              `**Worth to you:** +${n(worth)} points` +
+              `**Worth to you:** ${n(banked)} of ${n(fullValue)} points earned` +
+                (worth > 0 ? `\n-# ${n(worth)} still on the table` : '') +
                 (mine ? `\n**Your progress:** ${mine.progress}%` : '\n**Your progress:** not started'),
               plat
                 ? `**Plat rarity:** ${Number(plat.earned_rate) > 0
@@ -551,8 +563,8 @@ async function game(env, query, userId) {
               )]
             : []),
           text(
-            `-# ${n(owners.platted)} of ${n(owners.total)} members here have platted this` +
-              (owners.fastest ? ` · fastest was **${owners.fastest}**` : ''),
+            `-# ${n(owners.completed)} of ${n(owners.total)} members here have 100%'d this` +
+              (owners.fastest ? ` · first was **${owners.fastest}**` : ''),
           ),
           // Local rarity is invisible unless the card says it out loud — the
           // points just quietly differ from what PSNProfiles would tell you,

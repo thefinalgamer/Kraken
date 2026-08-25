@@ -26,7 +26,7 @@
 import { D1 } from './lib/d1.mjs';
 import { scoreGameTrophies, applyCompletion } from '../shared/scoring.mjs';
 import { memberCompletion } from './lib/completion.mjs';
-import { publishLeaderboard, syncTierRoles } from './lib/discord.mjs';
+import { publishLeaderboard, syncTierRoles, publishHome } from './lib/discord.mjs';
 
 const env = process.env;
 const db = new D1({
@@ -416,6 +416,20 @@ async function main() {
     // this is the job that runs when nobody is waiting on it.
     await syncTierRoles(board);
     await db.setState('tier_role_board_size', board.length);
+
+    // Kraken's home page. Refreshed here so the counts on it are never a
+    // hand-maintained lie — it is the first thing a new member reads.
+    const stats = await db.one(
+      `SELECT (SELECT COUNT(*) FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL) AS members,
+              (SELECT COUNT(*) FROM games) AS games,
+              (SELECT COUNT(*) FROM trophies) AS trophies,
+              (SELECT COALESCE(SUM(platinum), 0) FROM members) AS platinums`,
+    );
+    await publishHome(stats, {
+      get: (k, fallback) => db.getState(k, fallback),
+      set: (k, v) => db.setState(k, v),
+    });
+    console.log('Home page updated.');
   } catch (err) {
     console.error('\nCould not update #leaderboard (the scores are saved regardless):', err.message);
   }

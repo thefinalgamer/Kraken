@@ -1,33 +1,35 @@
--- 009 — what the member was last TOLD
+-- 009 — what we last TOLD you, as distinct from what you are worth
 --
--- Martin: "if wilko lost 3 points it should still say he lost that much."
+-- The update card diffed against members.points. The rescore job also writes
+-- members.points. So anything the rescore changed between two updates was
+-- already baked into the "before" side of the subtraction and cancelled itself
+-- out — and every cross-member effect reaches the board through the rescore.
 --
--- He was right that it wasn't being said, and the cause is here. The update
--- card computes its delta as (now - members.points), but the rescore job also
--- writes members.points — so anything the rescore changed between two updates
--- is already baked into the "before" side and cancels itself out. Wilko lost
--- three points to Martin's Black Flag session, the rescore banked it, and his
--- next update correctly computed a difference of zero.
+-- Martin earned eight trophies on a game YT-WilkoX owns. Local rarity correctly
+-- took three points off Wilko. His next /update said "Points: 0". The number
+-- was right; the question was wrong.
 --
--- Every cross-member effect in the scoring model lands this way. Local rarity
--- moves everyone's score whenever anybody plays, which is the entire point of
--- layer two, and none of it was visible to anyone.
+-- Which means layer two — the entire economy, the thing the board exists for —
+-- has been running invisibly since the day it shipped.
 --
--- The fix is to separate two things that were being conflated:
+--   members.points            what you are worth NOW   (the rescore owns this)
+--   members.reported_points   what we last SHOWED you  (updates own this)
 --
---   members.points            what you are worth NOW  (rescore owns this)
---   members.reported_points   what we last SHOWED you (updates own this)
+-- The card diffs against the second, so anything that happened in between
+-- surfaces on the next update. explainDelta() already buckets "the part new
+-- trophies do not explain" as drift, which is exactly what somebody else's
+-- play is — so there is no new arithmetic, only a corrected question.
 --
--- The card then diffs against what it last told the member, so anything that
--- happened in between — rescores, other people's scans, a scoring change —
--- shows up on the next update instead of vanishing. It needs no new arithmetic:
--- explainDelta() already buckets exactly this as `drift`, because it is the
--- part of the change that new trophies do not explain.
+-- NULL means never reported, and the scan falls back to the live value. So
+-- nobody currently on the board sees a phantom jump on their first update after
+-- this lands; they miss one session's drift, which beats inventing history
+-- nobody recorded.
 --
--- NULL means "never reported" and falls back to the live value, so existing
--- members see no phantom jump on their first update after this lands.
+-- RUN THIS BEFORE PUSHING THE CODE. Backwards is survivable but ugly: the scan
+-- would reference three columns that do not exist and fail on every member.
 --
--- Run one at a time. "duplicate column" means that step is already done.
+-- One line at a time in the D1 console. "duplicate column" means that line is
+-- already done — move to the next.
 
 ALTER TABLE members ADD COLUMN reported_points INTEGER;
 ALTER TABLE members ADD COLUMN reported_raw_points INTEGER;

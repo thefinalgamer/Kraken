@@ -6,6 +6,7 @@
  * message that fills itself in, rather than a wall of bot spam.
  */
 
+import { HOME_BLURB, faqOptions } from '../../shared/faq.mjs';
 import {
   configureEmoji,
   tierFor,
@@ -15,7 +16,14 @@ import {
   container,
   text,
   boardBlocks,
+  selectMenu,
+  linkButton,
+  separator,
+  section,
+  thumbnail,
   chunkBoard,
+  row,
+  n,
   COLOR,
 } from '../../shared/ui.mjs';
 
@@ -519,4 +527,69 @@ export async function syncTierRoles(ranked, only = null) {
     );
   }
   return { changed, skipped };
+}
+
+// -------------------------------------------------------------- home page ---
+
+/**
+ * Kraken's home page — one message, edited in place forever.
+ *
+ * What a new member sees first. A short explanation of what the board is, live
+ * numbers so it never reads like a dead README, and the FAQ behind a dropdown
+ * so four walls of text stay one tidy line until somebody wants them.
+ *
+ * Published by the nightly rescore, so the counts are current without anyone
+ * maintaining them. Self-healing in the same way as the leaderboard: if the
+ * message is deleted, it posts a new one and remembers the new id.
+ */
+export async function publishHome(stats, store) {
+  const channel = env.DISCORD_FAQ_CHANNEL_ID;
+  if (!channel) return;
+
+  const body = message([
+    container(
+      [
+        section(
+          [
+            '# 🐙 Kraken',
+            HOME_BLURB,
+          ],
+          thumbnail(
+            env.DISCORD_HOME_IMAGE_URL ||
+              'https://cdn.discordapp.com/embed/avatars/0.png',
+            'Kraken',
+          ),
+        ),
+        separator(),
+        text(
+          `-# **${n(stats.members)}** hunters · **${n(stats.games)}** games tracked · ` +
+            `**${n(stats.trophies)}** trophies priced · **${n(stats.platinums)}** platinums between us`,
+        ),
+        separator(),
+        text('### Questions\nPick a topic — the answer comes back just to you.'),
+        selectMenu('faq', 'Choose a topic…', faqOptions()),
+        ...(env.DISCORD_GUILD_ID && env.DISCORD_LEADERBOARD_CHANNEL_ID
+          ? [row(
+              linkButton(
+                'Open the leaderboard',
+                `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${env.DISCORD_LEADERBOARD_CHANNEL_ID}`,
+              ),
+            )]
+          : []),
+      ],
+      COLOR.blurple,
+    ),
+  ]);
+
+  const known = await store.get('home_message_id', null);
+  if (known) {
+    try {
+      await rest(`/channels/${channel}/messages/${known}`, { method: 'PATCH', body });
+      return;
+    } catch (err) {
+      console.log(`Home message could not be edited (${err.message}) — reposting.`);
+    }
+  }
+  const posted = await rest(`/channels/${channel}/messages`, { body });
+  await store.set('home_message_id', posted.id);
 }

@@ -57,6 +57,10 @@ const commands = [
     ],
   },
   {
+    name: 'faq',
+    description: 'How the board works — points, roles, joining, all of it',
+  },
+  {
     name: 'update',
     description: 'Rescan your trophies and update your card',
   },

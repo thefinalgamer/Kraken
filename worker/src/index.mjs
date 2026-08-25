@@ -15,10 +15,11 @@ import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
-  memberCard, boardBlocks, configureEmoji, COLOR, STYLE, n, pct, ordinal,
+  memberCard, boardBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct, ordinal,
   trophyLine, FALLBACK_AVATAR, TIERS, tierFor,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
+import { faqSection, faqOptions } from '../../shared/faq.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
 const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 8 };
@@ -92,6 +93,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'verify':     return verify(interaction, env, ctx, userId);
     case 'unlink':     return unlink(interaction, env, opt('member'));
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
+    case 'faq':        return faq(env);
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
     case 'leaderboard':return leaderboard(env, 'me', userId);
@@ -416,6 +418,28 @@ async function rank(env, target) {
         button('Who\'s near me', 'lb:me'),
         button('Refresh my stats', 'do:update', STYLE.PRIMARY),
         button('Share to channel', `share:rank:${target}`, STYLE.SECONDARY),
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * The FAQ, on demand.
+ *
+ * The same dropdown that lives on the home page, summoned anywhere. Costs
+ * nothing to have both: the home page is where a new member finds it, and this
+ * is what somebody types when they are already mid-argument in #general.
+ */
+function faq(env) {
+  return reply(
+    [
+      container(
+        [
+          text('### Kraken FAQ\nPick a topic — the answer comes back just to you.'),
+          selectMenu('faq', 'Choose a topic…', faqOptions()),
+        ],
+        COLOR.blurple,
       ),
     ],
     { ephemeral: true },
@@ -794,6 +818,14 @@ async function handleComponent(interaction, env, ctx) {
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
 
   switch (action) {
+    case 'faq': {
+      // A select menu sends its choice in data.values, not in the custom_id —
+      // the custom_id is fixed for the life of the message.
+      const chosen = interaction.data.values?.[0];
+      const body = faqSection(chosen, env);
+      if (!body) return errorReply('That topic has moved. Try the dropdown again.');
+      return reply([container([text(body)], COLOR.blurple)], { ephemeral: true });
+    }
     case 'lb':
       // 'top' or anything else means the head of the board; 'me' re-centres on
       // the caller. Older buttons carried a page number, which now harmlessly

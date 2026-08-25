@@ -22,6 +22,7 @@ export const T = {
   BUTTON: 2,
   SECTION: 9,
   TEXT_DISPLAY: 10,
+  STRING_SELECT: 3,
   THUMBNAIL: 11,
   MEDIA_GALLERY: 12,
   SEPARATOR: 14,
@@ -77,6 +78,27 @@ export const button = (label, customId, style = STYLE.SECONDARY, extra = {}) => 
 export const linkButton = (label, url) => ({ type: T.BUTTON, style: STYLE.LINK, label, url });
 
 export const row = (...components) => ({ type: T.ACTION_ROW, components });
+
+/**
+ * A dropdown. Must be the ONLY thing in its action row — Discord rejects a row
+ * holding a select menu alongside anything else, including another select.
+ *
+ * @param {string} customId
+ * @param {string} placeholder - shown before anything is chosen
+ * @param {Array<{label:string, value:string, description?:string, emoji?:object}>} options
+ */
+export const selectMenu = (customId, placeholder, options) =>
+  row({
+    type: T.STRING_SELECT,
+    custom_id: customId,
+    placeholder,
+    options: options.map((o) => ({
+      label: o.label.slice(0, 100),
+      value: o.value,
+      ...(o.description ? { description: o.description.slice(0, 100) } : {}),
+      ...(o.emoji ? { emoji: o.emoji } : {}),
+    })),
+  });
 
 /** Wrap components into a sendable message body. */
 export const message = (components, { ephemeral = false } = {}) => ({

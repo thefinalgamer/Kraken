@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS members (
   bronze            INTEGER NOT NULL DEFAULT 0,
   completion        REAL    NOT NULL DEFAULT 0,   -- percent, 41.02
   points            INTEGER NOT NULL DEFAULT 0,   -- the score on the card: raw_points x completion
+  -- What the member was last SHOWN, as distinct from what they are worth now.
+  -- The rescore rewrites points/raw_points/completion freely; only an update may
+  -- touch these. The gap between the two is what the next update reports as
+  -- drift. See migrations/009-reported-snapshot.sql for why this is separate.
+  reported_points     INTEGER,
+  reported_raw_points INTEGER,
+  reported_completion REAL,
   raw_points        INTEGER NOT NULL DEFAULT 0,   -- rarity-weighted sum, before the multiplier
   projects          INTEGER NOT NULL DEFAULT 0,   -- games started
   completed         INTEGER NOT NULL DEFAULT 0,   -- games at 100%

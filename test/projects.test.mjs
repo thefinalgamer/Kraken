@@ -94,3 +94,27 @@ test('nothing to announce means no card at all', () => {
   assert.equal(projectBlocks(member, 'new', []), null);
   assert.equal(projectBlocks(member, 'new', undefined), null);
 });
+
+// ---------------------------------------------------------------- routing --
+
+test('a game started and finished in one session reaches both channels', async () => {
+  const { PROJECT_FILTER } = await import('../jobs/lib/discord.mjs');
+
+  // Pelziowo's Arcade Archives 2 V'BALL: bought, auto-platted and scanned in
+  // one go, so it arrived at 100% having never existed before.
+  const autoPlat = { np_comm_id: 'NPWR001', kind: 'new', progress_from: 0, progress_to: 100 };
+  const justStarted = { np_comm_id: 'NPWR002', kind: 'new', progress_from: 0, progress_to: 4 };
+  const finished = { np_comm_id: 'NPWR003', kind: 'completed', progress_from: 88, progress_to: 100 };
+  const grinding = { np_comm_id: 'NPWR004', kind: 'progress', progress_from: 20, progress_to: 35 };
+
+  const log = [autoPlat, justStarted, finished, grinding];
+  const started = log.filter(PROJECT_FILTER.new).map((c) => c.np_comm_id);
+  const done = log.filter(PROJECT_FILTER.completed).map((c) => c.np_comm_id);
+
+  assert.deepEqual(started, ['NPWR001', 'NPWR002']);
+  assert.deepEqual(done, ['NPWR001', 'NPWR003']);
+  assert.ok(started.includes('NPWR001'), 'the auto-plat is a start');
+  assert.ok(done.includes('NPWR001'), 'and a completion — it belongs in both channels');
+  assert.ok(!done.includes('NPWR002'), 'a game at 4% is not finished');
+  assert.ok(!started.includes('NPWR004'), 'ordinary progress announces nothing');
+});

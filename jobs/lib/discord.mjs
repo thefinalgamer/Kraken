@@ -613,6 +613,32 @@ export async function publishHome(stats, store) {
  * Best-effort throughout. The scan is finished and saved by the time this runs;
  * a Discord outage must cost a message, never the update.
  */
+/**
+ * Which changelog entries belong in which channel.
+ *
+ * THE SUBTLE ONE IS `completed`. The scan tags a game `new` when it was not in
+ * the library before and `completed` when it WAS and has just crossed 100% — so
+ * a game that first appears already finished is only ever tagged `new`, and
+ * fell through #completed entirely.
+ *
+ * Martin caught it in the first real card: Pelziowo's Arcade Archives 2 V'BALL
+ * showed "2 own it · 2 finished" on a game he had only just started, because he
+ * started and auto-platted it in the same session. It never reached #completed
+ * and never would have.
+ *
+ * Shovelware is not what makes this worth fixing. Somebody who starts Bloodborne
+ * on the Friday, plats it on the Sunday and runs /update afterwards is the same
+ * case — and that is the post the whole channel exists for.
+ *
+ * A game can legitimately be BOTH. "Pelziowo started it" and "Pelziowo 100%'d
+ * it" are each true and each happened, so it appears in both channels rather
+ * than one picking a winner.
+ */
+export const PROJECT_FILTER = {
+  new: (c) => c.kind === 'new',
+  completed: (c) => c.kind === 'completed' || (c.kind === 'new' && c.progress_to === 100),
+};
+
 export async function postProjects(db, member, result, { first = false } = {}) {
   if (first || !result?.changelog?.length) return;
 
@@ -625,7 +651,7 @@ export async function postProjects(db, member, result, { first = false } = {}) {
     const channel = wanted[kind];
     if (!channel) continue; // variable unset — the feature is simply off
 
-    const entries = result.changelog.filter((c) => c.kind === kind);
+    const entries = result.changelog.filter(PROJECT_FILTER[kind]);
     if (!entries.length) continue;
 
     try {

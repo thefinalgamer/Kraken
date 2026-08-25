@@ -15,6 +15,8 @@
  * Ten member cards per page sits comfortably inside all of these.
  */
 
+import { nextCompletionStep } from './scoring.mjs';
+
 export const IS_COMPONENTS_V2 = 1 << 15; // 32768
 
 export const T = {
@@ -239,6 +241,26 @@ export const signed = (value, suffix = '') => {
  */
 export const pct = (value) => `${(Math.floor(Number(value ?? 0) * 100) / 100).toFixed(2)}%`;
 
+/**
+ * "-> 92% pays next", or nothing at all when there is nothing to reach.
+ *
+ * Completion pays in whole percentage points, so 91.42% and 91.98% bank exactly
+ * the same score. Without this line that reads as the bot ignoring your
+ * progress; with it, the gap between the two numbers is a target. See
+ * COMPLETION_STEP in scoring.mjs for why the step exists.
+ */
+export const nextPayout = (completion) => {
+  const c = Number(completion ?? 0);
+  const next = nextCompletionStep(c);
+  if (next == null) return '';
+  // Already exactly on a step: the number they can see IS what they are paid,
+  // and pointing at the next one would just nag.
+  if (Math.abs(c - Math.floor(c)) < 0.005) return '';
+  // Its own line. Discord only renders "-#" as small text at the START of a
+  // line — inline it prints the two characters literally.
+  return `\n-# ${next}% is the next payout`;
+};
+
 export const ordinal = (v) => {
   const i = Number(v);
   const mod100 = i % 100;
@@ -360,6 +382,7 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
           `### ${position} · ${country ? `${country} ` : ''}${who}`,
           trophyLine(m),
           `**Completion** ${pct(m.completion)}\n**Points** ${n(m.points)}` +
+            nextPayout(m.completion) +
             (footer ? `\n${footer}` : ''),
         ],
         thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),

@@ -32,6 +32,7 @@ import {
   isUnrated, explainDelta, completionWeight, applyCompletion, scoreGameTrophies,
 } from '../shared/scoring.mjs';
 import { memberCompletion } from './lib/completion.mjs';
+import { settleLocalRarity } from './lib/settle.mjs';
 import {
   postUpdateResult,
   postUpdateFailure,
@@ -535,6 +536,19 @@ async function scanMember(psn, member, updateNo) {
         `— scored as 0, see DEFAULT_SCORING.unratedPoints`,
     );
   }
+
+  // Settle local rarity for the games this session actually moved.
+  //
+  // This is layer two finally reaching people in real time. Earning a trophy
+  // makes it commoner here, which makes it worth less to everybody else who
+  // holds it — and until now that only happened at 03:00, which is exactly why
+  // Martin's Black Flag test showed Wilko losing nothing. Scoped to the changed
+  // games so it costs a second rather than the rescore's several minutes; the
+  // nightly job still recounts the whole board and remains the authority.
+  //
+  // Deliberately BEFORE recomputeMemberPoints(), so the member in front of us
+  // is priced against the counts their own play just changed.
+  await settleLocalRarity(db, changelog.map((c) => c.np_comm_id), { skipAccountId: accountId });
 
   // Recompute every game's points from stored ids against current rarity.
   // Pure database work — this is where drift shows up.

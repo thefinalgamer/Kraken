@@ -183,6 +183,36 @@ export const hasRunningUpdate = async (env, accountId) =>
 
 // ---------------------------------------------------------------- games ----
 
+/**
+ * Every edition of a title, best guess first.
+ *
+ * findGame() returns ONE row, ordered by title length, and for a game that
+ * exists on three consoles that is a coin toss. Martin typed /game gta v and
+ * got the PS3 list with no way to reach the PS5 one — different np_comm_id,
+ * different trophy set, different rarity, same name.
+ *
+ * PSN gives each edition its own np_comm_id, so they are genuinely separate
+ * games that happen to share a title. Ordering: the one YOU own wins, because
+ * that is the one you meant; then the one most of the server owns, because that
+ * is the one being talked about.
+ */
+export const gameVersions = (env, title, accountId = null) =>
+  all(
+    env,
+    `SELECT g.np_comm_id, g.title, g.platform, g.trophy_count,
+            (SELECT COUNT(*) FROM member_games mg WHERE mg.np_comm_id = g.np_comm_id) AS owners,
+            (SELECT COUNT(*) FROM member_games mg
+              WHERE mg.np_comm_id = g.np_comm_id AND mg.psn_account_id = ?) AS mine
+       FROM games g
+      WHERE g.title = ? COLLATE NOCASE
+      ORDER BY mine DESC, owners DESC, g.trophy_count DESC, g.np_comm_id ASC
+      LIMIT 25`,
+    [accountId ?? '', title],
+  );
+
+export const gameById = (env, npCommId) =>
+  first(env, 'SELECT * FROM games WHERE np_comm_id = ?', [npCommId]);
+
 export const findGame = (env, query) =>
   first(
     env,

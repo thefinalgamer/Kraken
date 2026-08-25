@@ -223,20 +223,34 @@ async function verify(interaction, env, ctx, userId) {
 
   ctx.waitUntil(dispatchScan(env, userId, interaction.token, { first: true, verify: true }));
 
-  return reply([
-    container(
-      [
-        text(
-          `## Checking **${member.psn_online_id}**\n\n` +
-            `Looking for \`${member.verify_code}\` in your PSN About Me. If it's there, your first ` +
-            `scan starts straight away.\n\n` +
-            `First scans are the slow ones — **15 to 30 minutes** — because nothing about your ` +
-            `library is cached yet. Every update after this takes two or three.`,
-        ),
-      ],
-      COLOR.green,
-    ),
-  ]);
+  // EPHEMERAL, and this is not cosmetic. This reply names the member's verify
+  // code, and without the flag Discord posts it to the channel — so the one
+  // secret standing between a stranger and somebody else's PSN account gets
+  // read out to everyone present. Martin caught it on a live registration.
+  //
+  // /register has always been private. This reply was written later, the flag
+  // was never carried across, and nothing failed loudly enough to notice.
+  return reply(
+    [
+      container(
+        [
+          text(
+            `## Checking **${member.psn_online_id}**\n\n` +
+              `Looking for your code in your PSN About Me. If it's there, your first scan starts ` +
+              `straight away.\n\n` +
+              `**Leave the code in your bio until this finishes.** The check runs at the start of ` +
+              `the scan, not now — take it out early and the scan stops before it reaches the ` +
+              `board.\n\n` +
+              `First scans are the slow ones — **15 to 30 minutes** — because nothing about your ` +
+              `library is cached yet. Every update after this takes two or three.\n\n` +
+              `-# Only you can see this message.`,
+          ),
+        ],
+        COLOR.green,
+      ),
+    ],
+    { ephemeral: true },
+  );
 }
 
 /**
@@ -503,16 +517,48 @@ async function leaderboard(env, mode, viewerId) {
  * asking, so it shows what the game is worth to YOU with anything already
  * earned subtracted.
  */
-async function game(env, query, userId) {
-  const found = await db.findGame(env, query);
+/**
+ * A title squeezed into a custom_id. Discord allows 100 characters and
+ * "gamever:" spends eight of them; the rest is encoded so a colon or a space in
+ * a game name cannot break the split. Cutting an encoded string can leave a
+ * dangling "%2" that decodeURIComponent throws on, so the cut is made on whole
+ * escapes.
+ */
+function customIdTitle(title) {
+  const encoded = encodeURIComponent(String(title ?? ''));
+  if (encoded.length <= 80) return encoded;
+  return encoded.slice(0, 80).replace(/%[0-9A-Fa-f]?$/, '');
+}
+
+async function game(env, query, userId, pinned = null) {
+  const member = await db.memberByDiscordId(env, userId);
+
+  // Two lookups, because a title is not a game. PSN gives every edition its own
+  // np_comm_id — GTA V on PS3, PS4 and PS5 are three separate trophy lists that
+  // happen to share a name — and findGame() returned whichever one sorted
+  // first. Martin got the PS3 list with no way out of it.
+  //
+  // So: resolve the NAME loosely (people type "gta v"), then resolve the
+  // EDITION deliberately. `pinned` is set once somebody has picked one from the
+  // dropdown; otherwise gameVersions() decides — the edition YOU own, else the
+  // one most of the server owns, because that is the one being talked about.
+  let found = pinned ? await db.gameById(env, pinned) : null;
   if (!found) {
-    return errorReply(
-      `Nobody here has played anything called **${query}** yet, so I have no rarity data for it. ` +
-        'Once one member owns it, it shows up for everyone.',
-    );
+    const match = await db.findGame(env, query);
+    if (!match) {
+      return errorReply(
+        `Nobody here has played anything called **${query}** yet, so I have no rarity data for it. ` +
+          'Once one member owns it, it shows up for everyone.',
+      );
+    }
+    found = match;
   }
 
-  const member = await db.memberByDiscordId(env, userId);
+  const versions = await db.gameVersions(env, found.title, member?.psn_account_id ?? null);
+  if (!pinned && versions.length > 1 && versions[0].np_comm_id !== found.np_comm_id) {
+    found = (await db.gameById(env, versions[0].np_comm_id)) ?? found;
+  }
+
   const trophies = await db.gameTrophies(env, found.np_comm_id);
   const mine = member ? await db.memberGame(env, member.psn_account_id, found.np_comm_id) : null;
   const earned = new Set(mine ? JSON.parse(mine.earned_ids || '[]') : []);
@@ -603,6 +649,23 @@ async function game(env, query, userId) {
                   'value once everyone who owns it has finished — so somebody else picking ' +
                   'this up right now makes it worth more to you.',
               )]
+            : []),
+          // A select menu has to sit alone in its own ActionRow — Discord
+          // rejects the whole message if a button shares the row.
+          ...(versions.length > 1
+            ? [
+                selectMenu(
+                  `gamever:${customIdTitle(found.title)}`,
+                  'Different version?',
+                  versions.slice(0, 25).map((v) => ({
+                    label: `${v.platform || 'PlayStation'} · ${n(v.trophy_count)} trophies`,
+                    value: v.np_comm_id,
+                    description:
+                      (v.mine ? 'You own this one' : `${n(v.owners)} here own it`) +
+                      (v.np_comm_id === found.np_comm_id ? ' · showing now' : ''),
+                  })),
+                ),
+              ]
             : []),
           row(button("Who's played it", `owners:${found.np_comm_id}`)),
         ],
@@ -848,6 +911,22 @@ async function handleComponent(interaction, env, ctx) {
       const [, target] = arg.split(':');
       const card = await rank(env, target || userId);
       return { type: REPLY.MESSAGE, data: { ...card.data, flags: 32768 } };
+    }
+    case 'gamever': {
+      // The value carries the np_comm_id, which IS the edition — so nothing
+      // needs re-searching. The title in the custom_id is only there to give
+      // game() something to fall back on if the row has since been deleted.
+      const chosen = interaction.data.values?.[0];
+      if (!chosen) return errorReply('Nothing picked. Try the dropdown again.');
+      let title = arg;
+      try {
+        title = decodeURIComponent(arg);
+      } catch {
+        // A truncated custom_id can end mid-escape. The title is only a
+        // fallback here anyway — the chosen np_comm_id is what matters.
+      }
+      const card = await game(env, title, userId, chosen);
+      return { ...update(card.data.components) };
     }
     case 'owners': {
       const list = await db.gameOwnerList(env, arg, 15);

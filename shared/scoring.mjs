@@ -414,28 +414,62 @@ export function remainingValue(definitions, earnedIds, cfg = DEFAULT_SCORING) {
  *    costs you, finishing things pays. That is "reward the backlog" delivered
  *    by a single multiply.
  *
- * 3. NO CLIFFS, EVER. Use the true percentage, never a rounded or banded one.
- *    Esto's bot rounded completion to whole percent, which is why Rabbit
- *    remembers scores lurching — "if you went up by 1% it went up a big chunk".
- *    That was a bug. At Martin's score a whole-percent step is ~1,375 points;
- *    at true precision it is ~14 points per 0.01%. Same system, no lurches.
+ * 3. IT PAYS IN WHOLE PERCENTAGE POINTS, and that is a deliberate reversal.
  *
- *    Tiers and thresholds are worse still. A +10% band at 75% means someone at
- *    75.1% who buys a game and pops the tutorial trophy falls to 74.9% and
- *    loses thousands instantly — which teaches people to stop starting games,
- *    the exact opposite of trophy hunting. Keep milestones cosmetic.
+ *    This used to pay at true precision, and the note here argued hard for it:
+ *    Esto's bot rounded to whole percent, Rabbit remembered scores lurching,
+ *    and lurching was filed as a bug. Martin, running the server: "right now we
+ *    have payouts happening every 0.01% so it's only 14 points. People are
+ *    asking for that bigger cliff."
+ *
+ *    They are asking for the lurch. It was never a bug — it was the reward
+ *    landing hard enough to feel, and 14 points arriving invisibly is not a
+ *    reward at all. Reaching 92% should be an event.
+ *
+ *    The old argument against cliffs was really an argument against BANDS, and
+ *    it does not carry across. A +10% band at 75% means someone at 75.1% who
+ *    pops one tutorial trophy falls to 74.9% and loses thousands — so people
+ *    stop starting games, the exact opposite of trophy hunting. A one-point
+ *    step cannot do that: the most it can ever cost is a single percent of your
+ *    score, the same amount it just paid. The debt model is untouched. Keep
+ *    BANDS cosmetic; a step is fine.
+ *
+ *    COMPLETION_STEP is the whole of it. Set it to 0.01 and true precision is
+ *    back, no other change required.
  *
  * Floored, like every other percentage on the board: nobody is ever paid for a
- * completion point they have not finished earning.
+ * completion point they have not finished earning. 91.98% pays exactly what 91%
+ * pays, and the card says so — see nextCompletionStep().
  *
  * @param {number} rawPoints - the rarity-weighted sum, before completion
  * @param {number} completionPercent - overall completion, e.g. 49.2
  */
+export const COMPLETION_STEP = 1;
+
+/** The completion a member is actually PAID at: theirs, rounded down to a step. */
+export function paidCompletion(completionPercent) {
+  const c = Number(completionPercent);
+  if (!Number.isFinite(c) || c <= 0) return 0;
+  const step = COMPLETION_STEP > 0 ? COMPLETION_STEP : 0.01;
+  return Math.min(100, Math.floor(Math.min(c, 100) / step) * step);
+}
+
+/**
+ * The next completion figure that actually pays, for the card to aim at.
+ * Returns null at 100% — there is nothing left to reach.
+ */
+export function nextCompletionStep(completionPercent) {
+  const paid = paidCompletion(completionPercent);
+  if (paid >= 100) return null;
+  const step = COMPLETION_STEP > 0 ? COMPLETION_STEP : 0.01;
+  return Math.round(Math.min(100, paid + step) * 100) / 100;
+}
+
 export function applyCompletion(rawPoints, completionPercent) {
   const raw = Number(rawPoints) || 0;
   const c = Number(completionPercent);
   if (!Number.isFinite(c) || c <= 0) return 0;
-  return Math.floor((raw * Math.min(c, 100)) / 100);
+  return Math.floor((raw * paidCompletion(c)) / 100);
 }
 
 /**
@@ -470,8 +504,12 @@ export function explainDelta({
   completionBefore = 0,
   completionAfter = 0,
 } = {}) {
-  const c0 = (Number(completionBefore) || 0) / 100;
-  const c1 = (Number(completionAfter) || 0) / 100;
+  // The PAID completion, not the true one. applyCompletion() steps to whole
+  // percentage points, so net does too — and if the three parts were computed
+  // against the unstepped figure they would not add up to it. The card would
+  // then show a split arguing with its own headline. See COMPLETION_STEP.
+  const c0 = paidCompletion(completionBefore) / 100;
+  const c1 = paidCompletion(completionAfter) / 100;
   const driftRaw = rawAfter - rawBefore - earnedRaw;
 
   const earned = Math.round(earnedRaw * c0);

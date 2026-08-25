@@ -191,14 +191,27 @@ test('clearing the backlog pays out across the whole library', () => {
 
 test('starting a game costs you, and the split says so', () => {
   // Popped one common trophy in a big new game: a few points earned, but
-  // completion dipped, so the library re-prices downwards.
+  // completion dipped past a whole point, so the library re-prices downwards.
   const d = explainDelta({
     earnedRaw: 60, rawBefore: 460000, rawAfter: 460060,
-    completionBefore: 49.2, completionAfter: 49.0,
+    completionBefore: 49.2, completionAfter: 48.9,
   });
   assert.ok(d.earned > 0, 'the trophy still paid something');
   assert.ok(d.backlog < 0, 'but the dip cost more');
   assert.ok(d.net < 0);
+});
+
+test('a dip that does not cross a whole point costs nothing', () => {
+  // The other half of COMPLETION_STEP, and the half people will notice first.
+  // Payouts land in whole percentage points, so 49.2 and 49.0 bank identically:
+  // poking at a new game no longer nibbles points off your whole library, and
+  // the sting arrives only when you actually fall through 49%.
+  const d = explainDelta({
+    earnedRaw: 60, rawBefore: 460000, rawAfter: 460060,
+    completionBefore: 49.2, completionAfter: 49.0,
+  });
+  assert.equal(d.backlog, 0, 'no re-pricing without crossing a step');
+  assert.ok(d.net > 0, 'so the new trophy is pure gain');
 });
 
 test('the three parts always reconcile to the headline number', () => {

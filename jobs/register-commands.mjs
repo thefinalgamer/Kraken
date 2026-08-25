@@ -57,6 +57,28 @@ const commands = [
     ],
   },
   {
+    name: 'flag',
+    description: 'Mods only — mark a game as having trophies nobody can earn any more',
+    // MANAGE_GUILD, same as /unlink and /addmember. A warning on a game changes
+    // whether people start it, so it is not a thing any member gets to set.
+    default_member_permissions: '32',
+    options: [
+      {
+        name: 'game',
+        description: 'The game to flag',
+        type: 3,
+        required: true,
+        autocomplete: true,
+      },
+      {
+        name: 'note',
+        description: 'What is unobtainable and why — leave empty to clear the flag',
+        type: 3,
+        required: false,
+      },
+    ],
+  },
+  {
     name: 'faq',
     description: 'How the board works — points, roles, joining, all of it',
   },

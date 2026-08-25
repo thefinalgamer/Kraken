@@ -93,6 +93,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'verify':     return verify(interaction, env, ctx, userId);
     case 'unlink':     return unlink(interaction, env, opt('member'));
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
+    case 'flag':       return flagGame(interaction, env, userId, opt('game'), opt('note'));
     case 'faq':        return faq(env);
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
@@ -276,6 +277,75 @@ async function unlink(interaction, env, targetId) {
           text(
             `Unlinked <@${targetId}> from **${removed.psn_online_id}**.\n\n` +
               `-# The name is free again and they can re-register. Their scan history stays put.`,
+          ),
+        ],
+        COLOR.orange,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * Mark a game as having trophies nobody can earn any more.
+ *
+ * PSN cannot tell us this and never will — a trophy dies when a server is
+ * switched off or an event ends, and Sony's API returns the identical row for
+ * "impossible now" and "nobody has bothered". So it is a human judgement, and
+ * this records whose.
+ *
+ * EVERY EDITION with the same title is flagged, not just the one that resolves.
+ * Server closures do not respect platform boundaries: when the Black Flag
+ * servers went, they went for PS3 and PS4 alike. Flagging one edition and
+ * leaving the others clean is the failure mode that makes the warning
+ * untrustworthy, and untrustworthy is the same as absent.
+ *
+ * An empty note clears the flag, so the same command undoes itself — there is
+ * no /unflag to remember, and a mod who over-flagged can fix it in seconds.
+ */
+async function flagGame(interaction, env, userId, title, note) {
+  const perms = BigInt(interaction.member?.permissions ?? '0');
+  const MANAGE_GUILD = 1n << 5n;
+  if ((perms & MANAGE_GUILD) !== MANAGE_GUILD) return errorReply('That one is for mods only.');
+
+  const match = await db.findGame(env, title);
+  if (!match) return errorReply(`I have no game called **${title}**.`);
+
+  const clean = String(note ?? '').trim().slice(0, 300);
+  const editions = await db.setUnobtainable(env, match.title, {
+    on: Boolean(clean),
+    note: clean || null,
+    by: clean ? userId : null,
+  });
+
+  if (!clean) {
+    return reply(
+      [
+        container(
+          [
+            text(
+              `### Flag cleared\n**${match.title}** is completable again` +
+                (editions > 1 ? ` — all ${editions} editions.` : '.') +
+                `\n\n-# Run \`/flag\` with a note to put it back.`,
+            ),
+          ],
+          COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `### ⚠️ ${match.title} flagged\n> ${clean}\n\n` +
+              `This shows on \`/game\`, in the backlog, and on the card whenever somebody ` +
+              `starts or finishes it` +
+              (editions > 1 ? ` — applied to all **${editions}** editions of the title.` : '.') +
+              `\n\n-# Recorded against you. Run \`/flag\` with no note to clear it.`,
           ),
         ],
         COLOR.orange,
@@ -621,6 +691,16 @@ async function game(env, query, userId, pinned = null) {
             ].filter(Boolean),
             thumbnail(found.icon_url || FALLBACK_AVATAR, found.title),
           ),
+          // Above the points, deliberately. Somebody deciding whether to start
+          // a game needs to know it cannot be finished BEFORE they read what it
+          // is worth, not in a footnote underneath.
+          ...(found.unobtainable
+            ? [text(
+                `> ### ⚠️ Some trophies here cannot be earned\n> ${
+                  found.unobtainable_note || 'Flagged by a mod — ask in chat for the detail.'
+                }`,
+              )]
+            : []),
           separator(),
           text(['**Biggest earners left**', ...top].join('\n')),
           separator(),
@@ -711,9 +791,14 @@ async function backlog(env, userId, sort) {
   const lines = rows.map((g, i) => {
     const band = g.plat_rate != null ? ` · ${RARITY_BANDS[rarityBand(g.plat_rate)]}` : '';
     const value = worth(g.remaining_points);
+    // The warning rides on the title, because this is the one card that is
+    // actively telling somebody to go and finish a game — recommending a
+    // 100%-impossible game without saying so is the worst thing it could do.
+    const warn = g.unobtainable ? ' ⚠️' : '';
     return (
-      `**${i + 1}. ${g.title}** — +${n(value)} point${value === 1 ? '' : 's'}\n` +
-      `-# ${n(g.remaining_trophies)} troph${g.remaining_trophies === 1 ? 'y' : 'ies'} left · ${g.progress}% done${band}`
+      `**${i + 1}. ${g.title}**${warn} — +${n(value)} point${value === 1 ? '' : 's'}\n` +
+      `-# ${n(g.remaining_trophies)} troph${g.remaining_trophies === 1 ? 'y' : 'ies'} left · ${g.progress}% done${band}` +
+      (g.unobtainable ? `\n-# ⚠️ ${g.unobtainable_note || 'Has unobtainable trophies.'}` : '')
     );
   });
 
@@ -912,6 +997,11 @@ async function handleComponent(interaction, env, ctx) {
       const card = await rank(env, target || userId);
       return { type: REPLY.MESSAGE, data: { ...card.data, flags: 32768 } };
     }
+    case 'gamecard':
+      // From the #new-projects and #completed cards. The np_comm_id is carried
+      // straight through, so the edition somebody actually played is the
+      // edition they get — no title search, nothing to guess wrong.
+      return game(env, '', userId, arg);
     case 'gamever': {
       // The value carries the np_comm_id, which IS the edition — so nothing
       // needs re-searching. The title in the custom_id is only there to give

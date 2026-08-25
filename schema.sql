@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS games (
   estimated         INTEGER NOT NULL DEFAULT 0,  -- 1 = PSN published no rarity; points are a guess
   completion_weight INTEGER NOT NULL DEFAULT 0,  -- gold*90+silver*30+bronze*15, platinum excluded
   local_started     INTEGER NOT NULL DEFAULT 0,  -- members here who own this game
+  -- Trophies nobody can earn any more. PSN cannot tell us this, so a mod does,
+  -- with /flag. See migrations/010-unobtainable.sql.
+  unobtainable      INTEGER NOT NULL DEFAULT 0,
+  unobtainable_note TEXT,                 -- 'servers closed May 2024, 3 MP trophies'
+  flagged_by        TEXT,                 -- discord id of whoever said so
+  flagged_at        INTEGER,
   refreshed_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_games_title     ON games(title);

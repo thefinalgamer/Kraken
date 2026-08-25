@@ -210,6 +210,25 @@ export const gameVersions = (env, title, accountId = null) =>
     [accountId ?? '', title],
   );
 
+/**
+ * Set or clear the unobtainable flag on every edition of a title.
+ *
+ * By title rather than by np_comm_id on purpose — see flagGame(). Returns how
+ * many rows were touched so the reply can say "all 3 editions", which is the
+ * only way a mod finds out the PS3 version existed.
+ */
+export async function setUnobtainable(env, title, { on, note, by }) {
+  const rows = await all(env, 'SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE', [title]);
+  await env.DB.prepare(
+    `UPDATE games
+        SET unobtainable = ?, unobtainable_note = ?, flagged_by = ?, flagged_at = ?
+      WHERE title = ? COLLATE NOCASE`,
+  )
+    .bind(on ? 1 : 0, note ?? null, by ?? null, on ? Date.now() : null, title)
+    .run();
+  return rows.length;
+}
+
 export const gameById = (env, npCommId) =>
   first(env, 'SELECT * FROM games WHERE np_comm_id = ?', [npCommId]);
 
@@ -351,7 +370,9 @@ export function backlog(env, accountId, sort = 'value', limit = 5) {
             (g.max_points - mg.points)              AS remaining_points,
             (g.trophy_count - mg.earned_total)      AS remaining_trophies,
             (SELECT t.earned_rate FROM trophies t
-              WHERE t.np_comm_id = g.np_comm_id AND t.type = 'platinum' LIMIT 1) AS plat_rate
+              WHERE t.np_comm_id = g.np_comm_id AND t.type = 'platinum' LIMIT 1) AS plat_rate,
+            g.unobtainable,
+            g.unobtainable_note
        FROM member_games mg
        JOIN games g ON g.np_comm_id = mg.np_comm_id
       WHERE mg.psn_account_id = ?

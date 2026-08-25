@@ -622,3 +622,124 @@ function formatDuration(seconds) {
 }
 
 export const FALLBACK_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';
+
+// ------------------------------------------------- new projects / completed --
+
+/**
+ * The card that goes in #new-projects and #completed.
+ *
+ * Martin: "when some one starts a new project announce it there with a little
+ * card about the game maybe? saying how many trophies how many people have done
+ * the game, started the game, completed it, how many points its worth, and if
+ * you have already started it your info."
+ *
+ * ONE MESSAGE PER UPDATE, not one per game, and that is the whole design.
+ * Martin asked for every new game to be announced — no shovelware filter, no
+ * size threshold — which is the right call for a channel whose job is to show
+ * what the server is playing. But somebody syncing a weekend of play can bring
+ * back thirty new games at once, and thirty separate posts is not a feed, it is
+ * a flood that buries the one interesting game in it.
+ *
+ * So: one game gets the full card, thumbnail and all, because a single new
+ * project IS the event. Several get a header and a line each, ordered by what
+ * they are worth so any truncation drops the shovelware rather than the
+ * Bloodborne. Every game is still named either way.
+ *
+ * @param {object}  member
+ * @param {'new'|'completed'} kind
+ * @param {Array}   games - enriched rows, most valuable first
+ */
+export function projectBlocks(member, kind, games) {
+  if (!games?.length) return null;
+  const started = kind === 'new';
+  const verb = started ? 'started' : "100%'d";
+  const icon = started ? '🆕' : '✅';
+  const color = started ? COLOR.blurple : COLOR.green;
+
+  if (games.length === 1) {
+    const g = games[0];
+    return container(
+      [
+        section(
+          [
+            `## ${icon} ${member.psn_online_id} ${verb} ${g.title}`,
+            `-# ${g.platform || 'PlayStation'} · ${n(g.trophy_count)} trophies` +
+              (g.estimated ? ' · rarity not published by PSN, values are estimates' : ''),
+            projectStats(g, started),
+          ],
+          thumbnail(g.icon_url || FALLBACK_AVATAR, g.title),
+        ),
+        ...(g.unobtainable
+          ? [text(
+              `> ### ⚠️ Some trophies here cannot be earned\n> ${
+                g.unobtainable_note || 'Flagged by a mod — ask in chat for the detail.'
+              }`,
+            )]
+          : []),
+        row(button('Full breakdown', `gamecard:${g.np_comm_id}`)),
+      ],
+      color,
+    );
+  }
+
+  // Several at once. Built up to the character limit and stopped, same as the
+  // changelog — a card Discord rejects for length shows nobody anything.
+  const kept = [];
+  let used = 0;
+  for (const g of games) {
+    const line =
+      `${icon} **${g.title}**${g.unobtainable ? ' ⚠️' : ''} — ` +
+      (started
+        ? `${n(g.trophy_count)} trophies · **${n(g.max_points)}** points at 100% · ${localLine(g)}`
+        : `**+${n(g.member_points)}** points banked · ${finisherLine(g)}`);
+    if (used + line.length + 2 > 3200) break;
+    kept.push(line);
+    used += line.length + 2;
+  }
+  const hidden = games.length - kept.length;
+
+  return container(
+    [
+      text(
+        `## ${member.psn_online_id} ${verb} ${n(games.length)} game${games.length === 1 ? '' : 's'}\n\n` +
+          kept.join('\n') +
+          (hidden > 0 ? `\n-# …and ${n(hidden)} more.` : ''),
+      ),
+    ],
+    color,
+  );
+}
+
+/** The stats block on a single-game card. */
+function projectStats(g, started) {
+  const lines = [];
+  if (started) {
+    lines.push(`**Worth** ${n(g.max_points)} points at 100%`);
+    lines.push(`**Your progress** ${g.progress ?? 0}% · ${n(g.earned_total ?? 0)} trophies`);
+  } else {
+    lines.push(`**Banked** ${n(g.member_points)} of ${n(g.max_points)} points`);
+    if (g.days_taken != null) {
+      lines.push(`**Took** ${g.days_taken === 0 ? 'under a day' : `${n(g.days_taken)} days`}`);
+    }
+  }
+  lines.push(`**Here** ${localLine(g)}`);
+  return lines.join('\n');
+}
+
+/**
+ * "6 own it · 2 have 100%'d it". The reason the channel is worth reading: it is
+ * how you find out somebody else is stuck on the same thing you are.
+ */
+function localLine(g) {
+  const owners = Number(g.local_started ?? 0);
+  const done = Number(g.completed_here ?? 0);
+  if (owners <= 1) return 'nobody else here owns it yet';
+  return `${n(owners)} own it · ${done === 0 ? 'nobody has finished it' : `${n(done)} finished`}`;
+}
+
+/** Where this finish sits in the server's history of the game. */
+function finisherLine(g) {
+  const done = Number(g.completed_here ?? 0);
+  if (done <= 1) return 'first here to finish it';
+  return `${ordinal(done)} here to finish it`;
+}

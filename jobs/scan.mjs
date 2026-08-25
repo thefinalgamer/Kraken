@@ -35,6 +35,7 @@ import { memberCompletion } from './lib/completion.mjs';
 import { settleLocalRarity } from './lib/settle.mjs';
 import {
   postUpdateResult,
+  postProjects,
   postUpdateFailure,
   postMovements,
   publishLeaderboard,
@@ -210,6 +211,12 @@ async function main() {
     [member.psn_account_id],
   );
 
+  // Captured BEFORE the scan, because scanMember() writes last_update_at as its
+  // final act. A first scan marks a member's entire library as newly started —
+  // Pelziowo joining would announce 15,411 games he finished with years ago —
+  // so #new-projects has to know the difference.
+  const isFirstScan = !member.last_update_at;
+
   try {
     const result = await scanMember(psn, member, updateNo);
     result.updateNo = updateNo;
@@ -245,6 +252,12 @@ async function main() {
     };
 
     await announce('the update card', () => postUpdateResult({ member, result, interactionToken }));
+
+    // #new-projects and #completed. Reads only what the scan already wrote, so
+    // it costs one query and cannot affect the result either way.
+    await announce('the project cards', () =>
+      postProjects(db, member, result, { first: isFirstScan }),
+    );
     if (movements.length) await announce('the rank movements', () => postMovements(movements));
 
     // Rewrite the living board in #leaderboard. Everyone is on it, split across

@@ -16,6 +16,7 @@ import {
   container,
   text,
   boardBlocks,
+  projectBlocks,
   selectMenu,
   linkButton,
   separator,
@@ -592,4 +593,108 @@ export async function publishHome(stats, store) {
   }
   const posted = await rest(`/channels/${channel}/messages`, { body });
   await store.set('home_message_id', posted.id);
+}
+
+
+// ------------------------------------------------- new projects / completed --
+
+/**
+ * Announce what somebody started and what they finished.
+ *
+ * The scan already knows: every changelog entry carries a `kind` of 'new',
+ * 'completed' or 'progress', so this needs no extra PSN work — just the server
+ * context that makes the card worth reading, which is one query.
+ *
+ * SKIPPED ON FIRST SCANS, and that is not a filter on what counts as news. A
+ * first scan marks a member's ENTIRE LIBRARY as new, because none of it was in
+ * member_games a minute ago. Pelziowo joining would post 15,411 games he
+ * started years ago. Nothing about that is an announcement.
+ *
+ * Best-effort throughout. The scan is finished and saved by the time this runs;
+ * a Discord outage must cost a message, never the update.
+ */
+export async function postProjects(db, member, result, { first = false } = {}) {
+  if (first || !result?.changelog?.length) return;
+
+  const wanted = {
+    new: env.DISCORD_NEW_PROJECTS_CHANNEL_ID,
+    completed: env.DISCORD_COMPLETED_CHANNEL_ID,
+  };
+
+  for (const kind of ['new', 'completed']) {
+    const channel = wanted[kind];
+    if (!channel) continue; // variable unset — the feature is simply off
+
+    const entries = result.changelog.filter((c) => c.kind === kind);
+    if (!entries.length) continue;
+
+    try {
+      const games = await enrichGames(db, member, entries);
+      const blocks = projectBlocks(member, kind, games);
+      if (blocks) await rest(`/channels/${channel}/messages`, { body: message([blocks]) });
+    } catch (err) {
+      console.error(`Could not post ${kind} projects:`, err.message);
+    }
+  }
+}
+
+/**
+ * The context that turns "Martin started Bloodborne" into something worth
+ * reading: what it is worth, how many people here own it, how many have
+ * finished it, where this member is in it, and whether it can be finished at
+ * all.
+ *
+ * `completed_here` is counted rather than stored because it is the one figure
+ * that changes on somebody else's scan and is cheap to ask for — unlike
+ * local_started, which the settle job maintains because rarity depends on it.
+ */
+async function enrichGames(db, member, entries) {
+  const ids = entries.map((e) => e.np_comm_id);
+
+  // Paged at 80, because D1 rejects any statement with more than 100 bound
+  // parameters and the account id spends one of them. A member coming back from
+  // a fortnight away can easily bring thirty new games; nobody has hit a
+  // hundred yet, and a card that silently fails to post is exactly the kind of
+  // bug that goes unnoticed for a month.
+  const byId = new Map();
+  for (let i = 0; i < ids.length; i += 80) {
+    const slice = ids.slice(i, i + 80);
+    const rows = await db.query(
+      `SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.trophy_count,
+              g.max_points, g.local_started, g.estimated,
+              g.unobtainable, g.unobtainable_note,
+              mg.progress, mg.earned_total, mg.points AS member_points,
+              mg.first_earned_at, mg.last_earned_at,
+              (SELECT COUNT(*) FROM member_games x
+                WHERE x.np_comm_id = g.np_comm_id AND x.progress = 100) AS completed_here
+         FROM games g
+         LEFT JOIN member_games mg
+           ON mg.np_comm_id = g.np_comm_id AND mg.psn_account_id = ?
+        WHERE g.np_comm_id IN (${slice.map(() => '?').join(',')})`,
+      [member.psn_account_id, ...slice],
+    );
+    for (const r of rows) byId.set(r.np_comm_id, r);
+  }
+  return entries
+    .map((e) => {
+      const row = byId.get(e.np_comm_id);
+      if (!row) return null;
+      return { ...row, days_taken: daysBetween(row.first_earned_at, row.last_earned_at) };
+    })
+    .filter(Boolean)
+    // Most valuable first, so anything trimmed for length is the least
+    // interesting thing in the batch rather than whatever sorted last.
+    .sort((a, b) => (b.max_points ?? 0) - (a.max_points ?? 0));
+}
+
+/**
+ * How long a game took, from its first trophy to its last.
+ *
+ * NULL rather than zero when either stamp is missing — a row scanned before
+ * migration 006 existed knows nothing about timing, and "took under a day" is a
+ * much worse answer than saying nothing at all.
+ */
+function daysBetween(from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  return Math.floor((to - from) / 86400000);
 }

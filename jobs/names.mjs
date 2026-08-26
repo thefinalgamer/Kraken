@@ -35,9 +35,15 @@ import { PsnClient } from './lib/psn.mjs';
 
 const env = process.env;
 
-// Stop well before GitHub's six-hour ceiling. A job killed by the runner is a
-// job whose last few writes are anyone's guess; a job that stops itself is not.
-const BUDGET_MS = Number(env.NAMES_BUDGET_MINUTES || 300) * 60 * 1000;
+// Stop before the RUNNER does. admin.yml sets timeout-minutes: 120, so a
+// 300-minute budget never fires and GitHub kills the job instead, which shows
+// as a red failed run for work that actually succeeded. 110 leaves ten minutes
+// of headroom and lets the job finish on its own terms with a proper summary.
+//
+// Nothing is lost either way — every game is written as it is named, and the
+// next run picks up exactly where this one stopped — but a green tick that
+// means "done for now" is worth more than a red cross that means the same.
+const BUDGET_MS = Number(env.NAMES_BUDGET_MINUTES || 110) * 60 * 1000;
 
 // How many games to claim at a time. Small enough that the ordering stays
 // meaningful as counts change under us, large enough not to spend the run

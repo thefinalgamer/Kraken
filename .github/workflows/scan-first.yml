@@ -69,4 +69,5 @@ jobs:
           DISCORD_COMPLETED_CHANNEL_ID: ${{ vars.DISCORD_COMPLETED_CHANNEL_ID }}
           DISCORD_OWNER_ID: ${{ vars.DISCORD_OWNER_ID }}      
           DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          DISCORD_CONTESTED_CHANNEL_ID: ${{ vars.DISCORD_CONTESTED_CHANNEL_ID }}
         run: npm run scan

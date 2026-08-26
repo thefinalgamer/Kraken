@@ -545,17 +545,46 @@ export function updateCard({
   // small moves compounding is exactly what an economy is. If it was three
   // points, it says three points.
   if (delta.drift && !delta.earned) {
+    // TWO VERY DIFFERENT PEOPLE END UP HERE, and the first version of this told
+    // them both the same thing.
+    //
+    // JFL__Leon earned a bronze on Sea of Thieves, gained 1,587 points, and was
+    // told "you earned nothing this session". He had earned something — it just
+    // scored zero, because more than half of PlayStation has that trophy. Every
+    // word of the card was arithmetically true and the sentence was a lie about
+    // his evening.
+    //
+    // So: check whether any trophy actually landed, and if one did, say why it
+    // paid nothing rather than pretending it did not happen.
+    const earnedTrophies =
+      after.platinum - before.platinum +
+      (after.gold - before.gold) +
+      (after.silver - before.silver) +
+      (after.bronze - before.bronze);
+    const those = earnedTrophies === 1 ? 'The trophy you earned is' : `Your ${n(earnedTrophies)} trophies are`;
+    const zeroPaid =
+      `${those} common enough to score nothing — more than half of PlayStation ` +
+      `already ${earnedTrophies === 1 ? 'has it' : 'has them'}, so ${earnedTrophies === 1 ? 'it pays' : 'they pay'} zero. `;
+
     lines.push(
       delta.drift > 0
-        ? `> ### ${EMOJI.up} Rarity drift: ${signed(delta.drift)}\n` +
-            '> You earned nothing this session and gained anyway — other members ' +
-            'picked up games you own, and a game is worth more while people are ' +
-            'still stuck on it.'
-        : `> **Rarity drift: ${signed(delta.drift)}**\n` +
-            "> You earned nothing this session and the number still moved. That's " +
-            'other members finishing games you own — trophies settle back towards ' +
-            'their normal value once everybody who owns them has done them. ' +
-            'Nothing was taken away.',
+        ? `> ### ${EMOJI.up} Rarity drift: ${signed(delta.drift)}\n> ` +
+            (earnedTrophies > 0
+              ? `${zeroPaid}Every one of these points came from the server instead: other ` +
+                'members picked up games you own, and a game is worth more while people ' +
+                'are still stuck on it.'
+              : 'You earned nothing this session and gained anyway — other members ' +
+                'picked up games you own, and a game is worth more while people are ' +
+                'still stuck on it.')
+        : `> **Rarity drift: ${signed(delta.drift)}**\n> ` +
+            (earnedTrophies > 0
+              ? `${zeroPaid}The move is other members finishing games you own — trophies ` +
+                'settle back towards their normal value once everybody who owns them has ' +
+                'done them. Nothing was taken away.'
+              : "You earned nothing this session and the number still moved. That's " +
+                'other members finishing games you own — trophies settle back towards ' +
+                'their normal value once everybody who owns them has done them. ' +
+                'Nothing was taken away.'),
     );
   } else if (delta.net < 0 && delta.drift < 0 && backlog >= 0) {
     lines.push(

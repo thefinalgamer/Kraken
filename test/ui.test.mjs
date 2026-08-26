@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   tierFor, trend, flag, ordinal, memberCard, configureEmoji,
   chaseLine, lastSeen, rarestLine, pct,
-  boardBlocks, blockChars, chunkBoard, text, row, button,
+  boardBlocks, blockChars, chunkBoard, text, row, button, updateCard,
 } from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
@@ -207,4 +207,57 @@ test('the board stays inside Discord limits at any size', () => {
   const chunks = chunkBoard(everyone);
   assert.equal(chunks.flat().length, 137);
   assert.equal(chunks[0][0].rank, 1);
+});
+
+// ------------------------------------------------- earned nothing, gained ---
+
+test('a trophy that scores zero is not "you earned nothing"', () => {
+  // JFL__Leon, Update No. 409: one bronze on Sea of Thieves, +1,587 points, and
+  // the card told him he had earned nothing. He had — it just scored zero,
+  // because over half of PlayStation has that trophy. True arithmetic, false
+  // sentence.
+  const card = updateCard({
+    member: { discord_id: '1', psn_online_id: 'JFL__Leon' },
+    updateNo: 409,
+    before: { platinum: 5, gold: 20, silver: 40, bronze: 300, completion: 61.2, projects: 90, completed: 30 },
+    after:  { platinum: 5, gold: 20, silver: 40, bronze: 301, completion: 61.21, projects: 90, completed: 30 },
+    delta: { earned: 0, backlog: 0, drift: 1587, net: 1587 },
+    gamesChanged: 1,
+    durationSeconds: 14,
+  });
+  const out = JSON.stringify(card);
+
+  assert.doesNotMatch(out, /You earned nothing this session and gained anyway/);
+  assert.match(out, /The trophy you earned is common enough to score nothing/);
+  assert.match(out, /more than half of PlayStation/);
+  assert.match(out, /came from the server instead/);
+});
+
+test('somebody who really did earn nothing is still told so', () => {
+  const card = updateCard({
+    member: { discord_id: '1', psn_online_id: 'YT-WilkoX' },
+    updateNo: 410,
+    before: { platinum: 2, gold: 8, silver: 12, bronze: 90, completion: 44, projects: 30, completed: 9 },
+    after:  { platinum: 2, gold: 8, silver: 12, bronze: 90, completion: 44, projects: 30, completed: 9 },
+    delta: { earned: 0, backlog: 0, drift: -3, net: -3 },
+    gamesChanged: 0,
+    durationSeconds: 9,
+  });
+  const out = JSON.stringify(card);
+
+  assert.match(out, /You earned nothing this session and the number still moved/);
+  assert.match(out, /Nothing was taken away/);
+});
+
+test('several zero-scoring trophies read as plural', () => {
+  const card = updateCard({
+    member: { discord_id: '1', psn_online_id: 'Pelziowo' },
+    updateNo: 411,
+    before: { platinum: 0, gold: 0, silver: 0, bronze: 100, completion: 30, projects: 500, completed: 400 },
+    after:  { platinum: 0, gold: 0, silver: 2, bronze: 104, completion: 30, projects: 500, completed: 400 },
+    delta: { earned: 0, backlog: 0, drift: 40, net: 40 },
+    gamesChanged: 2,
+    durationSeconds: 20,
+  });
+  assert.match(JSON.stringify(card), /Your 6 trophies are common enough to score nothing/);
 });

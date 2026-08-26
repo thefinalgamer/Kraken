@@ -763,6 +763,9 @@ const SORT_LABEL = {
   nearly: 'closest to finished first',
   quick: 'most points per trophy left',
   rare: 'rarest platinum first',
+  // batzclaw's idea. The other four all assume you want the biggest thing you
+  // can find; this one assumes you want to clear the shelf.
+  small: 'smallest jobs first',
 };
 
 /**
@@ -844,16 +847,20 @@ async function backlog(env, userId, sort) {
                   'so every other game you own pays more too.',
               )]
             : []),
-          // All four sorts, with the one you're looking at highlighted. The
-          // default had no button at all, so clicking any of the others was a
-          // one-way trip — you could never get back to the biggest-prize list
-          // without running the command again.
+          // Every sort, with the one you're looking at highlighted. The default
+          // had no button at all, so clicking any of the others was a one-way
+          // trip — you could never get back to the biggest-prize list without
+          // running the command again.
+          //
+          // FIVE IS THE CEILING: Discord allows five buttons per ActionRow, so
+          // a sixth sort needs a second row rather than another entry here.
           row(
             ...[
               ['Biggest prize', 'value'],
               ['Nearly done', 'nearly'],
               ['Best value', 'quick'],
               ['Rarest first', 'rare'],
+              ['Smallest', 'small'],
             ].map(([label, key]) =>
               button(label, `bl:${key}`, key === (sort ?? 'value') ? STYLE.PRIMARY : STYLE.SECONDARY),
             ),

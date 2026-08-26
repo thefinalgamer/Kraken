@@ -128,6 +128,9 @@ const commands = [
           { name: 'Nearly done', value: 'nearly' },
           { name: 'Best value', value: 'quick' },
           { name: 'Rarest first', value: 'rare' },
+          // batzclaw: the cheapest games that are still worth something, for
+          // an evening spent clearing the shelf rather than starting a monster.
+          { name: 'Smallest jobs', value: 'small' },
         ],
       },
     ],

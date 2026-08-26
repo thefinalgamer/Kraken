@@ -376,6 +376,19 @@ export function backlog(env, accountId, sort = 'value', limit = 5) {
     nearly: 'mg.progress DESC, remaining_points DESC',
     quick: 'remaining_points * 1.0 / MAX(remaining_trophies, 1) DESC, remaining_points DESC',
     rare: 'plat_rate ASC, remaining_points DESC',
+    // batzclaw: "if you dont want to do the big points games but have a lot of
+    // small little point games could we have that show up also."
+    //
+    // The other four all point at the same shelf from different angles — the
+    // biggest prize, the nearest finish, the best rate, the rarest plat — and
+    // every one of them buries a member whose library is a hundred cheap games.
+    // This is the only sort that says "clear the small stuff", which for a lot
+    // of people is the realistic evening.
+    //
+    // ASC, but the WHERE clause below already excludes worthless games, so this
+    // returns the cheapest games that are still WORTH something rather than a
+    // page of zeroes.
+    small: 'remaining_points ASC, mg.progress DESC',
   }[sort] ?? 'remaining_points DESC';
 
   return all(
@@ -395,6 +408,14 @@ export function backlog(env, accountId, sort = 'value', limit = 5) {
         AND mg.progress < 100
         AND g.max_points IS NOT NULL
         AND (g.trophy_count - mg.earned_total) > 0
+        ${
+          // Only the ascending sort needs this, and it needs it badly. Every
+          // other sort pushes worthless games to the bottom for free; 'small'
+          // would put them at the TOP and hand back five rows of "+0 points",
+          // which is the exact screenshot that started the shovelware
+          // conversation in the first place.
+          sort === 'small' ? 'AND (g.max_points - mg.points) > 0' : ''
+        }
       ORDER BY ${order}
       LIMIT ?`,
     [accountId, limit],

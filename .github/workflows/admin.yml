@@ -65,9 +65,16 @@ jobs:
             npx wrangler d1 execute platinum-intel --remote --yes --file "$f"
           done
 
-          - name: Backfill trophy names
+      # Fills in trophy names, descriptions and icons for games that have none.
+      # The scan only backfills 60 games a run and only for games it was already
+      # scanning, which left 25,608 of 25,928 games with no names at all. This
+      # walks the backlog directly, most-owned games first, and is resumable —
+      # run it as many times as it takes.
+      - name: Backfill trophy names
         if: inputs.task == 'backfill-names'
         env:
+          # Deliberately below the scan lanes so this can run while people are
+          # updating without either job starving the other.
           PSN_RATE_LIMIT: 300
           PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -87,9 +94,10 @@ jobs:
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
-          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}  
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
           DISCORD_GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+          DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
+          DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
           DISCORD_FAQ_CHANNEL_ID: ${{ vars.DISCORD_FAQ_CHANNEL_ID }}
-          DISCORD_CONTESTED_CHANNEL_ID: ${{ vars.DISCORD_CONTESTED_CHANNEL_ID }}
+          DISCORD_HOME_IMAGE_URL: ${{ vars.DISCORD_HOME_IMAGE_URL }}
         run: npm run rescore

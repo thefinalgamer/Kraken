@@ -22,6 +22,7 @@ on:
           - register-commands
           - migrate
           - rescore
+          - backfill-names
 
 jobs:
   admin:
@@ -63,6 +64,16 @@ jobs:
             echo "── $f"
             npx wrangler d1 execute platinum-intel --remote --yes --file "$f"
           done
+
+          - name: Backfill trophy names
+        if: inputs.task == 'backfill-names'
+        env:
+          PSN_RATE_LIMIT: 300
+          PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: npm run backfill-names
 
       # Re-prices every trophy, game and member from data already in the
       # database. No PSN calls, so it takes minutes rather than the many hours

@@ -17,6 +17,7 @@ import {
   text,
   boardBlocks,
   projectBlocks,
+  contestedBlocks,
   selectMenu,
   linkButton,
   separator,
@@ -595,6 +596,54 @@ export async function publishHome(stats, store) {
   await store.set('home_message_id', posted.id);
 }
 
+
+// -------------------------------------------------------------- digest -----
+
+/**
+ * Post the weekly digest to #updates.
+ *
+ * A fresh message every Monday rather than one edited in place, unlike the
+ * board and the contested page — a digest IS the archive. Scrolling back
+ * through Mondays is the point of it.
+ */
+export async function postWeeklyDigest(blocks) {
+  const channel = env.DISCORD_UPDATES_CHANNEL_ID;
+  if (!channel || !blocks) return null;
+  return rest(`/channels/${channel}/messages`, { body: message([blocks]) });
+}
+
+// ----------------------------------------------------------- contested -----
+
+/**
+ * The standing #contested board — one message, edited forever.
+ *
+ * Same shape as publishHome() and the leaderboard, and for the same reason: a
+ * channel where the bot posts a fresh card every time is a channel nobody
+ * scrolls back through. One message that is always the current answer is a
+ * destination.
+ *
+ * Published by the rescore, which is exactly the right moment — the rescore is
+ * where local rarity is recomputed board-wide, so the numbers on this card are
+ * the numbers that were just written, not a snapshot of something older.
+ */
+export async function publishContested(rows, store) {
+  const channel = env.DISCORD_CONTESTED_CHANNEL_ID;
+  if (!channel) return;
+
+  const body = message([contestedBlocks(rows, { standing: true })]);
+
+  const known = await store.get('contested_message_id', null);
+  if (known) {
+    try {
+      await rest(`/channels/${channel}/messages/${known}`, { method: 'PATCH', body });
+      return;
+    } catch (err) {
+      console.log(`Contested board could not be edited (${err.message}) — reposting.`);
+    }
+  }
+  const posted = await rest(`/channels/${channel}/messages`, { body });
+  await store.set('contested_message_id', posted.id);
+}
 
 // ------------------------------------------------- new projects / completed --
 

@@ -104,10 +104,14 @@ export const FAQ = [
       'back to normal. A game plenty of us own and nobody has beaten is worth up to ' +
       `**${LOCAL_RARITY.cap}×**.\n\n` +
       '**3. Your completion % multiplies everything.**\n' +
-      'At 60% you bank 60% of what your trophies are worth. Reach 75% and **every game you ' +
-      'have ever touched re-prices at once** — you get paid for games you have not opened in ' +
-      'years. Clearing your backlog is the fastest way up this board; starting things and ' +
-      'abandoning them costs you.\n\n' +
+      'At 60% you bank 60% of what your trophies are worth. At 61% you bank 61% — and that ' +
+      'extra point applies to **every game you have ever touched**, including ones you have ' +
+      'not opened in years.\n' +
+      'It pays in **whole percentage points**, so it lands as one lump when you cross 61%, ' +
+      'not a trickle while you climb towards it. Nothing happens at 60.1%, 60.4% or 60.9%; ' +
+      'everything happens at 61%. `/rank` tells you which one you are chasing.\n' +
+      'Finishing old games is the fastest way up this board. Starting things and walking away ' +
+      'drags the multiplier down across your whole library.\n\n' +
       '-# These figures are read live from the scoring config, so they are always current.',
   },
   {
@@ -136,10 +140,18 @@ export const FAQ = [
       'Ask a mod — `/unlink` frees it, then `/register` again.\n\n' +
       '**Commands**\n' +
       '`/rank` — where you are, and who you are chasing\n' +
+      '`/leaderboard` — the five either side of you\n' +
       '`/backlog` — what to play next, ranked by what finishing it is worth\n' +
       '`/game` — what any game is worth, and who here has played it\n' +
+      '`/contested` — what we are all still stuck on, and paying the most for right now\n' +
       '`/update` — rescan now\n' +
-      '`/leaderboard` — the five either side of you',
+      '`/register` — put your PSN ID on the board\n' +
+      '`/verify` — prove the account is yours and start your first scan\n' +
+      '`/faq` — this menu, from anywhere\n\n' +
+      '**Mods only**\n' +
+      '`/flag` — mark a game as having trophies nobody can earn any more\n' +
+      '`/unlink` — free somebody\'s PSN link so it can be claimed again\n' +
+      '`/addmember` — put somebody on the board by hand, skipping verification',
   },
 ];
 

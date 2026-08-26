@@ -20,6 +20,8 @@
 
 import { spawn } from 'node:child_process';
 import { D1 } from './lib/d1.mjs';
+import { buildWeeklyDigest } from './lib/digest.mjs';
+import { postWeeklyDigest } from './lib/discord.mjs';
 
 const env = process.env;
 const BUDGET_MS = 5 * 60 * 60 * 1000; // stop after five hours
@@ -67,6 +69,25 @@ for (const member of members) {
 }
 
 console.log(`Refreshed ${done}, failed ${failed}, in ${Math.round((Date.now() - started) / 60000)} minutes.`);
+
+// The week, in one card. This is the only moment it can honestly be written:
+// the sweep has just been round everybody, so "earned this week" covers the
+// whole server rather than the handful who ran /update.
+//
+// Best-effort, and last on purpose. The refresh is the job that matters and it
+// has already succeeded by the time we get here; a Discord problem must not
+// turn a completed five-hour sweep red.
+try {
+  const blocks = await buildWeeklyDigest(db);
+  if (blocks) {
+    await postWeeklyDigest(blocks);
+    console.log('Weekly digest posted.');
+  } else {
+    console.log('Nothing happened this week — no digest posted.');
+  }
+} catch (err) {
+  console.error('Could not post the weekly digest (the refresh itself was fine):', err.message);
+}
 
 /**
  * Each member is scanned in its own process so one bad profile can't take the

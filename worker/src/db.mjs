@@ -6,10 +6,26 @@
  * leaderboard is a single indexed read rather than an aggregate over games.
  */
 
+import {
+  CONTESTED_SQL,
+  CONTESTED_MIN_OWNERS,
+  CONTESTED_LIMIT,
+} from '../../shared/contested.mjs';
+
 const all = async (env, sql, params = []) =>
   (await env.DB.prepare(sql).bind(...params).all()).results ?? [];
 
 const first = async (env, sql, params = []) => env.DB.prepare(sql).bind(...params).first();
+
+/**
+ * The games the server is collectively stuck on.
+ *
+ * The query itself lives in shared/contested.mjs, because the rescore job runs
+ * the identical thing over the REST API to publish the standing board — and two
+ * copies of that SQL would eventually disagree about what "contested" means.
+ */
+export const contested = (env, limit = CONTESTED_LIMIT) =>
+  all(env, CONTESTED_SQL, [CONTESTED_MIN_OWNERS, limit]);
 
 // -------------------------------------------------------------- members ----
 

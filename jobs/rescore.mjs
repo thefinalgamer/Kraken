@@ -26,7 +26,13 @@
 import { D1 } from './lib/d1.mjs';
 import { scoreGameTrophies, applyCompletion } from '../shared/scoring.mjs';
 import { memberCompletion } from './lib/completion.mjs';
-import { publishLeaderboard, syncTierRoles, publishHome } from './lib/discord.mjs';
+import { publishLeaderboard, syncTierRoles, publishHome, publishContested } from './lib/discord.mjs';
+import {
+  CONTESTED_SQL,
+  CONTESTED_MIN_OWNERS,
+  CONTESTED_LIMIT,
+  rankContested,
+} from '../shared/contested.mjs';
 
 const env = process.env;
 const db = new D1({
@@ -430,6 +436,18 @@ async function main() {
       set: (k, v) => db.setState(k, v),
     });
     console.log('Home page updated.');
+
+    // The contested board, published here because this is the moment local
+    // rarity was recomputed board-wide — so the multipliers on the card are the
+    // ones just written rather than a snapshot of something older.
+    const stuck = rankContested(
+      await db.query(CONTESTED_SQL, [CONTESTED_MIN_OWNERS, CONTESTED_LIMIT]),
+    );
+    await publishContested(stuck, {
+      get: (k, fallback) => db.getState(k, fallback),
+      set: (k, v) => db.setState(k, v),
+    });
+    console.log(`#contested updated — ${stuck.length} game(s) in play.`);
   } catch (err) {
     console.error('\nCould not update #leaderboard (the scores are saved regardless):', err.message);
   }

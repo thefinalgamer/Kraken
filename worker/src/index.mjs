@@ -15,11 +15,12 @@ import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
-  memberCard, boardBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct, ordinal,
-  trophyLine, FALLBACK_AVATAR, TIERS, tierFor,
+  memberCard, boardBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
+  ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 import { faqSection, faqOptions } from '../../shared/faq.mjs';
+import { rankContested } from '../../shared/contested.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
 const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 8 };
@@ -100,6 +101,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'leaderboard':return leaderboard(env, 'me', userId);
     case 'game':       return game(env, opt('title'), userId);
     case 'backlog':    return backlog(env, userId, opt('sort') ?? 'value');
+    case 'contested':  return contested(env);
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
@@ -767,6 +769,18 @@ const SORT_LABEL = {
  * What to play next. The old bot told you your backlog was 280 games and left
  * you to it; this ranks them by what finishing them is actually worth.
  */
+/**
+ * A private copy of the standing #contested board.
+ *
+ * Same query, same card, no member argument — being stuck is a property of the
+ * server rather than of whoever asked. Kept ephemeral like everything else so
+ * running it in #general does not bury the chat.
+ */
+async function contested(env) {
+  const rows = rankContested(await db.contested(env));
+  return reply([contestedBlocks(rows, { standing: false })], { ephemeral: true });
+}
+
 async function backlog(env, userId, sort) {
   const member = await db.memberByDiscordId(env, userId);
   if (!member) return errorReply('You are not registered yet — run `/register` with your PSN ID.');

@@ -623,6 +623,144 @@ function formatDuration(seconds) {
 
 export const FALLBACK_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';
 
+// -------------------------------------------------------------- digest -----
+
+/**
+ * The week, in one card.
+ *
+ * Most of a sixty-person server never runs a command in a given week. Every
+ * other thing Kraken posts is triggered by somebody doing something; this is
+ * the one that reaches the people who did not. That is the whole argument for
+ * it, and it is why it goes in #updates rather than #leaderboard — the board
+ * rewrites itself in place and a digest underneath it would be lost.
+ *
+ * Lines are DROPPED rather than shown empty. A quiet week with "Biggest
+ * climber: nobody" reads as a broken bot; the same week with three lines reads
+ * as a quiet week. Only the header is unconditional.
+ *
+ * "Crossed a point" was cut on Martin's call — with sixty-odd members it would
+ * have been half the card and nobody would read the rest.
+ */
+export function digestBlocks(d) {
+  const lines = [];
+  const add = (label, value) => value && lines.push(`**${label}** ${value}`);
+
+  if (d.climber) {
+    add(
+      'Biggest climber',
+      `**${d.climber.onlineId}** — ${ordinal(d.climber.from)} → ${ordinal(d.climber.to)}` +
+        (d.climber.points ? `, ${signed(d.climber.points)}` : ''),
+    );
+  }
+  if (d.faller) {
+    add('Biggest fall', `**${d.faller.onlineId}** — ${ordinal(d.faller.from)} → ${ordinal(d.faller.to)}`);
+  }
+  if (d.rarestPlat) {
+    add(
+      'Rarest platinum',
+      `**${d.rarestPlat.title}** at ${pct(d.rarestPlat.rate)} — ${d.rarestPlat.onlineId}`,
+    );
+  }
+  if (d.toughest) {
+    add(
+      'Biggest finish',
+      `**${d.toughest.title}** — ${n(d.toughest.points)} points, ${d.toughest.onlineId}`,
+    );
+  }
+  if (d.contested) {
+    add(
+      'Most contested',
+      `**${d.contested.title}** — ${n(d.contested.stuck)} of us still in it`,
+    );
+  }
+  if (d.completed > 0) {
+    add('Finished', `**${n(d.completed)}** game${d.completed === 1 ? '' : 's'} taken to 100%`);
+  }
+  if (d.points > 0) {
+    add('Earned', `**${signed(d.points)}** points between ${n(d.members)} of us`);
+  }
+  if (d.joined > 0) {
+    add('New faces', `**${n(d.joined)}** joined this week`);
+  }
+
+  return container(
+    [
+      text(`## 📅 The week on Platinum Intel\n-# ${d.range}`),
+      separator(),
+      text(
+        lines.length
+          ? lines.join('\n')
+          : 'Nobody scanned anything. The board is exactly where you left it.',
+      ),
+      separator(),
+      text('-# Posted every Monday, once the refresh has been round everybody.'),
+    ],
+    COLOR.blurple,
+  );
+}
+
+// ----------------------------------------------------------- contested -----
+
+/**
+ * The games the server is collectively stuck on, and what they are paying.
+ *
+ * This exists because layer two was a rule people were TOLD about rather than
+ * anything they could look at. The multiplier moved, the points moved, and the
+ * only evidence was a line on an update card after the fact. A standing board
+ * turns the best mechanic in the system into somewhere to go.
+ *
+ * The multiplier shown is the PLATINUM's, and that is the honest choice rather
+ * than the convenient one. Local rarity is per trophy, so a game has no single
+ * multiplier — but "we are all stuck on this" means the plat, and the plat's
+ * figure is a real number the scoring uses rather than an average invented for
+ * display. Games with no platinum are left off: there is nothing to be stuck on.
+ *
+ * @param {Array} rows - {title, local_started, platted_here, multiplier, unobtainable}
+ */
+export function contestedBlocks(rows, { standing = true } = {}) {
+  if (!rows?.length) {
+    return container(
+      [
+        text(
+          '## 🔥 Contested right now\n\nNothing is contested — every game somebody here owns, ' +
+            'somebody here has already platted.\n\n-# Start something hard and this fills up.',
+        ),
+      ],
+      COLOR.grey,
+    );
+  }
+
+  const lines = rows.map((g, i) => {
+    const stuck = Math.max(0, Number(g.local_started ?? 0) - Number(g.platted_here ?? 0));
+    return (
+      `\`${String(i + 1).padStart(2)}\` **${g.title}**${g.unobtainable ? ' ⚠️' : ''} — ` +
+      `**×${Number(g.multiplier ?? 1).toFixed(2)}**\n` +
+      `-# ${n(g.local_started)} own it · ${n(g.platted_here)} platted · ` +
+      `**${n(stuck)}** still in it`
+    );
+  });
+
+  return container(
+    [
+      text(
+        '## 🔥 Contested right now\n' +
+          '-# Games we are still stuck on. Every trophy in them pays more until the last of ' +
+          'us finishes.',
+      ),
+      separator(),
+      text(lines.join('\n')),
+      separator(),
+      text(
+        '-# Pick one up and it gets **cheaper for everyone else** the moment you finish it. ' +
+          (standing
+            ? 'Rewritten after every update.'
+            : 'Run `/game` on any of them for the full breakdown.'),
+      ),
+    ],
+    COLOR.orange,
+  );
+}
+
 // ------------------------------------------------- new projects / completed --
 
 /**

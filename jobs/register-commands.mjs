@@ -57,6 +57,10 @@ const commands = [
     ],
   },
   {
+    name: 'contested',
+    description: 'What we are all still stuck on, and paying the most for right now',
+  },
+  {
     name: 'flag',
     description: 'Mods only — mark a game as having trophies nobody can earn any more',
     // MANAGE_GUILD, same as /unlink and /addmember. A warning on a game changes

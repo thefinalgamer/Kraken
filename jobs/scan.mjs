@@ -392,7 +392,8 @@ async function scanMember(psn, member, updateNo) {
   }
 
   const priorRows = await db.query(
-    'SELECT np_comm_id, earned_total, progress, points, scanned_at FROM member_games WHERE psn_account_id = ?',
+    'SELECT np_comm_id, earned_total, progress, points, scanned_at, earned_ids ' +
+      'FROM member_games WHERE psn_account_id = ?',
     [accountId],
   );
   const prior = new Map(priorRows.map((r) => [r.np_comm_id, r]));
@@ -566,6 +567,10 @@ async function scanMember(psn, member, updateNo) {
   // Recompute every game's points from stored ids against current rarity.
   // Pure database work — this is where drift shows up.
   const pointsByGame = await recomputeMemberPoints(accountId);
+
+  // Price the new trophies at what they are worth NOW, after the settle. Until
+  // this runs every changelog entry says points_gained: 0.
+  await priceTheChangelog(changelog);
 
   const totals = await rollUp(summary, titles, pointsByGame, accountId);
   const pointsEarned = changelog.reduce((n, c) => n + c.points_gained, 0);
@@ -817,15 +822,74 @@ async function scanGame(
   const gained = earnedIds.length - (was?.earned_total ?? 0);
   if (was && gained === 0 && was.progress === progress) return null; // rarity-only refresh
 
+  // WHICH trophies are new, not how many points they were worth a moment ago.
+  //
+  // This used to return `Math.max(0, points - was.points)` and that comparison
+  // was between two different currencies. `points` is computed here with local
+  // rarity switched OFF (scanGame passes local = null on purpose, because a
+  // scan cannot see the whole server), while `was.points` was written by the
+  // rescore WITH the multiplier applied. On any game the server is stuck on,
+  // the new unboosted figure is smaller than the old boosted one, the
+  // subtraction goes negative, Math.max clamps it to zero — and the member is
+  // told they earned nothing.
+  //
+  // That is exactly what happened to JFL__Leon: a bronze on Sea of Thieves, a
+  // game with a live multiplier, reported as "you earned nothing this session"
+  // while 1,587 points arrived as drift.
+  //
+  // So the ids travel instead, and settleUp() prices them once the settle job
+  // has written the final numbers. The trophies are the fact; the price is
+  // whatever it is by the time everything has run.
+  const before = new Set(safeJson(was?.earned_ids, []));
   return {
     np_comm_id: title.npCommunicationId,
     title: title.trophyTitleName,
     kind: !was ? 'new' : progress === 100 && was.progress !== 100 ? 'completed' : 'progress',
     trophies_gained: gained,
-    points_gained: Math.max(0, points - (was?.points ?? 0)),
+    new_trophy_ids: earnedIds.filter((id) => !before.has(id)),
+    points_gained: 0, // priced later, see priceTheChangelog()
     progress_from: was?.progress ?? 0,
     progress_to: progress,
   };
+}
+
+/**
+ * What the trophies earned this session are actually worth.
+ *
+ * Runs AFTER settleLocalRarity(), which is the whole point. By then
+ * trophies.points holds the final blended value for every game that moved, so
+ * summing the new ids gives a figure that matches the member's score instead of
+ * a snapshot taken half way through the job.
+ *
+ * Anything the new trophies do not explain stays in `drift`, which is correct:
+ * the rest of the movement really is other people playing.
+ */
+async function priceTheChangelog(changelog) {
+  const games = changelog.filter((c) => c.new_trophy_ids?.length);
+  if (!games.length) return;
+
+  // Paged at 80 for D1's 100-parameter ceiling. A repeat update touches a
+  // handful of games; a first scan can touch thousands, and a card that fails
+  // to render because one statement was too wide is a silent loss.
+  const priceOf = new Map();
+  const ids = games.map((c) => c.np_comm_id);
+  for (let i = 0; i < ids.length; i += 80) {
+    const slice = ids.slice(i, i + 80);
+    const rows = await db.query(
+      `SELECT np_comm_id, trophy_id, points FROM trophies
+        WHERE np_comm_id IN (${slice.map(() => '?').join(',')})`,
+      slice,
+    );
+    for (const r of rows) priceOf.set(`${r.np_comm_id} ${r.trophy_id}`, r.points ?? 0);
+  }
+
+  for (const c of changelog) {
+    let total = 0;
+    for (const id of c.new_trophy_ids ?? []) {
+      total += priceOf.get(`${c.np_comm_id} ${id}`) ?? 0;
+    }
+    c.points_gained = total;
+  }
 }
 
 /**

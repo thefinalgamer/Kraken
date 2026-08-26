@@ -116,7 +116,7 @@ async function pointAtUpdates(interactionToken, member, result, msg) {
     `**${sign}${net.toLocaleString('en-GB')} points**` +
     (result.gamesChanged ? ` across ${result.gamesChanged} game${result.gamesChanged === 1 ? '' : 's'}` : '') +
     `.\n\nThe full card is in <#${env.DISCORD_UPDATES_CHANNEL_ID}>` +
-    (msg?.id ? ' — click through for the breakdown and changelog.' : '.');
+    (msg?.id ? '. Click through for the breakdown and changelog.' : '.');
 
   await rest(
     `/webhooks/${env.DISCORD_APPLICATION_ID}/${interactionToken}/messages/@original`,
@@ -149,7 +149,7 @@ export async function postUpdateFailure({ member, updateNo, error, interactionTo
     body =
       `## No such PSN account\n\n` +
       `I couldn't find a PlayStation account called **${member.psn_online_id}**.\n\n` +
-      `Check the spelling against your profile — it has to match exactly — and run ` +
+      `Check the spelling against your profile. It has to match exactly, and run ` +
       `\`/register\` again.`;
   } else {
     body =
@@ -157,7 +157,7 @@ export async function postUpdateFailure({ member, updateNo, error, interactionTo
       `Something went wrong scanning **${member.psn_online_id}**. This is a fault at ` +
       `Kraken's end, not yours.\n\n` +
       `\`\`\`\n${String(error?.message ?? 'Unknown error').slice(0, 300)}\n\`\`\`\n` +
-      `Your existing stats are untouched. Try \`/update\` again in a few minutes — if it ` +
+      `Your existing stats are untouched. Try \`/update\` again in a few minutes. If it ` +
       `keeps failing, flag it to a mod.`;
   }
 
@@ -206,7 +206,7 @@ async function postChangelogThread(msg, member, result) {
     .sort((a, b) => b.points_gained - a.points_gained)
     .map(
       (c) =>
-        `${icon[c.kind] ?? '•'} **${c.title}** — ` +
+        `${icon[c.kind] ?? '•'} **${c.title}** - ` +
         (c.kind === 'new'
           ? `started (${c.progress_to}%)`
           : `${c.progress_from}% → ${c.progress_to}%`) +
@@ -261,7 +261,7 @@ export async function warnTokenExpiry(daysLeft) {
               `2. Visit <https://ca.account.sony.com/api/v1/ssocookie>\n` +
               `3. Copy the \`npsso\` value\n` +
               `4. Paste it into the repo's \`PSN_NPSSO\` secret on GitHub\n\n` +
-              `-# This is the only manual step in the whole system — roughly six times a year.`,
+              `-# This is the only manual step in the whole system. Roughly six times a year.`,
           ),
         ],
         COLOR.red,
@@ -293,7 +293,7 @@ export async function warnTokenExpiry(daysLeft) {
 export async function publishLeaderboard(members, store) {
   const channel = env.DISCORD_LEADERBOARD_CHANNEL_ID;
   if (!channel) {
-    console.log('No DISCORD_LEADERBOARD_CHANNEL_ID set — skipping the board.');
+    console.log('No DISCORD_LEADERBOARD_CHANNEL_ID set. Skipping the board.');
     return;
   }
 
@@ -318,7 +318,7 @@ export async function publishLeaderboard(members, store) {
       try {
         await rest(`/channels/${channel}/messages/${id}`, { method: 'PATCH', body });
       } catch (err) {
-        console.log(`Board message ${id} could not be edited (${err.message}) — reposting.`);
+        console.log(`Board message ${id} could not be edited (${err.message}) - reposting.`);
         id = null;
       }
     }
@@ -417,7 +417,7 @@ async function tierRoleIds() {
 
   const missing = Object.entries(roleCache).filter(([, id]) => !id).map(([k]) => k);
   if (missing.length) {
-    console.warn(`  no Discord role named: ${missing.join(', ')} — those members keep whatever they have`);
+    console.warn(`  no Discord role named: ${missing.join(', ')}. Those members keep whatever they have`);
   }
   return roleCache;
 }
@@ -434,13 +434,13 @@ export async function syncTierRoles(ranked, only = null) {
   // to tell "everyone already had the right role" from "this never ran".
   if (!env.DISCORD_GUILD_ID) {
     console.warn(
-      '  tier roles: SKIPPED — DISCORD_GUILD_ID is not set for this job. ' +
+      '  tier roles: SKIPPED. DISCORD_GUILD_ID is not set for this job. ' +
         'Add it under Settings -> Secrets and variables -> Actions -> Variables.',
     );
     return { changed: 0, skipped: 0 };
   }
   if (!env.DISCORD_BOT_TOKEN) {
-    console.warn('  tier roles: SKIPPED — DISCORD_BOT_TOKEN is not set for this job.');
+    console.warn('  tier roles: SKIPPED. DISCORD_BOT_TOKEN is not set for this job.');
     return { changed: 0, skipped: 0 };
   }
 
@@ -448,14 +448,14 @@ export async function syncTierRoles(ranked, only = null) {
   try {
     ids = await tierRoleIds();
   } catch (err) {
-    console.warn(`  tier roles: SKIPPED — could not read the server's roles: ${err.message}`);
+    console.warn(`  tier roles: SKIPPED. Could not read the server's roles: ${err.message}`);
     return { changed: 0, skipped: 0 };
   }
 
   const all = Object.values(ids).filter(Boolean);
   if (!all.length) {
     console.warn(
-      '  tier roles: SKIPPED — no roles named Platinum, Gold, Silver or Bronze in this server.',
+      '  tier roles: SKIPPED. No roles named Platinum, Gold, Silver or Bronze in this server.',
     );
     return { changed: 0, skipped: 0 };
   }
@@ -568,7 +568,7 @@ export async function publishHome(stats, store) {
             `**${n(stats.trophies)}** trophies priced · **${n(stats.platinums)}** platinums between us`,
         ),
         separator(),
-        text('### Questions\nPick a topic — the answer comes back just to you.'),
+        text('### Questions\nPick a topic. The answer comes back just to you.'),
         selectMenu('faq', 'Choose a topic…', faqOptions()),
         ...(env.DISCORD_GUILD_ID && env.DISCORD_LEADERBOARD_CHANNEL_ID
           ? [row(
@@ -589,7 +589,7 @@ export async function publishHome(stats, store) {
       await rest(`/channels/${channel}/messages/${known}`, { method: 'PATCH', body });
       return;
     } catch (err) {
-      console.log(`Home message could not be edited (${err.message}) — reposting.`);
+      console.log(`Home message could not be edited (${err.message}) - reposting.`);
     }
   }
   const posted = await rest(`/channels/${channel}/messages`, { body });
@@ -638,7 +638,7 @@ export async function publishContested(rows, store) {
       await rest(`/channels/${channel}/messages/${known}`, { method: 'PATCH', body });
       return;
     } catch (err) {
-      console.log(`Contested board could not be edited (${err.message}) — reposting.`);
+      console.log(`Contested board could not be edited (${err.message}) - reposting.`);
     }
   }
   const posted = await rest(`/channels/${channel}/messages`, { body });
@@ -698,7 +698,7 @@ export async function postProjects(db, member, result, { first = false } = {}) {
 
   for (const kind of ['new', 'completed']) {
     const channel = wanted[kind];
-    if (!channel) continue; // variable unset — the feature is simply off
+    if (!channel) continue; // variable unset. The feature is simply off
 
     const entries = result.changelog.filter(PROJECT_FILTER[kind]);
     if (!entries.length) continue;

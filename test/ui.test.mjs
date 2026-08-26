@@ -229,7 +229,7 @@ test('a trophy that scores zero is not "you earned nothing"', () => {
 
   assert.doesNotMatch(out, /You earned nothing this session and gained anyway/);
   assert.match(out, /The trophy you earned is common enough to score nothing/);
-  assert.match(out, /more than half of PlayStation/);
+  assert.match(out, /More than half of PlayStation/);
   assert.match(out, /came from the server instead/);
 });
 

@@ -443,7 +443,7 @@ export function boardBlocks(
         m.discord_id && m.discord_id === viewerId
           ? `__${m.psn_online_id}__`
           : m.psn_online_id;
-      return `\`${String(m.rank).padStart(3)}\` ${move}**${who}** — ${n(m.points)} pts · ${pct(m.completion)}`;
+      return `\`${String(m.rank).padStart(3)}\` ${move}**${who}** - ${n(m.points)} pts · ${pct(m.completion)}`;
     });
     return container(
       [text(`${tierEmoji(tier)} **${name}**`), text(lines.join('\n'))],
@@ -563,7 +563,7 @@ export function updateCard({
       (after.bronze - before.bronze);
     const those = earnedTrophies === 1 ? 'The trophy you earned is' : `Your ${n(earnedTrophies)} trophies are`;
     const zeroPaid =
-      `${those} common enough to score nothing — more than half of PlayStation ` +
+      `${those} common enough to score nothing. More than half of PlayStation ` +
       `already ${earnedTrophies === 1 ? 'has it' : 'has them'}, so ${earnedTrophies === 1 ? 'it pays' : 'they pay'} zero. `;
 
     lines.push(
@@ -573,16 +573,16 @@ export function updateCard({
               ? `${zeroPaid}Every one of these points came from the server instead: other ` +
                 'members picked up games you own, and a game is worth more while people ' +
                 'are still stuck on it.'
-              : 'You earned nothing this session and gained anyway — other members ' +
+              : 'You earned nothing this session and gained anyway. Other members ' +
                 'picked up games you own, and a game is worth more while people are ' +
                 'still stuck on it.')
         : `> **Rarity drift: ${signed(delta.drift)}**\n> ` +
             (earnedTrophies > 0
-              ? `${zeroPaid}The move is other members finishing games you own — trophies ` +
+              ? `${zeroPaid}The move is other members finishing games you own. Trophies ` +
                 'settle back towards their normal value once everybody who owns them has ' +
                 'done them. Nothing was taken away.'
               : "You earned nothing this session and the number still moved. That's " +
-                'other members finishing games you own — trophies settle back towards ' +
+                'other members finishing games you own. Trophies settle back towards ' +
                 'their normal value once everybody who owns them has done them. ' +
                 'Nothing was taken away.'),
     );
@@ -677,29 +677,29 @@ export function digestBlocks(d) {
   if (d.climber) {
     add(
       'Biggest climber',
-      `**${d.climber.onlineId}** — ${ordinal(d.climber.from)} → ${ordinal(d.climber.to)}` +
+      `**${d.climber.onlineId}** - ${ordinal(d.climber.from)} → ${ordinal(d.climber.to)}` +
         (d.climber.points ? `, ${signed(d.climber.points)}` : ''),
     );
   }
   if (d.faller) {
-    add('Biggest fall', `**${d.faller.onlineId}** — ${ordinal(d.faller.from)} → ${ordinal(d.faller.to)}`);
+    add('Biggest fall', `**${d.faller.onlineId}** - ${ordinal(d.faller.from)} → ${ordinal(d.faller.to)}`);
   }
   if (d.rarestPlat) {
     add(
       'Rarest platinum',
-      `**${d.rarestPlat.title}** at ${pct(d.rarestPlat.rate)} — ${d.rarestPlat.onlineId}`,
+      `**${d.rarestPlat.title}** at ${pct(d.rarestPlat.rate)} - ${d.rarestPlat.onlineId}`,
     );
   }
   if (d.toughest) {
     add(
       'Biggest finish',
-      `**${d.toughest.title}** — ${n(d.toughest.points)} points, ${d.toughest.onlineId}`,
+      `**${d.toughest.title}** - ${n(d.toughest.points)} points, ${d.toughest.onlineId}`,
     );
   }
   if (d.contested) {
     add(
       'Most contested',
-      `**${d.contested.title}** — ${n(d.contested.stuck)} of us still in it`,
+      `**${d.contested.title}** - ${n(d.contested.stuck)} of us still in it`,
     );
   }
   if (d.completed > 0) {
@@ -751,7 +751,7 @@ export function contestedBlocks(rows, { standing = true } = {}) {
     return container(
       [
         text(
-          '## 🔥 Contested right now\n\nNothing is contested — every game somebody here owns, ' +
+          '## 🔥 Contested right now\n\nNothing is contested. Every game somebody here owns, ' +
             'somebody here has already platted.\n\n-# Start something hard and this fills up.',
         ),
       ],
@@ -762,7 +762,7 @@ export function contestedBlocks(rows, { standing = true } = {}) {
   const lines = rows.map((g, i) => {
     const stuck = Math.max(0, Number(g.local_started ?? 0) - Number(g.platted_here ?? 0));
     return (
-      `\`${String(i + 1).padStart(2)}\` **${g.title}**${g.unobtainable ? ' ⚠️' : ''} — ` +
+      `\`${String(i + 1).padStart(2)}\` **${g.title}**${g.unobtainable ? ' ⚠️' : ''} - ` +
       `**×${Number(g.multiplier ?? 1).toFixed(2)}**\n` +
       `-# ${n(g.local_started)} own it · ${n(g.platted_here)} platted · ` +
       `**${n(stuck)}** still in it`
@@ -839,7 +839,7 @@ export function projectBlocks(member, kind, games) {
         ...(g.unobtainable
           ? [text(
               `> ### ⚠️ Some trophies here cannot be earned\n> ${
-                g.unobtainable_note || 'Flagged by a mod — ask in chat for the detail.'
+                g.unobtainable_note || 'Flagged by a mod. Ask in chat for the detail.'
               }`,
             )]
           : []),
@@ -855,7 +855,7 @@ export function projectBlocks(member, kind, games) {
   let used = 0;
   for (const g of games) {
     const line =
-      `${icon} **${g.title}**${g.unobtainable ? ' ⚠️' : ''} — ` +
+      `${icon} **${g.title}**${g.unobtainable ? ' ⚠️' : ''} - ` +
       (started
         ? `${n(g.trophy_count)} trophies · **${n(g.max_points)}** points at 100% · ${localLine(g)}`
         : `**+${n(g.member_points)}** points banked · ${finisherLine(g)}`);

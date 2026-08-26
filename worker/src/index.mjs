@@ -169,10 +169,10 @@ function verificationPrompt(env, psnId, verifyCode, isRetry) {
         [
           text(
             (isRetry
-              ? `## Let's try that again\n\nHere's a fresh code for **${psnId}** — the old one no ` +
+              ? `## Let's try that again\n\nHere's a fresh code for **${psnId}** - the old one no ` +
                 `longer works.\n\n`
               : `## Almost there\n\nBefore **${psnId}** goes on the board, prove it's yours. ` +
-                `Two ways — pick whichever you're comfortable with.\n\n`) +
+                `Two ways. Pick whichever you're comfortable with.\n\n`) +
               `### The quick way\n` +
               `Hit the button below. It uses the PlayStation account you've already linked to ` +
               `Discord under **User Settings → Connections**, so there's nothing to type. ` +
@@ -182,8 +182,8 @@ function verificationPrompt(env, psnId, verifyCode, isRetry) {
               `Put this code anywhere in your PSN **About Me**, then run \`/verify\`:\n` +
               `\`\`\`\n${verifyCode}\n\`\`\`\n` +
               `Console: **Profile → Edit Profile → About Me**. You can delete it straight after.\n\n` +
-              `-# Also check your trophies are public — Settings → Users and Accounts → Privacy → ` +
-              `Trophies → **Anyone** — or the scan will find nothing.\n` +
+              `-# Also check your trophies are public. Settings → Users and Accounts → Privacy → ` +
+              `Trophies → **Anyone**, or the scan will find nothing.\n` +
               `-# Stuck? Run \`/register\` again for a fresh code.`,
           ),
           row(linkButton('Link with Discord', `${env.WORKER_BASE_URL}/auth/psn?code=${verifyCode}`)),
@@ -216,7 +216,7 @@ function makeVerifyCode() {
  */
 async function verify(interaction, env, ctx, userId) {
   const member = await db.memberByDiscordId(env, userId);
-  if (!member) return errorReply('You have not registered yet — run `/register` with your PSN ID first.');
+  if (!member) return errorReply('You have not registered yet. Run `/register` with your PSN ID first.');
   if (member.verified_at) {
     return errorReply(`**${member.psn_online_id}** is already verified. Use \`/update\` to rescan.`);
   }
@@ -242,9 +242,9 @@ async function verify(interaction, env, ctx, userId) {
               `Looking for your code in your PSN About Me. If it's there, your first scan starts ` +
               `straight away.\n\n` +
               `**Leave the code in your bio until this finishes.** The check runs at the start of ` +
-              `the scan, not now — take it out early and the scan stops before it reaches the ` +
+              `the scan, not now. Take it out early and the scan stops before it reaches the ` +
               `board.\n\n` +
-              `First scans are the slow ones — **15 to 30 minutes** — because nothing about your ` +
+              `First scans are the slow ones - **15 to 30 minutes**, because nothing about your ` +
               `library is cached yet. Every update after this takes two or three.\n\n` +
               `-# Only you can see this message.`,
           ),
@@ -306,9 +306,26 @@ async function unlink(interaction, env, targetId) {
  * no /unflag to remember, and a mod who over-flagged can fix it in seconds.
  */
 async function flagGame(interaction, env, userId, title, note) {
+  // MANAGE_MESSAGES, not MANAGE_GUILD.
+  //
+  // Martin made JFL__Leon a mod and he still could not run this. The gate was
+  // copied from /unlink, which wants Manage Server because it rewrites who
+  // somebody IS on the board. A normal Mod role does not carry Manage Server,
+  // and should not have to: flagging a game is moderating content, the same
+  // authority as deleting a message.
+  //
+  // Manage Server still passes, because anybody who has it can already do
+  // strictly more than this.
   const perms = BigInt(interaction.member?.permissions ?? '0');
+  const MANAGE_MESSAGES = 1n << 13n;
   const MANAGE_GUILD = 1n << 5n;
-  if ((perms & MANAGE_GUILD) !== MANAGE_GUILD) return errorReply('That one is for mods only.');
+  const allowed = (perms & MANAGE_MESSAGES) === MANAGE_MESSAGES ||
+    (perms & MANAGE_GUILD) === MANAGE_GUILD;
+  if (!allowed) {
+    return errorReply(
+      'That one needs Manage Messages. Ask an admin to add it to your mod role.',
+    );
+  }
 
   const match = await db.findGame(env, title);
   if (!match) return errorReply(`I have no game called **${title}**.`);
@@ -327,7 +344,7 @@ async function flagGame(interaction, env, userId, title, note) {
           [
             text(
               `### Flag cleared\n**${match.title}** is completable again` +
-                (editions > 1 ? ` — all ${editions} editions.` : '.') +
+                (editions > 1 ? ` - all ${editions} editions.` : '.') +
                 `\n\n-# Run \`/flag\` with a note to put it back.`,
             ),
           ],
@@ -346,7 +363,7 @@ async function flagGame(interaction, env, userId, title, note) {
             `### ⚠️ ${match.title} flagged\n> ${clean}\n\n` +
               `This shows on \`/game\`, in the backlog, and on the card whenever somebody ` +
               `starts or finishes it` +
-              (editions > 1 ? ` — applied to all **${editions}** editions of the title.` : '.') +
+              (editions > 1 ? ` - applied to all **${editions}** editions of the title.` : '.') +
               `\n\n-# Recorded against you. Run \`/flag\` with no note to clear it.`,
           ),
         ],
@@ -359,7 +376,7 @@ async function flagGame(interaction, env, userId, title, note) {
 
 async function runUpdate(interaction, env, ctx, userId) {
   const member = await db.memberByDiscordId(env, userId);
-  if (!member) return errorReply('You are not registered yet — run `/register` with your PSN ID.');
+  if (!member) return errorReply('You are not registered yet. Run `/register` with your PSN ID.');
 
   const running = await db.hasRunningUpdate(env, member.psn_account_id);
   if (running) return errorReply('You already have an update running. Give it a minute.');
@@ -381,10 +398,10 @@ async function runUpdate(interaction, env, ctx, userId) {
 
   let body = firstScan
     ? `## ${member.psn_online_id} first scan queued\n\n` +
-      `This one reads your whole library, so it takes a while — anything from a few ` +
+      `This one reads your whole library, so it takes a while. Anything from a few ` +
       `minutes to a couple of hours if you own thousands of games. Every update after ` +
       `this is two or three minutes.\n\nYou can close Discord; it carries on without you.`
-    : `## ${member.psn_online_id} update queued\n\nScanning PSN now — this message will fill itself in.`;
+    : `## ${member.psn_online_id} update queued\n\nScanning PSN now. This message will fill itself in.`;
 
   if (active.length) {
     const ahead = active[0];
@@ -401,12 +418,12 @@ async function runUpdate(interaction, env, ctx, userId) {
 
     body =
       `## ${member.psn_online_id} update queued\n\n` +
-      `**${ahead.psn_online_id}** is scanning right now — ${mins} minute${mins === 1 ? '' : 's'} in.\n\n` +
+      `**${ahead.psn_online_id}** is scanning right now - ${mins} minute${mins === 1 ? '' : 's'} in.\n\n` +
       (position > 1
         ? `You're **${ordinal(position)}** in the ${firstScan ? 'first-scan ' : ''}queue, so roughly ` +
-          `**${eta} minutes**${firstScan ? ' — big libraries take longer' : ''}.\n\n`
+          `**${eta} minutes**${firstScan ? '. Big libraries take longer' : ''}.\n\n`
         : `You're next.\n\n`) +
-      `This message will fill itself in when it's your turn. Nothing's broken — scans run one ` +
+      `This message will fill itself in when it's your turn. Nothing's broken. Scans run one ` +
       `at a time so nobody trips PlayStation's rate limit. ` +
       (firstScan
         ? 'First scans have their own queue, so you are not stuck behind anyone doing a quick refresh.'
@@ -498,7 +515,7 @@ async function rank(env, target) {
 
   return reply(
     [
-      text(`**${member.psn_online_id}** — ${ordinal(member.rank)} of ${n(total)}`),
+      text(`**${member.psn_online_id}** - ${ordinal(member.rank)} of ${n(total)}`),
       ...cards,
       row(
         button('Who\'s near me', 'lb:me'),
@@ -522,7 +539,7 @@ function faq(env) {
     [
       container(
         [
-          text('### Kraken FAQ\nPick a topic — the answer comes back just to you.'),
+          text('### Kraken FAQ\nPick a topic. The answer comes back just to you.'),
           selectMenu('faq', 'Choose a topic…', faqOptions()),
         ],
         COLOR.blurple,
@@ -699,7 +716,7 @@ async function game(env, query, userId, pinned = null) {
           ...(found.unobtainable
             ? [text(
                 `> ### ⚠️ Some trophies here cannot be earned\n> ${
-                  found.unobtainable_note || 'Flagged by a mod — ask in chat for the detail.'
+                  found.unobtainable_note || 'Flagged by a mod. Ask in chat for the detail.'
                 }`,
               )]
             : []),
@@ -709,7 +726,7 @@ async function game(env, query, userId, pinned = null) {
           ...(estimated
             ? [text(
                 '-# **PSN has not published rarity for this game.** Every value above is an ' +
-                  'estimate — what a typical trophy is worth — and is deliberately on the low ' +
+                  'estimate. What a typical trophy is worth, and is deliberately on the low ' +
                   'side, because guessing high is how a leaderboard gets farmed. New releases ' +
                   'usually get real figures within a few weeks and this corrects itself.',
               )]
@@ -728,7 +745,7 @@ async function game(env, query, userId, pinned = null) {
             ? [text(
                 `-# **${n(found.local_started)}** members here own this. Every trophy is worth ` +
                   'more while people are still stuck on it, and settles back to its normal ' +
-                  'value once everyone who owns it has finished — so somebody else picking ' +
+                  'value once everyone who owns it has finished, so somebody else picking ' +
                   'this up right now makes it worth more to you.',
               )]
             : []),
@@ -786,7 +803,7 @@ async function contested(env) {
 
 async function backlog(env, userId, sort) {
   const member = await db.memberByDiscordId(env, userId);
-  if (!member) return errorReply('You are not registered yet — run `/register` with your PSN ID.');
+  if (!member) return errorReply('You are not registered yet. Run `/register` with your PSN ID.');
 
   const rows = await db.backlog(env, member.psn_account_id, sort, 5);
   if (!rows.length) {
@@ -813,7 +830,7 @@ async function backlog(env, userId, sort) {
     // 100%-impossible game without saying so is the worst thing it could do.
     const warn = g.unobtainable ? ' ⚠️' : '';
     return (
-      `**${i + 1}. ${g.title}**${warn} — +${n(value)} point${value === 1 ? '' : 's'}\n` +
+      `**${i + 1}. ${g.title}**${warn} - +${n(value)} point${value === 1 ? '' : 's'}\n` +
       `-# ${n(g.remaining_trophies)} troph${g.remaining_trophies === 1 ? 'y' : 'ies'} left · ${g.progress}% done${band}` +
       (g.unobtainable ? `\n-# ⚠️ ${g.unobtainable_note || 'Has unobtainable trophies.'}` : '')
     );
@@ -837,13 +854,13 @@ async function backlog(env, userId, sort) {
           separator(),
           text(
             gain > 0
-              ? `-# Finishing the top 3 would put you at **${ordinal(wouldBe)}** — up ${gain} place${gain === 1 ? '' : 's'}` +
+              ? `-# Finishing the top 3 would put you at **${ordinal(wouldBe)}** - up ${gain} place${gain === 1 ? '' : 's'}` +
                 (passed.length ? `, past ${passed.slice(0, 2).map((p) => `**${p.psn_online_id}**`).join(' and ')}.` : '.')
-              : `-# Finishing the top 3 keeps you at **${ordinal(member.rank)}** — nobody close enough to catch.`,
+              : `-# Finishing the top 3 keeps you at **${ordinal(member.rank)}** - nobody close enough to catch.`,
           ),
           ...(member.completion < 100
             ? [text(
-                `-# Worth at your ${pct(member.completion)} completion — and finishing these raises it, ` +
+                `-# Worth at your ${pct(member.completion)} completion, and finishing these raises it, ` +
                   'so every other game you own pays more too.',
               )]
             : []),
@@ -903,7 +920,7 @@ async function profile(env, targetId, viewerId) {
   const lines = [
     // "4th — Silver". The "of 5" was noise: the leaderboard already says how
     // many people are on it, and a card should read like a name badge.
-    `**${ordinal(m.rank)}** — ${tier.name}`,
+    `**${ordinal(m.rank)}** - ${tier.name}`,
     `**Points** ${n(m.points)}  ·  **Completion** ${pct(m.completion)}`,
     `**Games** ${n(m.projects)} started, ${n(m.completed)} finished`,
   ];
@@ -921,10 +938,10 @@ async function profile(env, targetId, viewerId) {
   if (m.rarest_name || m.rarest_game) {
     lines.push(
       `**Rarest owned** ${Number(m.rarest_rate).toFixed(2)}%` +
-        (m.rarest_game ? ` — ${m.rarest_game}` : ''),
+        (m.rarest_game ? ` - ${m.rarest_game}` : ''),
     );
   }
-  if (best) lines.push(`**Best game** ${best.title} — ${n(best.points)} pts at ${best.progress}%`);
+  if (best) lines.push(`**Best game** ${best.title} - ${n(best.points)} pts at ${best.progress}%`);
 
   const blocks = [
     container(
@@ -959,7 +976,7 @@ async function profile(env, targetId, viewerId) {
               text(
                 `### Where they're ahead of you\n` +
                   ahead
-                    .map((a) => `▫️ **${a.title}** — them ${a.their_progress}%, you ${a.my_progress}%`)
+                    .map((a) => `▫️ **${a.title}** - them ${a.their_progress}%, you ${a.my_progress}%`)
                     .join('\n'),
               ),
             ],
@@ -1047,7 +1064,7 @@ async function handleComponent(interaction, env, ctx) {
             [
               text(
                 `### Played by\n${list
-                  .map((o) => `${o.progress === 100 ? '✅' : '▫️'} **${o.psn_online_id}** — ${o.progress}%`)
+                  .map((o) => `${o.progress === 100 ? '✅' : '▫️'} **${o.psn_online_id}** - ${o.progress}%`)
                   .join('\n')}`,
               ),
             ],
@@ -1075,7 +1092,7 @@ async function changelog(env, updateId) {
             text(
               `### Nothing changed in Update No. ${updateId}\n\n` +
                 `No new trophies since the previous scan, so there's nothing to list. ` +
-                `Your points can still move on an update like this — trophies you already ` +
+                `Your points can still move on an update like this. Trophies you already ` +
                 `own shift in rarity as other players earn them.`,
             ),
           ],
@@ -1095,7 +1112,7 @@ async function changelog(env, updateId) {
         : `${c.progress_from}% → ${c.progress_to}%`;
     const gained = c.trophies_gained > 0 ? ` · +${n(c.trophies_gained)} trophies` : '';
     const worth = c.points_gained > 0 ? ` · +${n(c.points_gained)} pts` : '';
-    return `${icon[c.kind] ?? '•'} **${c.title}** — ${what}${gained}${worth}`;
+    return `${icon[c.kind] ?? '•'} **${c.title}** - ${what}${gained}${worth}`;
   });
 
   // Ruthless about length. A first scan can change thousands of games and
@@ -1113,7 +1130,7 @@ async function changelog(env, updateId) {
     [
       container(
         [
-          text(`### Update No. ${updateId} — what changed`),
+          text(`### Update No. ${updateId}: what changed`),
           text(kept.join('\n')),
           text(
             hidden > 0
@@ -1198,9 +1215,9 @@ async function addMember(interaction, env, ctx, targetId, psnId) {
           text(
             `## ${cleanId} added\n\n` +
               `<@${targetId}> is on the board and their first scan is queued. It reads their ` +
-              `whole library, so it can take a while — the result lands in ` +
+              `whole library, so it can take a while. The result lands in ` +
               `<#${env.DISCORD_UPDATES_CHANNEL_ID}>.\n\n` +
-              `-# Added by a mod, so no PSN ownership check was done — recorded as ` +
+              `-# Added by a mod, so no PSN ownership check was done. Recorded as ` +
               `\`grandfathered\`. If the name is misspelled the scan will fail rather than ` +
               `score the wrong person; \`/unlink\` and try again.`,
           ),

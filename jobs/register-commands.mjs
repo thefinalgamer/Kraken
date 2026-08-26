@@ -62,10 +62,13 @@ const commands = [
   },
   {
     name: 'flag',
-    description: 'Mods only — mark a game as having trophies nobody can earn any more',
-    // MANAGE_GUILD, same as /unlink and /addmember. A warning on a game changes
-    // whether people start it, so it is not a thing any member gets to set.
-    default_member_permissions: '32',
+    description: 'Mods only. Mark a game as having trophies nobody can earn any more',
+    // MANAGE_MESSAGES (8192), NOT Manage Server like /unlink and /addmember.
+    // Those two rewrite who somebody is on the board; this moderates content,
+    // which is the same authority as deleting a message. Leon was made a mod
+    // and still could not run it, because a normal Mod role does not carry
+    // Manage Server and has no reason to.
+    default_member_permissions: '8192',
     options: [
       {
         name: 'game',

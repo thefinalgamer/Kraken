@@ -130,7 +130,7 @@ async function main() {
   if (!/^\d{5,}$/.test(discordId)) {
     console.error(
       `"${env.TARGET_DISCORD_ID}" is not a Discord user id. ` +
-        'Enable Developer Mode, right-click the member, Copy User ID — it is a long number. ' +
+        'Enable Developer Mode, right-click the member, Copy User ID. It is a long number. ' +
         '(A PSN name or a channel id will not work.)',
     );
     process.exit(1);

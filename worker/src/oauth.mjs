@@ -57,7 +57,7 @@ export async function handleCallback(request, env, ctx, dispatchScan) {
   const state = url.searchParams.get('state');
 
   if (url.searchParams.get('error')) {
-    return page('Cancelled', 'No harm done — you can close this tab and use the bio code instead.');
+    return page('Cancelled', 'No harm done. Close this tab and use the bio code instead.');
   }
   if (!code || !state) return page('Something went wrong', 'That link was missing part of itself. Run `/register` again.');
 
@@ -104,11 +104,11 @@ export async function handleCallback(request, env, ctx, dispatchScan) {
       const EXPLANATIONS = {
         invalid_client:
           'Discord does not recognise the client secret. Reset it on the OAuth2 page of the ' +
-          'Discord developer portal and set <code>DISCORD_CLIENT_SECRET</code> again — and check ' +
+          'Discord developer portal and set <code>DISCORD_CLIENT_SECRET</code> again, and check ' +
           'you copied the secret, not the Public Key.',
         invalid_grant:
           'The redirect URL does not match. It must be <code>' + redirectUri(env) + '</code> ' +
-          'exactly — no trailing slash — in the Discord developer portal under OAuth2 → Redirects.',
+          'exactly, with no trailing slash, in the Discord developer portal under OAuth2 → Redirects.',
         invalid_request:
           'Discord rejected the shape of the request. Usually the redirect URL is missing from ' +
           'the developer portal entirely.',
@@ -148,7 +148,7 @@ export async function handleCallback(request, env, ctx, dispatchScan) {
   if (!psn) {
     return page(
       'No PlayStation account linked',
-      'You have not connected PSN to Discord yet — it is under **User Settings → Connections → ' +
+      'You have not connected PSN to Discord yet. It is under **User Settings → Connections → ' +
         'PlayStation Network**. Do that and click the link again, or use the bio code instead.',
     );
   }
@@ -167,7 +167,7 @@ export async function handleCallback(request, env, ctx, dispatchScan) {
 
   return page(
     'Verified',
-    `**${member.psn_online_id}** is yours and you're on the board. Your first scan is running now — ` +
+    `**${member.psn_online_id}** is yours and you're on the board. Your first scan is running now. ` +
       'it takes a while, and Kraken will post in Discord when it lands. You can close this tab.',
   );
 }
@@ -180,7 +180,7 @@ export async function handleStart(request, env) {
 
   const member = await db.memberByVerifyCode(env, verifyCode);
   if (!member) return page('That link has expired', 'Run `/register` in Discord to start again.');
-  if (member.verified_at) return page('Already verified', 'Nothing left to do — close this tab.');
+  if (member.verified_at) return page('Already verified', 'Nothing left to do. Close this tab.');
 
   return Response.redirect(authorizeUrl(env, verifyCode), 302);
 }

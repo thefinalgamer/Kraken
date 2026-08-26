@@ -31,7 +31,7 @@ const commands = [
   },
   {
     name: 'unlink',
-    description: 'Mods only — free a member’s PSN link so it can be claimed again',
+    description: 'Mods only. Free a member’s PSN link so it can be claimed again',
     // MANAGE_GUILD. Discord hides the command entirely from anyone without it,
     // so nobody has to discover it exists and then be told no.
     default_member_permissions: '32',
@@ -41,7 +41,7 @@ const commands = [
   },
   {
     name: 'addmember',
-    description: 'Mods only — put someone on the board yourself, skipping verification',
+    description: 'Mods only. Put someone on the board yourself, skipping verification',
     // MANAGE_GUILD, same as /unlink. This bypasses the PSN ownership check, so
     // it is the one command where a mod is vouching with their own judgement
     // instead of the member proving anything. Recorded as 'grandfathered'.
@@ -79,7 +79,7 @@ const commands = [
       },
       {
         name: 'note',
-        description: 'What is unobtainable and why — leave empty to clear the flag',
+        description: 'What is unobtainable and why. Leave empty to clear the flag',
         type: 3,
         required: false,
       },
@@ -87,7 +87,7 @@ const commands = [
   },
   {
     name: 'faq',
-    description: 'How the board works — points, roles, joining, all of it',
+    description: 'How the board works: points, roles, joining, all of it',
   },
   {
     name: 'update',

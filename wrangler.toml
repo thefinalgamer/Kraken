@@ -20,7 +20,7 @@ database_id = "44d2a77b-cded-4a63-af05-dc43da8aaed6"
 
 # Set this to a Discord role id to gate /register during the soft launch.
 # Only members with the role can join the board; leave empty to open it up.
-HUNTER_ROLE_ID = "1538606682039648327"
+HUNTER_ROLE_ID = ""
 
 # The #leaderboard channel and the server it lives in. Only used to build the
 # "Open #leaderboard" link on /leaderboard, so the private peek can hand you

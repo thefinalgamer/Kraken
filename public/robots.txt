@@ -6,6 +6,7 @@
 # for nothing. The board itself is fine to index — it is the shop window.
 User-agent: *
 Allow: /$
+Allow: /leaderboard$
 Disallow: /hunter/
 Disallow: /game/
 

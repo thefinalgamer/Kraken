@@ -291,7 +291,7 @@ export async function onRequestGet({ params, env, request }) {
         title: 'Not found',
         body: `<div class="tablewrap"><p class="empty">
                  No hunter called <b>${esc(name)}</b> is on the board.<br>
-                 <a href="/">Back to the board</a>
+                 <a href="/leaderboard">Back to the board</a>
                </p></div>`,
       }),
       { status: 404, maxAge: 60 },
@@ -460,7 +460,7 @@ export async function onRequestGet({ params, env, request }) {
     }
 
     <footer>
-      <a href="/">Back to the board</a>
+      <a href="/leaderboard">Back to the board</a>
     </footer>`;
 
   return html(

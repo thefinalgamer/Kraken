@@ -480,6 +480,87 @@ details.numbers summary:hover{color:var(--kraken)}
   .credit .legal,.credit .end{text-align:center}
 }
 
+/* ---- front page ---- */
+/* The front page has NO top bar. It carries the same four links as buttons in
+   the middle instead, so the navigation is not drawn twice on one screen. It is
+   the only page on the site shaped this way, which is deliberate rather than an
+   oversight: a door and a room do not need the same furniture. */
+.wrap.bare{padding-top:7vh}
+.doormark{width:132px;height:132px;display:block;margin:0 auto}
+.doornav{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:8px 0 0}
+.doornav a,.doornav span{
+  padding:11px 22px;border-radius:10px;border:1px solid var(--edge);text-decoration:none;
+  font-size:15px;font-weight:600;color:var(--ink);background:var(--panel);
+}
+.doornav a:hover{border-color:var(--kraken);color:var(--kraken)}
+.doornav .primary{background:var(--kraken);border-color:var(--kraken);color:var(--deep)}
+.doornav .primary:hover{filter:brightness(1.08);color:var(--deep);border-color:var(--kraken)}
+.doornav .soon{color:var(--faint);opacity:.55;background:transparent;cursor:default}
+
+.hero.home{text-align:center;gap:14px;margin:10px 0 26px}
+.hero.home h1{font-size:clamp(28px,4.8vw,44px);line-height:1.14;margin:0;max-width:18ch}
+.hero.home h1 span{color:var(--kraken)}
+.lede{margin:0;max-width:62ch;color:var(--soft);font-size:15.5px;line-height:1.6}
+.cta{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:6px 0 0}
+.btn{
+  display:inline-block;padding:10px 20px;border-radius:9px;text-decoration:none;
+  border:1px solid var(--edge);color:var(--ink);font-size:14.5px;font-weight:600;
+}
+.btn:hover{border-color:var(--faint)}
+.btn.primary{background:var(--kraken);border-color:var(--kraken);color:var(--deep)}
+.btn.primary:hover{filter:brightness(1.08)}
+
+.totals{
+  display:flex;flex-wrap:wrap;gap:10px;margin:30px 0 22px;padding:0;list-style:none;
+}
+.totals div{
+  flex:1 1 150px;border:1px solid var(--edge);border-radius:10px;background:var(--panel);
+  padding:12px 14px;text-align:center;
+}
+.totals dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.totals dd{margin:3px 0 0;font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* Two columns, so four panels land as a tidy 2x2 rather than three across with
+   one stranded underneath. auto-fit did that: it fitted three at 1100px and
+   left "Newest hunters" alone in a half-empty row. */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+@media (max-width:860px){ .cols{grid-template-columns:1fr} }
+.panel{border:1px solid var(--edge);border-radius:10px;background:var(--panel);padding:14px 16px 16px}
+.panel h2{
+  margin:0 0 10px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);font-weight:700;display:flex;align-items:center;gap:10px;
+}
+.panel h2 a{margin-left:auto;color:var(--kraken);text-decoration:none;
+  font-size:11px;letter-spacing:.06em;text-transform:none;font-weight:600}
+.panel h2 a:hover{text-decoration:underline}
+.panel .empty{padding:14px 0;color:var(--soft);text-align:left}
+.panel .note{margin:10px 0 0;color:var(--faint);font-size:12px;line-height:1.55}
+
+ol.top{list-style:none;margin:0;padding:0}
+ol.top li{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--rule)}
+ol.top li:last-child{border-bottom:none}
+ol.top .pos{color:var(--faint);font-size:12.5px;width:2.4em;flex:0 0 auto}
+/* min-width:0 is what actually lets this ellipsis. Without it the flex item
+   refuses to shrink below its content and the NAME is what gets cut, which is
+   the one thing in the row nobody can guess from context. */
+ol.top .who{font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;min-width:0;flex:1 1 auto}
+ol.top .who:hover{color:var(--kraken)}
+ol.top .val{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+
+ul.feed{list-style:none;margin:0;padding:0}
+ul.feed li{padding:7px 0;border-bottom:1px solid var(--rule)}
+ul.feed li:last-child{border-bottom:none}
+ul.feed .t{display:block;font-weight:600;font-size:14.5px}
+ul.feed .t a{text-decoration:none}
+ul.feed .t a:hover{color:var(--kraken)}
+ul.feed .s{display:block;color:var(--faint);font-size:12.5px;margin-top:1px}
+ul.feed .s a{color:var(--soft);text-decoration:none}
+ul.feed .s a:hover{color:var(--kraken)}
+ul.feed.people li{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+  column-gap:10px;align-items:center}
+ul.feed.people .av{grid-row:1 / span 2;width:30px;height:30px;flex:0 0 30px}
+
 footer{margin-top:26px;color:var(--faint);font-size:13px;line-height:1.7}
 footer b{color:var(--soft);font-weight:500}
 .empty{padding:40px;text-align:center;color:var(--soft)}
@@ -496,15 +577,23 @@ footer b{color:var(--soft);font-weight:500}
  * anchor — a link that 404s teaches people the site is broken, while a dimmed
  * label teaches them it is coming. They flip to real links as the pages land.
  */
-const NAV_LEFT = [
-  { href: '/', label: 'Leaderboard', key: 'board' },
+/**
+ * ONE list of what this site has, rendered two ways.
+ *
+ * The header splits it left and right around the logo; the front page draws the
+ * same four as buttons. Keeping it as a single array means a page can never
+ * exist in one navigation and not the other, which is exactly the bug that
+ * turns up six months later when somebody adds a route in a hurry.
+ */
+export const NAV = [
+  { href: '/leaderboard', label: 'Leaderboard', key: 'board' },
   { label: 'Games', key: 'games' },
-];
-const NAV_RIGHT = [
   { label: 'Contested', key: 'contested' },
   // The door. Everything else on this site is a window.
   { href: 'https://discord.com/invite/gdSqDYrXaH', label: 'Discord', key: 'discord', out: true },
 ];
+const NAV_LEFT = NAV.slice(0, 2);
+const NAV_RIGHT = NAV.slice(2);
 
 /**
  * `rel="noopener noreferrer"` on the outbound link is not superstition: without
@@ -521,7 +610,26 @@ const navLinks = (items, here) =>
     })
     .join('');
 
-export function page({ title, body, description = '', here = '' }) {
+/**
+ * The same four, as buttons, for the front page.
+ *
+ * Unbuilt pages stay spans here too. A door with a dead handle on it is worse
+ * than a door with three handles and a label saying the fourth is coming.
+ */
+export const navButtons = () =>
+  NAV.map((i) => {
+    if (!i.href) return `<span class="soon">${esc(i.label)}</span>`;
+    const attrs = i.out ? ' target="_blank" rel="noopener noreferrer"' : '';
+    const cls = i.key === 'board' ? ' class="primary"' : '';
+    return `<a href="${esc(i.href)}"${cls}${attrs}>${esc(i.label)}</a>`;
+  }).join('');
+
+/**
+ * @param bare  suppress the top bar. The front page carries its own navigation
+ *   as buttons in the middle of the page, and drawing the header as well would
+ *   be the same four links twice on one screen.
+ */
+export function page({ title, body, description = '', here = '', bare = false }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -536,14 +644,18 @@ ${description ? `<meta name="description" content="${esc(description)}">` : ''}
 </head>
 <body>
 ${motes()}
-<header class="top">
+${
+  bare
+    ? ''
+    : `<header class="top">
   <div class="topin">
     <nav class="l">${navLinks(NAV_LEFT, here)}</nav>
     <a class="mark" href="/" aria-label="Kraken home"><img src="/Kraken.png" alt="" width="60" height="60"><b>Kraken</b></a>
     <nav class="r">${navLinks(NAV_RIGHT, here)}</nav>
   </div>
-</header>
-<div class="wrap">
+</header>`
+}
+<div class="wrap${bare ? ' bare' : ''}">
   ${body}
   <div class="credit">
     <span class="legal">Kraken is a fan project and is not affiliated with,<br>

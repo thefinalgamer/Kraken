@@ -153,7 +153,7 @@ ${description ? `<meta name="description" content="${esc(description)}">` : ''}
 <div class="wrap">
   <header class="top">
     <div class="mark">🐙</div>
-    <p class="brand"><a href="/" style="text-decoration:none">Hunters Lodge</a> <span>· Platinum Intel</span></p>
+    <p class="brand"><a href="/" style="text-decoration:none">Kraken</a> <span>· Platinum Intel</span></p>
   </header>
   ${body}
 </div>

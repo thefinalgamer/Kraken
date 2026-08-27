@@ -106,9 +106,9 @@ export async function onRequestGet({ env }) {
          </table>
        </div>
        <footer>
-         Scores come from <b>Kraken</b>, which prices every trophy on how rare it is
-         worldwide, multiplies it by how many of us are still stuck on that game, and
-         scales the lot by your completion. Click a column to sort.<br>
+         Every trophy is priced on how rare it is worldwide, multiplied by how many of
+         us are still stuck on that game, and the lot is scaled by your completion.
+         Click a column to sort.<br>
          Joining happens in Discord. This page is the window, not the door.
        </footer>
        <script>${SORT_JS}</script>`
@@ -116,7 +116,7 @@ export async function onRequestGet({ env }) {
 
   return html(
     page({
-      title: 'Hunters Lodge',
+      title: 'Kraken',
       description: `The Platinum Intel trophy leaderboard. ${total} hunters ranked by how hard their trophies were.`,
       body,
     }),

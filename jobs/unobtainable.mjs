@@ -115,7 +115,8 @@ console.log('Loading our games...');
 const ours = [];
 for (let offset = 0; ; offset += 2000) {
   const rows = await db.query(
-    `SELECT np_comm_id, title, platform, local_started, unobtainable, flagged_by
+    `SELECT np_comm_id, title, platform, local_started,
+            unobtainable, unobtainable_note, flagged_by
        FROM games
       WHERE title IS NOT NULL AND TRIM(title) <> ''
       ORDER BY np_comm_id LIMIT 2000 OFFSET ?`,
@@ -165,9 +166,21 @@ for (const [id, e] of entries) {
 
 const owned = (m) => m.hits.some((g) => (g.local_started ?? 0) > 0);
 const ownedMatches = matched.filter(owned);
-const rowsToWrite = matched.flatMap((m) =>
+/** The note we would store, so "already correct" can be told from "new". */
+const noteFor = (e) => String(e.note ?? 'Has unobtainable trophies.').trim().slice(0, NOTE_MAX);
+
+const mine = matched.flatMap((m) =>
   m.hits.filter((g) => !g.flagged_by || g.flagged_by === 'psnp-plus').map((g) => ({ g, e: m.e })),
 );
+
+// Only rows that would actually change. Without this the report says "590 rows"
+// on every run forever, including the run right after the one that wrote them,
+// and a re-run months later cannot tell you what is NEW — which is the entire
+// reason to re-run at all.
+const rowsToWrite = mine.filter(
+  ({ g, e }) => g.unobtainable !== 1 || g.unobtainable_note !== noteFor(e),
+);
+const unchanged = mine.length - rowsToWrite.length;
 const protectedRows = matched
   .flatMap((m) => m.hits)
   .filter((g) => g.flagged_by && g.flagged_by !== 'psnp-plus');
@@ -179,7 +192,8 @@ console.log(`  ${ownedMatches.length} of those are games somebody here owns`);
 console.log(`  ${titleOnly.length} matched the title but no platform in common`);
 console.log(`  ${wide.length} matched ${WIDE_MATCH}+ of our rows (too loose, skipped)`);
 console.log(`  ${missing.length} we have never seen`);
-console.log(`  ${rowsToWrite.length} game rows would be flagged`);
+console.log(`  ${rowsToWrite.length} game rows would CHANGE`);
+if (unchanged) console.log(`  ${unchanged} already carry exactly this flag and note`);
 if (protectedRows.length) {
   console.log(`  ${protectedRows.length} left alone because a human set them`);
 }
@@ -218,6 +232,11 @@ if (titleOnly.length) {
 
 // ----------------------------------------------------------------- write ---
 
+if (!rowsToWrite.length) {
+  console.log('\nNothing to do. Every match already carries the right flag.');
+  process.exit(0);
+}
+
 if (!WRITE) {
   console.log('\nDRY RUN. Nothing was written.');
   console.log('Set UNOBTAINABLE_WRITE=1 on the workflow step to apply this.');
@@ -228,7 +247,7 @@ console.log(`\nWriting ${rowsToWrite.length} rows...`);
 let written = 0;
 const now = Date.now();
 for (const { g, e } of rowsToWrite) {
-  const note = `${String(e.note ?? 'Has unobtainable trophies.').trim().slice(0, NOTE_MAX)}`;
+  const note = noteFor(e);
   await db.run(
     `UPDATE games
         SET unobtainable = 1, unobtainable_note = ?, flagged_by = 'psnp-plus', flagged_at = ?

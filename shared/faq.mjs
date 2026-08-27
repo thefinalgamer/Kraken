@@ -138,6 +138,14 @@ export const FAQ = [
       'They update themselves. Nothing to ask for.\n\n' +
       '**Someone has claimed my PSN ID / I typed mine wrong.**\n' +
       'Ask a mod - `/unlink` frees it, then `/register` again.\n\n' +
+      '**What does the ⚠️ on a game mean?**\n' +
+      'Some of its trophies cannot be earned any more. Usually the online servers ' +
+      'were switched off, sometimes an event ended or a patch broke something. The ' +
+      'note tells you which.\n' +
+      'PlayStation does not publish this, so it comes from **PSNP+**, a list ' +
+      'crowd-sourced by trophy hunters who hit the wall and wrote it down: ' +
+      'psnp-plus.huskycode.dev. Mods can add or clear a flag with `/flag`, and a mod ' +
+      'always overrules the list.\n\n' +
       '**Commands**\n' +
       '`/rank` - where you are, and who you are chasing\n' +
       '`/leaderboard` - the five either side of you\n' +

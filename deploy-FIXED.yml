@@ -1,0 +1,43 @@
+name: Deploy Worker
+
+# Deploys the Worker automatically whenever its code changes on main, so
+# nobody has to remember that pushing and deploying are separate things.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - 'shared/**'
+      - 'wrangler.toml'
+      - 'package.json'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      # THE GATE. If the suite fails, wrangler never runs and Cloudflare keeps
+      # serving the Worker it already has — so a broken push is a red tick on
+      # GitHub instead of a dead bot in front of sixty people.
+      #
+      # This is the whole safety net, and it was missing. test/worker.test.mjs
+      # exists because a refactor once deleted five commands and every button
+      # by overrunning a text range; node --check passed, npm test passed
+      # locally, and it shipped anyway because nothing ran it here.
+      - run: npm test
+
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}

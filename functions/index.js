@@ -120,6 +120,7 @@ export async function onRequestGet({ env }) {
     page({
       title: 'Kraken',
       description: `The Platinum Intel trophy leaderboard. ${total} hunters ranked by how hard their trophies were.`,
+      here: 'board',
       body,
     }),
   );

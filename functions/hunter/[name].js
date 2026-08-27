@@ -19,7 +19,7 @@
  * we are already storing, which is the exact thing this file is avoiding.
  */
 
-import { page, html, esc, n, pct, flag, ordinal, cup, TIER, tierFor } from '../_lib/page.js';
+import { page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor } from '../_lib/page.js';
 
 const PER_PAGE = 50;
 
@@ -42,7 +42,11 @@ const SORTS = {
   played: { label: 'Last played', sql: 'COALESCE(mg.last_earned_at, 0) DESC, g.title ASC' },
   title: { label: 'Name', sql: 'g.title ASC' },
 };
-const DEFAULT_SORT = 'points';
+// LAST PLAYED, not points. Opening on the biggest scores shows the same five
+// games at the top of every hunter forever; opening on what they touched most
+// recently is the only ordering that changes when they play, which is the
+// question anybody landing on a profile is actually asking.
+const DEFAULT_SORT = 'played';
 
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, country, avatar_url, rank, prev_rank,
@@ -218,27 +222,32 @@ function gameRow(g) {
           ? 's'
           : 'b';
   const width = Math.max(0, Math.min(100, Number(g.progress) || 0));
+  const got_left = Math.max(0, (Number(g.trophy_count) || 0) - (Number(g.earned_total) || 0));
 
   return `<tr${mark ? ` class="${mark}"` : ''}>
-    <td class="bar"></td>
+    <td class="bar"><span class="pip"></span></td>
     <td class="gi">${
       g.icon_url
         ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="40" height="40">`
         : '<span class="ico"></span>'
     }</td>
     <td class="gt">
-      <span class="tname">${esc(g.title)}</span>${
+      ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<span
+        class="tname">${esc(g.title)}</span>${
         g.unobtainable
           ? ` <span class="warn" title="${esc(g.unobtainable_note || 'Has unobtainable trophies.')}">&#9888;</span>`
           : ''
       }
-      <span class="meta">${esc(g.platform || '')}${
-        g.last_earned_at ? ` · ${ago(g.last_earned_at)}` : ''
-      }</span>
+      <span class="meta">${
+        g.last_earned_at ? `${ago(g.last_earned_at)} · ` : ''
+      }${miniCups(g.earned_platinum, g.earned_gold, g.earned_silver, g.earned_bronze)}</span>
     </td>
     <td class="num prog" data-v="${width}">
       <span class="${done ? 'done' : ''}">${width}%</span>
       <span class="track"><span class="fill ${shade}" style="width:${width}%"></span></span>
+      <span class="tcount">${n(g.earned_total)} / ${n(g.trophy_count)}${
+        got_left > 0 ? ` · ${n(got_left)} to go` : ''
+      }</span>
     </td>
     <td class="num pts" data-v="${got}" title="${
       max ? `${n(left)} points left to earn` : 'No trophy in this game is hard for anybody'
@@ -393,21 +402,14 @@ export async function onRequestGet({ params, env, request }) {
     <section class="hero">
       ${
         m.avatar_url
-          ? `<img class="bigav" src="${esc(m.avatar_url)}" alt="" width="72" height="72">`
+          ? `<img class="bigav" src="${esc(m.avatar_url)}" alt="" width="76" height="76">`
           : '<span class="bigav"></span>'
       }
-      <div class="who">
-        <h1>${country ? `${country} ` : ''}${esc(m.psn_online_id)}</h1>
-        <p class="sub">
-          <b>${ordinal(m.rank)}</b> of ${n(total)} ·
-          <span class="tier" style="color:${color}">${tierName}</span>
-        </p>
-      </div>
-      <dl class="facts">
-        <div><dt>Points</dt><dd>${n(m.points)}</dd></div>
-        <div><dt>Completion</dt><dd>${pct(m.completion)}</dd></div>
-        <div><dt>Finished</dt><dd>${n(m.completed)} / ${n(projects)}</dd></div>
-      </dl>
+      <h1>${country ? `${country} ` : ''}${esc(m.psn_online_id)}</h1>
+      <p class="sub">
+        <b>${ordinal(m.rank)}</b> of ${n(total)}
+        <span class="tier" style="color:${color}">${tierName}</span>
+      </p>
     </section>
 
     <div class="cups">
@@ -415,6 +417,11 @@ export async function onRequestGet({ params, env, request }) {
       ${cup('g', m.gold, 'Gold')}
       ${cup('s', m.silver, 'Silver')}
       ${cup('b', m.bronze, 'Bronze')}
+      <dl class="facts">
+        <div><dt>Points</dt><dd>${n(m.points)}</dd></div>
+        <div><dt>Completion</dt><dd>${pct(m.completion)}</dd></div>
+        <div><dt>Finished</dt><dd>${n(m.completed)} / ${n(projects)}</dd></div>
+      </dl>
     </div>
 
     ${splitBlock}

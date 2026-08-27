@@ -92,6 +92,28 @@ export const trophyGlyph = () =>
 export const cup = (metal, count, label) =>
   `<span class="cup ${metal}" title="${esc(label)}">${trophyGlyph()}${n(count)}</span>`;
 
+/**
+ * The four counts in a row, small, for a game.
+ *
+ * Zeroes are DIMMED rather than hidden. A row that only shows what you have
+ * changes shape from game to game and the eye has to re-read it every line; a
+ * fixed four with the empties greyed scans in one movement down the column, and
+ * "no golds in this one" is itself worth seeing.
+ */
+export const miniCups = (p, g, s, b) =>
+  `<span class="mini">${[
+    ['p', p, 'Platinum'],
+    ['g', g, 'Gold'],
+    ['s', s, 'Silver'],
+    ['b', b, 'Bronze'],
+  ]
+    .map(
+      ([metal, count, label]) =>
+        `<span class="mc ${metal}${Number(count) ? '' : ' off'}" title="${esc(label)}">` +
+        `${trophyGlyph()}${n(count)}</span>`,
+    )
+    .join('')}</span>`;
+
 export const ordinal = (v) => {
   const num = Number(v);
   if (!Number.isFinite(num)) return String(v ?? '');
@@ -117,17 +139,39 @@ body{
 a{color:inherit}
 .wrap{max-width:1080px;margin:0 auto;padding:0 clamp(12px,3vw,24px) 72px}
 
+/* The logo sits dead centre with the navigation either side of it. Three
+   equal columns rather than flex, so the mark stays centred on the PAGE and
+   does not drift when one side has more links than the other. */
 header.top{
-  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:22px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:22px;
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
+  padding:18px 0 16px;border-bottom:1px solid var(--rule);margin-bottom:24px;
 }
+header.top nav{display:flex;gap:22px;align-items:center;min-width:0}
+header.top nav.r{justify-content:flex-end}
+header.top nav a,header.top nav span{
+  font-size:14px;letter-spacing:.01em;text-decoration:none;white-space:nowrap;
+}
+header.top nav a{color:var(--soft)}
+header.top nav a:hover{color:var(--kraken)}
+header.top nav a.on{color:var(--kraken);font-weight:600}
+/* Pages that do not exist yet are NOT links. A dead anchor that 404s is worse
+   than a label that says it is coming. */
+header.top nav .soon{color:var(--faint);cursor:default;opacity:.55}
+
 .mark{
-  width:38px;height:38px;border-radius:50%;flex:0 0 38px;
-  border:2px solid var(--kraken);display:grid;place-items:center;font-size:19px;
+  display:flex;align-items:center;gap:9px;text-decoration:none;justify-self:center;
 }
-.brand{font-size:19px;font-weight:700;letter-spacing:-.01em;margin:0}
-.brand span{color:var(--faint);font-weight:400}
-.stats{margin-left:auto;color:var(--soft);font-size:13.5px;font-variant-numeric:tabular-nums}
+.mark .o{
+  width:36px;height:36px;border-radius:50%;flex:0 0 36px;
+  border:2px solid var(--kraken);display:grid;place-items:center;font-size:18px;
+}
+.mark b{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.stats{color:var(--soft);font-size:13.5px;font-variant-numeric:tabular-nums}
+@media (max-width:720px){
+  header.top{grid-template-columns:1fr;justify-items:center;gap:10px}
+  header.top nav{order:2} header.top nav.r{order:3;justify-content:center}
+  .mark{order:1}
+}
 
 .tablewrap{overflow-x:auto;border:1px solid var(--edge);border-radius:10px;background:var(--panel)}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -158,21 +202,25 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 
 
 /* ---- hunter page ---- */
-.hero{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 18px}
-.bigav{width:72px;height:72px;border-radius:50%;flex:0 0 72px;background:var(--edge);object-fit:cover}
-.who h1{margin:0;font-size:23px;letter-spacing:-.015em}
-.who .sub{margin:3px 0 0;color:var(--soft);font-size:13.5px}
-.facts{display:flex;gap:26px;margin:0 0 0 auto;flex-wrap:wrap}
-.facts div{text-align:right}
-.facts dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
-.facts dd{margin:2px 0 0;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+/* Name and face centred, the way a profile reads. The numbers used to sit up
+   here too and were competing with it; they live in the bar below now. */
+.hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;margin:4px 0 16px}
+.bigav{width:76px;height:76px;border-radius:50%;background:var(--edge);object-fit:cover}
+.hero h1{margin:0;font-size:26px;letter-spacing:-.015em}
+.hero .sub{margin:0;color:var(--soft);font-size:13.5px;display:flex;align-items:center;gap:9px}
 
-/* The four trophy counts. Drawn, not fetched — see trophyGlyph(). */
-.cups{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 18px;padding:9px 14px;
+/* One bar: what they have won on the left, what it is worth on the right. */
+.cups{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 18px;padding:10px 16px;
   border:1px solid var(--edge);border-radius:10px;background:var(--panel)}
 .cup{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600}
 .cup svg{width:17px;height:17px;flex:0 0 17px;display:block}
 .cup.p{color:#7fd6f5} .cup.g{color:#f0c419} .cup.s{color:#c9ccd1} .cup.b{color:#e08a4a}
+
+.facts{display:flex;gap:24px;margin:0 0 0 auto;flex-wrap:wrap}
+.facts div{text-align:right}
+.facts dt{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.facts dd{margin:1px 0 0;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+@media (max-width:640px){ .facts{margin:6px 0 0;width:100%;justify-content:space-between;gap:12px} }
 
 /* Search. A form, submitted with Enter — never on keystroke. Every search is a
    full scan of that member's library, so live filtering would be thirty
@@ -195,16 +243,38 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .tab:hover{color:var(--ink);border-color:var(--faint)}
 .tab.on{color:var(--deep);background:var(--kraken);border-color:var(--kraken);font-weight:600}
 
-/* The accent bar, copied from the old site because it was the best thing on it.
-   Blue = the platinum is in. Green = everything is, DLC included. Nothing at
-   all otherwise, so the eye only lands on finished work. */
-td.bar{width:4px;padding:0;background:transparent}
-tr.plat td.bar{background:#4a9eff}
-tr.full td.bar{background:var(--up)}
+/* The accent mark, from the old site. Blue = the platinum is in, green =
+   everything is, DLC included, nothing at all otherwise.
+
+   A THIN PILL RATHER THAN A FILLED CELL. The full-height block was a slab of
+   colour shouting at the same volume as the game itself; forty of them down a
+   page is a stripe pattern, not a signal. Three pixels with rounded ends reads
+   as a marker instead of a wall. */
+td.bar,th.bar{width:1%;padding:0 0 0 10px}
+.pip{display:block;width:3px;height:30px;border-radius:99px;background:transparent}
+tr.plat .pip{background:#4a9eff}
+tr.full .pip{background:var(--up)}
 
 td.gi,th.gi{width:1%;padding-right:0}
 .ico{width:40px;height:40px;border-radius:6px;display:block;background:var(--edge);object-fit:cover}
 .of-max{color:var(--faint);font-weight:400}
+
+/* PS4 / PS5, as a chip. It was grey text lost in the metadata line and it is
+   the first thing anybody looks for when they own a game twice. */
+.plat-chip{
+  display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;
+  padding:2px 6px;border-radius:5px;border:1px solid var(--edge);
+  background:var(--ground);color:var(--soft);vertical-align:1px;margin-right:7px;
+}
+
+/* The per-game trophy breakdown. Zeroes dimmed, never dropped — see miniCups(). */
+.mini{display:inline-flex;gap:9px;align-items:center;margin-left:2px}
+.mc{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;font-weight:600;
+  font-variant-numeric:tabular-nums}
+.mc svg{width:11px;height:11px;flex:0 0 11px;display:block}
+.mc.p{color:#7fd6f5} .mc.g{color:#f0c419} .mc.s{color:#c9ccd1} .mc.b{color:#e08a4a}
+.mc.off{color:var(--faint);opacity:.5}
+.tcount{display:block;font-size:11px;color:var(--faint);margin-top:4px;font-variant-numeric:tabular-nums}
 
 /* The progress bar. Fills to the progress percentage; the colour is the best
    trophy earned, and green once the whole game is done. */
@@ -251,7 +321,32 @@ footer b{color:var(--soft);font-weight:500}
 }
 `;
 
-export function page({ title, body, description = '' }) {
+/**
+ * The navigation.
+ *
+ * `here` marks the current page. Everything not built yet is a SPAN, not an
+ * anchor — a link that 404s teaches people the site is broken, while a dimmed
+ * label teaches them it is coming. They flip to real links as the pages land.
+ */
+const NAV_LEFT = [
+  { href: '/', label: 'Leaderboard', key: 'board' },
+  { label: 'Games', key: 'games' },
+];
+const NAV_RIGHT = [
+  { label: 'Contested', key: 'contested' },
+  { label: 'Discord', key: 'discord' },
+];
+
+const navLinks = (items, here) =>
+  items
+    .map((i) =>
+      i.href
+        ? `<a href="${i.href}"${i.key === here ? ' class="on"' : ''}>${esc(i.label)}</a>`
+        : `<span class="soon" title="Coming soon">${esc(i.label)}</span>`,
+    )
+    .join('');
+
+export function page({ title, body, description = '', here = '' }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -265,8 +360,9 @@ ${description ? `<meta name="description" content="${esc(description)}">` : ''}
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="mark">🐙</div>
-    <p class="brand"><a href="/" style="text-decoration:none">Kraken</a> <span>· Platinum Intel</span></p>
+    <nav class="l">${navLinks(NAV_LEFT, here)}</nav>
+    <a class="mark" href="/" aria-label="Kraken home"><span class="o">🐙</span><b>Kraken</b></a>
+    <nav class="r">${navLinks(NAV_RIGHT, here)}</nav>
   </header>
   ${body}
 </div>

@@ -133,6 +133,9 @@ test('the accent bar marks finished work and nothing else', async () => {
   const rows = out.split('<tr').slice(1);
   const rowFor = (title) => rows.find((r) => r.includes(title));
 
+  // The pip itself must exist, not just its class. An earlier version had the
+  // CSS and no element, so every bar was invisible and every test still passed.
+  assert.ok(out.includes('<span class="pip"></span>'), 'the pip is rendered');
   assert.match(rowFor('Bloodborne'), /^ class="full"/, '100% is green');
   assert.match(rowFor('Bunny Mahjo'), /^ class="full"/, '100% worth nothing is still green');
   assert.match(rowFor('Sea of Thieves'), /^ class="plat"/, 'platinum but unfinished is blue');
@@ -210,7 +213,28 @@ test('sort is a whitelist, never interpolated', async () => {
   // The injection attempt falls back to the default rather than reaching SQL.
   await render('JFL__Leon', `?sort=${encodeURIComponent('title; DROP TABLE members;--')}`);
   assert.ok(!lastGamesSql.includes('DROP'), 'the string never reached the query');
-  assert.ok(lastGamesSql.includes('mg.points DESC'), 'fell back to the default sort');
+  assert.ok(lastGamesSql.includes('mg.last_earned_at'), 'fell back to the default sort');
+});
+
+test('the default sort is last played', async () => {
+  // Opening on points shows the same five games at the top of every hunter
+  // forever. Last played is the only ordering that moves when they play.
+  await render('JFL__Leon');
+  assert.ok(lastGamesSql.includes('COALESCE(mg.last_earned_at, 0) DESC'), lastGamesSql);
+});
+
+test('the platform is a chip and the trophy breakdown is on every row', async () => {
+  const { out } = await render('JFL__Leon');
+  assert.ok(out.includes('<span class="plat-chip">PS5</span>'), 'PS5 chip');
+  assert.ok(out.includes('<span class="plat-chip">PS4</span>'), 'PS4 chip');
+
+  // Bloodborne: 40 of 40, nothing left. Neverwinter: 8 of 70, 62 to go.
+  assert.ok(out.includes('40 / 40'), 'earned out of total');
+  assert.ok(out.includes('8 / 70 · 62 to go'), 'and what is left when there is some');
+  assert.ok(!out.includes('40 / 40 · '), 'a finished game is not told it has 0 to go');
+
+  // Zero counts are dimmed rather than dropped, so the row shape never changes.
+  assert.ok(out.includes('class="mc g off"'), 'a zero gold is greyed, not hidden');
 });
 
 test('search is bound, escaped, and only added when asked for', async () => {

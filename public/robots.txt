@@ -1,0 +1,20 @@
+# The board is public on purpose: everyone on it made their PSN trophies public
+# to join, so nothing here is not already on psnprofiles.com.
+#
+# Crawling is a different question. Every page view is D1 rows read, billed, and
+# a crawler walking sixty member pages with paginated libraries costs real money
+# for nothing. The board itself is fine to index — it is the shop window.
+User-agent: *
+Allow: /$
+Disallow: /hunter/
+Disallow: /game/
+
+# The bulk scrapers get nothing. No search value to us, real cost to us.
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /

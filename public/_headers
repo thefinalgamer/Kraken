@@ -1,0 +1,18 @@
+# Cloudflare Pages reads this at deploy time.
+#
+# The board changes when somebody runs /update, which is a few times an hour at
+# most. Caching it for five minutes turns a thousand page views into one D1
+# read, which is the difference between the website being free and the website
+# being a second rescore.
+/
+  Cache-Control: public, max-age=300, s-maxage=300
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/hunter/*
+  Cache-Control: public, max-age=300, s-maxage=300
+  X-Content-Type-Options: nosniff
+
+/game/*
+  Cache-Control: public, max-age=900, s-maxage=900
+  X-Content-Type-Options: nosniff

@@ -165,6 +165,39 @@ td.gi,th.gi{width:1%;padding-right:0}
 .name a{color:inherit;text-decoration:none}
 .name a:hover{color:var(--kraken);text-decoration:underline}
 
+
+/* ---- chart ---- */
+.chart{margin:0 0 18px;padding:12px 14px 4px;border:1px solid var(--edge);border-radius:10px;
+  background:var(--panel);position:relative}
+.chart figcaption{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  font-weight:600;margin-bottom:2px}
+.chart svg{display:block;overflow:visible;touch-action:pan-y}
+.chart .gl{stroke:var(--rule);stroke-width:1;shape-rendering:crispEdges}
+.chart .gt{fill:var(--faint);font-size:10.5px;font-variant-numeric:tabular-nums}
+.chart .xt{fill:var(--faint);font-size:10.5px}
+.chart .end-x{text-anchor:end}
+.chart .wash{fill:var(--kraken);opacity:.10}
+.chart .ln{fill:none;stroke:var(--kraken);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.chart .end{fill:var(--kraken);stroke:var(--panel);stroke-width:2}
+.chart .cross{stroke:var(--faint);stroke-width:1}
+.chart .hit{fill:var(--kraken);stroke:var(--panel);stroke-width:2}
+.chart .tip{position:absolute;top:6px;pointer-events:none;background:var(--deep);
+  border:1px solid var(--edge);border-radius:7px;padding:5px 9px;font-size:12px;white-space:nowrap}
+.chart .tip b{display:block;font-variant-numeric:tabular-nums}
+.chart .tip span{color:var(--faint);font-size:11px}
+
+/* ---- where the points came from ---- */
+.split{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px;padding:0;list-style:none}
+.split li{flex:1 1 160px;border:1px solid var(--edge);border-radius:9px;padding:9px 12px;background:var(--panel)}
+.split .k{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);display:block}
+.split .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;display:block;margin-top:1px}
+.split .d{font-size:11.5px;color:var(--faint);display:block;margin-top:2px}
+.split .pos{color:var(--up)} .split .neg{color:var(--down)}
+
+details.numbers{margin:0 0 18px}
+details.numbers summary{cursor:pointer;color:var(--soft);font-size:13px;padding:4px 0}
+details.numbers summary:hover{color:var(--kraken)}
+
 footer{margin-top:26px;color:var(--faint);font-size:13px;line-height:1.7}
 footer b{color:var(--soft);font-weight:500}
 .empty{padding:40px;text-align:center;color:var(--soft)}

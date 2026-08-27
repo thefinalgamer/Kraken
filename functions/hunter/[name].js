@@ -20,8 +20,15 @@
  */
 
 import { page, html, esc, n, pct, flag, ordinal, TIER, tierFor } from '../_lib/page.js';
+import { pointsChart, CHART_JS } from '../_lib/chart.js';
 
 const PER_PAGE = 50;
+
+// How far back the graph goes. Every finished update is a point, and somebody
+// who runs /update daily for a year would otherwise put 365 of them into the
+// page. The newest 200 is more history than anyone will read and keeps the
+// query the same size for everybody.
+const HISTORY = 200;
 
 /**
  * Sorts, as a whitelist.
@@ -41,14 +48,41 @@ const DEFAULT_SORT = 'points';
 
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, country, avatar_url, rank, prev_rank,
-         points, completion, platinum, gold, silver, bronze, projects, completed,
-         last_update_at
+         points, reported_points, completion, platinum, gold, silver, bronze,
+         projects, completed, last_update_at
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
    LIMIT 1`;
 
 const TOTAL = `SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL`;
+
+/**
+ * Their score, backwards.
+ *
+ * NOTHING RECORDS A POINTS TOTAL PER DAY, and nothing needs to. Every finished
+ * update already stores `d_points` — how much the score moved that time —
+ * along with the three-way split of where the movement came from. So the curve
+ * is reconstructed by taking the number the member is showing NOW and walking
+ * the deltas backwards, which has two properties worth having: it needs no new
+ * table and no new writes, and it reaches back to the very first scan instead
+ * of starting from the day somebody thought to record it.
+ *
+ * ANCHORED AT THE RIGHT-HAND EDGE, deliberately. The last point on the graph is
+ * `reported_points` — the number on their card — so the chart cannot end
+ * somewhere Discord disagrees with. Any arithmetic error accumulates backwards
+ * into the distant past, where it is cosmetic, rather than forwards into the
+ * figure people check.
+ */
+const UPDATES = `
+  SELECT id, started_at, finished_at, d_points,
+         points_earned, points_backlog, points_drift
+    FROM updates
+   WHERE psn_account_id = ?
+     AND status = 'done'
+     AND finished_at IS NOT NULL
+   ORDER BY id DESC
+   LIMIT ?`;
 
 const gamesSql = (order) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
@@ -72,6 +106,56 @@ function ago(ms) {
   if (months < 24) return `${months} month${months === 1 ? '' : 's'} ago`;
   return `${Math.floor(days / 365)} years ago`;
 }
+
+/**
+ * Turn the update rows into a curve, and total up where the movement came from.
+ *
+ * `rows` arrive newest first. Walking them in that order from the anchor gives
+ * the value BEFORE each update, which is the value AFTER the one before it —
+ * so the whole series falls out of one pass with no second query and no stored
+ * history.
+ *
+ * The leading point uses `started_at` of the oldest update rather than its
+ * finish time, so a first scan that took fifteen minutes reads as a climb from
+ * zero rather than a vertical wall.
+ */
+function history(rows, anchorPoints) {
+  if (!rows?.length) return { points: [], split: null };
+
+  const split = { earned: 0, backlog: 0, drift: 0 };
+  const points = [];
+  let v = Number(anchorPoints) || 0;
+
+  rows.forEach((r, i) => {
+    points.unshift({ t: Number(r.finished_at), v });
+    v -= Number(r.d_points) || 0;
+
+    // The OLDEST update in the window is skipped in the split, because it is
+    // not movement — it is the baseline the graph starts from. A first scan
+    // banks a whole library at once; counting its 182,000 as "earned this
+    // period" would drown every real week that followed and make the three
+    // figures answer a different question to the one the curve is asking.
+    if (i < rows.length - 1) {
+      split.earned += Number(r.points_earned) || 0;
+      split.backlog += Number(r.points_backlog) || 0;
+      split.drift += Number(r.points_drift) || 0;
+    }
+  });
+
+  // No synthetic zero at the front. We did not measure anybody before their
+  // first scan, and drawing a line up from zero invents a climb that never
+  // happened — it renders as a vertical wall at the left edge and squashes
+  // everything real into the top of the plot.
+
+  return { points, split };
+}
+
+/** +12,400 in green, −900 in red, 0 plain. */
+const delta = (v) => {
+  const x = Math.round(Number(v) || 0);
+  if (x === 0) return '<span class="d">0</span>';
+  return `<span class="d ${x > 0 ? 'pos' : 'neg'}">${x > 0 ? '+' : '\u2212'}${n(Math.abs(x))}</span>`;
+};
 
 function gameRow(g) {
   const done = Number(g.progress) === 100;
@@ -147,6 +231,19 @@ export async function onRequestGet({ params, env, request }) {
     .bind(m.psn_account_id, PER_PAGE, offset)
     .all();
 
+  // The graph only rides the first page. Somebody on page 6 of their library is
+  // reading the table, not the curve, and it would be the same curve every time
+  // at the cost of another query.
+  const { results: updates = [] } =
+    pageNo === 1
+      ? await env.DB.prepare(UPDATES).bind(m.psn_account_id, HISTORY).all()
+      : { results: [] };
+
+  const { points: curve, split } = history(
+    updates,
+    m.reported_points ?? m.points,
+  );
+
   const country = flag(m.country);
   const trophies =
     (m.platinum ?? 0) + (m.gold ?? 0) + (m.silver ?? 0) + (m.bronze ?? 0);
@@ -159,6 +256,47 @@ export async function onRequestGet({ params, env, request }) {
         )}?sort=${key}">${esc(s.label)}</a>`,
     )
     .join('');
+
+  /**
+   * The chart, the split, and the numbers behind both.
+   *
+   * TWO UPDATES is the floor, not two points. A single update always produces
+   * two points — zero and their score — because the leading point is the anchor
+   * walked back to the beginning. Drawing that is a straight diagonal line that
+   * says nothing except "they did a first scan", which is an artifact of how
+   * the curve is built rather than anything that happened. A new member gets
+   * this section once they have actually moved.
+   */
+  const chartBlock =
+    updates.length >= 2 && curve.length >= 2
+      ? `${pointsChart(curve)}
+         <ul class="split">
+           <li><span class="k">From trophies</span><span class="v">${delta(split.earned)}</span>
+               <span class="d">what you actually earned</span></li>
+           <li><span class="k">From completion</span><span class="v">${delta(split.backlog)}</span>
+               <span class="d">your % moving, re-pricing everything</span></li>
+           <li><span class="k">From the world</span><span class="v">${delta(split.drift)}</span>
+               <span class="d">rarity shifting under you</span></li>
+         </ul>
+         <details class="numbers">
+           <summary>Show the numbers</summary>
+           <div class="tablewrap"><table><thead><tr>
+             <th>When</th><th class="num">Points</th><th class="num">Change</th>
+           </tr></thead><tbody>${curve
+             .slice(1)
+             .map(
+               (p, i) =>
+                 `<tr><td>${esc(
+                   new Date(p.t).toLocaleDateString('en-GB', {
+                     day: 'numeric', month: 'short', year: 'numeric',
+                   }),
+                 )}</td><td class="num">${n(Math.round(p.v))}</td>` +
+                 `<td class="num">${delta(p.v - curve[i].v)}</td></tr>`,
+             )
+             .reverse()
+             .join('')}</tbody></table></div>
+         </details>`
+      : '';
 
   const body = `
     <section class="hero">
@@ -181,6 +319,8 @@ export async function onRequestGet({ params, env, request }) {
         <div><dt>Finished</dt><dd>${n(m.completed)} / ${n(projects)}</dd></div>
       </dl>
     </section>
+
+    ${chartBlock}
 
     <div class="tabs">${tabs}</div>
 
@@ -208,7 +348,8 @@ export async function onRequestGet({ params, env, request }) {
       would add on top. A game that pays nothing has no trophy in it that is hard
       for anybody.<br>
       <a href="/">Back to the board</a>
-    </footer>`;
+    </footer>
+    ${chartBlock ? `<script>${CHART_JS}</script>` : ''}`;
 
   return html(
     page({

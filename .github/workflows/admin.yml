@@ -23,6 +23,7 @@ on:
           - migrate
           - rescore
           - backfill-names
+          - import-unobtainable
 
 jobs:
   admin:
@@ -81,6 +82,21 @@ jobs:
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: npm run backfill-names
+
+      # Imports the PSNP+ community list of games with unobtainable trophies.
+      # DRY RUN by default: it prints what it would flag and writes nothing.
+      # Their list has no np_comm_id, so the join goes through title and
+      # platform, which is fuzzy — read the report before setting WRITE.
+      #
+      # To actually apply it, change UNOBTAINABLE_WRITE to "1" below.
+      - name: Import unobtainable trophy list
+        if: inputs.task == 'import-unobtainable'
+        env:
+          UNOBTAINABLE_WRITE: "0"
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: npm run import-unobtainable
 
       # Re-prices every trophy, game and member from data already in the
       # database. No PSN calls, so it takes minutes rather than the many hours

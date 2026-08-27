@@ -114,13 +114,35 @@ test('the top five link through to their pages, with tiers', async () => {
   assert.ok(out.includes('RobThanatos'), 'names print in full');
 });
 
+test('contested never suggests a game nobody can finish', async () => {
+  // Asserted on the QUERY, not on the stub's rows: the stub returns whatever it
+  // is handed, so checking the output would only prove the fake behaved. The
+  // clause is the thing that has to exist.
+  let seen = '';
+  const env = {
+    DB: {
+      prepare(sql) {
+        if (sql.includes('JOIN trophies')) seen = sql;
+        const pick = () => ({
+          first: async () => TOTALS,
+          all: async () => ({ results: sql.includes('JOIN trophies') ? CONTESTED : [] }),
+        });
+        return { ...pick(), bind: () => pick() };
+      },
+    },
+  };
+  await mod.onRequestGet({ env });
+  assert.match(seen, /g\.unobtainable = 0/);
+});
+
 test('contested prints two stored numbers and works nothing out', async () => {
   const { out } = await render();
   // 9 own it, 3 have platted it. The page subtracts, and that is the whole of
   // its arithmetic — no multiplier, no re-pricing.
   assert.ok(out.includes('6 of 9 still in it'), 'Sea of Thieves');
   assert.ok(out.includes('5 of 5 still in it'), 'nobody has finished Neverwinter');
-  assert.ok(out.includes('&#9888;'), 'the unobtainable flag carries through');
+  // The flag markup still exists for anywhere else it is needed; the board
+  // itself simply never selects a flagged game any more.
 });
 
 test('a hostile game title cannot inject markup', async () => {

@@ -36,6 +36,9 @@ test('the SQL asks for exactly two parameters, in the documented order', () => {
   assert.match(CONTESTED_SQL, /type = 'platinum'/);
   assert.match(CONTESTED_SQL, /max_points > 0/);
   assert.match(CONTESTED_SQL, /local_earned < g\.local_started/);
+  // Flagged games are off the board. "Most contested" is a suggestion, and a
+  // game whose platinum is dead is worse than suggesting nothing.
+  assert.match(CONTESTED_SQL, /g\.unobtainable = 0/);
 });
 
 test('Martin asked for ten', () => {

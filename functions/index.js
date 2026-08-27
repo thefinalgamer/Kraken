@@ -35,7 +35,7 @@ const TOP = `
     FROM members
    WHERE rank IS NOT NULL AND last_update_at IS NOT NULL
    ORDER BY rank ASC
-   LIMIT 5`;
+   LIMIT 10`;
 
 /**
  * Most contested — MIRRORED from shared/contested.mjs, not reinvented.
@@ -59,6 +59,7 @@ const CONTESTED = `
    WHERE g.local_started >= 3
      AND t.local_earned < g.local_started
      AND g.max_points > 0
+     AND g.unobtainable = 0
    ORDER BY (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
             g.local_started DESC,
             g.max_points DESC

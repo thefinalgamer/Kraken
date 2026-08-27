@@ -26,6 +26,19 @@
  *                     a crowd
  *   everybody platted it
  *                     settled, back to ×1, off the board
+ *   flagged unobtainable
+ *                     Martin: "whos going to want to go for that when they
+ *                     cant get it". A board headed "most contested" is a
+ *                     suggestion, and suggesting a game whose platinum is dead
+ *                     is worse than suggesting nothing. Warface, FIFA 10 and
+ *                     F.E.A.R. 2 sat at the top of it — servers off, eleven of
+ *                     eleven owners permanently stuck, which is not a contest,
+ *                     it is a wall.
+ *
+ *                     NOTE this is a CURATION decision, not a scoring one. Those
+ *                     games still carry their local rarity and still pay their
+ *                     owners exactly what they did before; they are simply not
+ *                     recommended to anybody. Scoring never looks at this file.
  */
 
 import { localMultiplier } from './scoring.mjs';
@@ -64,6 +77,7 @@ export const CONTESTED_SQL = `
    WHERE g.local_started >= ?
      AND t.local_earned < g.local_started
      AND g.max_points > 0
+     AND g.unobtainable = 0
    ORDER BY (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
             g.local_started DESC,
             g.max_points DESC

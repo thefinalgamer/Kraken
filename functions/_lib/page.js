@@ -129,6 +129,42 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .move.u{color:var(--up)} .move.d{color:var(--down)} .move.s{color:var(--faint)}
 .tro{color:var(--soft);font-size:13px}
 
+
+/* ---- hunter page ---- */
+.hero{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 18px}
+.bigav{width:72px;height:72px;border-radius:50%;flex:0 0 72px;background:var(--edge);object-fit:cover}
+.who h1{margin:0;font-size:23px;letter-spacing:-.015em}
+.who .sub{margin:3px 0 0;color:var(--soft);font-size:13.5px}
+.facts{display:flex;gap:26px;margin:0 0 0 auto;flex-wrap:wrap}
+.facts div{text-align:right}
+.facts dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.facts dd{margin:2px 0 0;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.tab{
+  font-size:12.5px;padding:5px 11px;border-radius:99px;text-decoration:none;
+  color:var(--soft);border:1px solid var(--edge);white-space:nowrap;
+}
+.tab:hover{color:var(--ink);border-color:var(--faint)}
+.tab.on{color:var(--deep);background:var(--kraken);border-color:var(--kraken);font-weight:600}
+
+td.gi,th.gi{width:1%;padding-right:0}
+.ico{width:40px;height:40px;border-radius:6px;display:block;background:var(--edge);object-fit:cover}
+.gt{white-space:normal;min-width:220px}
+.tname{font-weight:600}
+.gt .meta{display:block;font-size:11.5px;color:var(--faint);margin-top:1px}
+.warn{color:var(--brass);cursor:help}
+.done{color:var(--up);font-weight:600}
+.zero{color:var(--faint)}
+
+.pager{display:flex;align-items:center;gap:16px;justify-content:center;margin:16px 0 0;font-size:13.5px}
+.pager a{color:var(--kraken);text-decoration:none}
+.pager a:hover{text-decoration:underline}
+.pager .of{color:var(--faint)}
+
+.name a{color:inherit;text-decoration:none}
+.name a:hover{color:var(--kraken);text-decoration:underline}
+
 footer{margin-top:26px;color:var(--faint);font-size:13px;line-height:1.7}
 footer b{color:var(--soft);font-weight:500}
 .empty{padding:40px;text-align:center;color:var(--soft)}

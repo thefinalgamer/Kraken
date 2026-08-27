@@ -47,7 +47,9 @@ function row(m, total) {
     <td>
       <span class="hunter">
         ${m.avatar_url ? `<img class="av" src="${esc(m.avatar_url)}" alt="" loading="lazy" width="26" height="26">` : '<span class="av"></span>'}
-        <span class="name">${country ? `${country} ` : ''}${esc(m.psn_online_id)}</span>
+        <span class="name">${country ? `${country} ` : ''}<a href="/hunter/${encodeURIComponent(
+          m.psn_online_id,
+        )}">${esc(m.psn_online_id)}</a></span>
       </span>
     </td>
     <td class="hide-s"><span class="tier" style="color:${color}">${name}</span></td>
@@ -108,7 +110,7 @@ export async function onRequestGet({ env }) {
        <footer>
          Every trophy is priced on how rare it is worldwide, multiplied by how many of
          us are still stuck on that game, and the lot is scaled by your completion.
-         Click a column to sort.<br>
+         Click a column to sort, or a name to see what they are playing.<br>
          Joining happens in Discord. This page is the window, not the door.
        </footer>
        <script>${SORT_JS}</script>`

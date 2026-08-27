@@ -26,6 +26,17 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+
+      # THE GATE. If the suite fails, wrangler never runs and Cloudflare keeps
+      # serving the Worker it already has — so a broken push is a red tick on
+      # GitHub instead of a dead bot in front of sixty people.
+      #
+      # This is the whole safety net, and it was missing. test/worker.test.mjs
+      # exists because a refactor once deleted five commands and every button
+      # by overrunning a text range; node --check passed, npm test passed
+      # locally, and it shipped anyway because nothing ran it here.
+      - run: npm test
+
       - run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}

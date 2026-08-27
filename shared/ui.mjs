@@ -225,6 +225,28 @@ export const tierEmoji = (tier) => EMOJI[tier] ?? EMOJI.bronze;
 
 export const n = (value) => Number(value ?? 0).toLocaleString('en-GB');
 
+/**
+ * A PSN ID, made safe to drop into Discord markdown.
+ *
+ * PSN allows underscores in online IDs and Discord treats `_x_` as italic and
+ * `__x__` as underline. The two collided on JFL__Leon: /rank underlines the
+ * viewer's own row as `__JFL__Leon__`, Discord matched the FIRST pair, rendered
+ * an underlined "JFL", and printed the remainder as "Leon__". His name came out
+ * as JFLLeon__ on his own card.
+ *
+ * Nurse_Feel_Good had the quieter version of the same fault everywhere his name
+ * appeared: `_Feel_` is a complete italic pair, so the underscores vanished and
+ * the middle word went slanted.
+ *
+ * PSN IDs are limited to letters, digits, hyphens and underscores, so escaping
+ * the underscore alone would do. The other four are here because this will
+ * eventually be pointed at a game title, and a game title can contain anything.
+ *
+ * Hyphens are deliberately NOT escaped. A hyphen is only markdown at the start
+ * of a line, never inside a word, and th3finalgamer-- must survive untouched.
+ */
+export const md = (value) => String(value ?? '').replace(/([\\_*~`|])/g, '\\$1');
+
 export const signed = (value, suffix = '') => {
   const v = Number(value ?? 0);
   if (v === 0) return `0${suffix}`;
@@ -288,7 +310,7 @@ export function chaseLine(member, above) {
   if (!above) return '';
   const gap = Number(above.points ?? 0) - Number(member.points ?? 0);
   if (gap <= 0) return '';
-  return `${EMOJI.up} **${n(gap)}** behind ${above.psn_online_id}`;
+  return `${EMOJI.up} **${n(gap)}** behind ${md(above.psn_online_id)}`;
 }
 
 /**
@@ -358,7 +380,7 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
   const { name: tierName, color } = TIERS[tier];
 
   const country = flag(m.country);
-  const who = highlight ? `__${m.psn_online_id}__` : m.psn_online_id;
+  const who = highlight ? `__${md(m.psn_online_id)}__` : md(m.psn_online_id);
   const position = `${ordinal(m.rank)}${trend(m.rank, m.prev_rank)}`;
 
   // Folded into the third block on purpose — see the note below.
@@ -441,8 +463,8 @@ export function boardBlocks(
             : `${EMOJI.down}\`${m.rank - m.prev_rank}\` `;
       const who =
         m.discord_id && m.discord_id === viewerId
-          ? `__${m.psn_online_id}__`
-          : m.psn_online_id;
+          ? `__${md(m.psn_online_id)}__`
+          : md(m.psn_online_id);
       return `\`${String(m.rank).padStart(3)}\` ${move}**${who}** - ${n(m.points)} pts · ${pct(m.completion)}`;
     });
     return container(
@@ -638,8 +660,8 @@ export function movementLines(movements) {
   return movements
     .map((m) =>
       m.direction === 'up'
-        ? `${UP} **${m.onlineId}** moved to **${ordinal(m.to)}** position!`
-        : `${DOWN} **${m.onlineId}** fell to **${ordinal(m.to)}** position!`,
+        ? `${UP} **${md(m.onlineId)}** moved to **${ordinal(m.to)}** position!`
+        : `${DOWN} **${md(m.onlineId)}** fell to **${ordinal(m.to)}** position!`,
     )
     .join('\n');
 }
@@ -677,23 +699,23 @@ export function digestBlocks(d) {
   if (d.climber) {
     add(
       'Biggest climber',
-      `**${d.climber.onlineId}** - ${ordinal(d.climber.from)} → ${ordinal(d.climber.to)}` +
+      `**${md(d.climber.onlineId)}** - ${ordinal(d.climber.from)} → ${ordinal(d.climber.to)}` +
         (d.climber.points ? `, ${signed(d.climber.points)}` : ''),
     );
   }
   if (d.faller) {
-    add('Biggest fall', `**${d.faller.onlineId}** - ${ordinal(d.faller.from)} → ${ordinal(d.faller.to)}`);
+    add('Biggest fall', `**${md(d.faller.onlineId)}** - ${ordinal(d.faller.from)} → ${ordinal(d.faller.to)}`);
   }
   if (d.rarestPlat) {
     add(
       'Rarest platinum',
-      `**${d.rarestPlat.title}** at ${pct(d.rarestPlat.rate)} - ${d.rarestPlat.onlineId}`,
+      `**${md(d.rarestPlat.title)}** at ${pct(d.rarestPlat.rate)} - ${md(d.rarestPlat.onlineId)}`,
     );
   }
   if (d.toughest) {
     add(
       'Biggest finish',
-      `**${d.toughest.title}** - ${n(d.toughest.points)} points, ${d.toughest.onlineId}`,
+      `**${md(d.toughest.title)}** - ${n(d.toughest.points)} points, ${md(d.toughest.onlineId)}`,
     );
   }
   if (d.contested) {
@@ -829,7 +851,7 @@ export function projectBlocks(member, kind, games) {
       [
         section(
           [
-            `## ${icon} ${member.psn_online_id} ${verb} ${g.title}`,
+            `## ${icon} ${md(member.psn_online_id)} ${verb} ${md(g.title)}`,
             `-# ${g.platform || 'PlayStation'} · ${n(g.trophy_count)} trophies` +
               (g.estimated ? ' · rarity not published by PSN, values are estimates' : ''),
             projectStats(g, started),
@@ -868,7 +890,7 @@ export function projectBlocks(member, kind, games) {
   return container(
     [
       text(
-        `## ${member.psn_online_id} ${verb} ${n(games.length)} game${games.length === 1 ? '' : 's'}\n\n` +
+        `## ${md(member.psn_online_id)} ${verb} ${n(games.length)} game${games.length === 1 ? '' : 's'}\n\n` +
           kept.join('\n') +
           (hidden > 0 ? `\n-# …and ${n(hidden)} more.` : ''),
       ),

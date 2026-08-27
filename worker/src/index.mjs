@@ -16,7 +16,7 @@ import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
   memberCard, boardBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
-  ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor,
+  ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor, md,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 import { faqSection, faqOptions } from '../../shared/faq.mjs';
@@ -125,7 +125,7 @@ async function register(interaction, env, ctx, userId, psnId) {
 
   if (existing?.verified_at) {
     return errorReply(
-      `You're already registered as **${existing.psn_online_id}**. ` +
+      `You're already registered as **${md(existing.psn_online_id)}**. ` +
         'Ask a mod if you need it changed.',
     );
   }
@@ -218,7 +218,7 @@ async function verify(interaction, env, ctx, userId) {
   const member = await db.memberByDiscordId(env, userId);
   if (!member) return errorReply('You have not registered yet. Run `/register` with your PSN ID first.');
   if (member.verified_at) {
-    return errorReply(`**${member.psn_online_id}** is already verified. Use \`/update\` to rescan.`);
+    return errorReply(`**${md(member.psn_online_id)}** is already verified. Use \`/update\` to rescan.`);
   }
 
   const running = await db.hasRunningUpdate(env, member.psn_account_id);
@@ -238,7 +238,7 @@ async function verify(interaction, env, ctx, userId) {
       container(
         [
           text(
-            `## Checking **${member.psn_online_id}**\n\n` +
+            `## Checking **${md(member.psn_online_id)}**\n\n` +
               `Looking for your code in your PSN About Me. If it's there, your first scan starts ` +
               `straight away.\n\n` +
               `**Leave the code in your bio until this finishes.** The check runs at the start of ` +
@@ -277,7 +277,7 @@ async function unlink(interaction, env, targetId) {
       container(
         [
           text(
-            `Unlinked <@${targetId}> from **${removed.psn_online_id}**.\n\n` +
+            `Unlinked <@${targetId}> from **${md(removed.psn_online_id)}**.\n\n` +
               `-# The name is free again and they can re-register. Their scan history stays put.`,
           ),
         ],
@@ -397,11 +397,11 @@ async function runUpdate(interaction, env, ctx, userId) {
   );
 
   let body = firstScan
-    ? `## ${member.psn_online_id} first scan queued\n\n` +
+    ? `## ${md(member.psn_online_id)} first scan queued\n\n` +
       `This one reads your whole library, so it takes a while. Anything from a few ` +
       `minutes to a couple of hours if you own thousands of games. Every update after ` +
       `this is two or three minutes.\n\nYou can close Discord; it carries on without you.`
-    : `## ${member.psn_online_id} update queued\n\nScanning PSN now. This message will fill itself in.`;
+    : `## ${md(member.psn_online_id)} update queued\n\nScanning PSN now. This message will fill itself in.`;
 
   if (active.length) {
     const ahead = active[0];
@@ -417,8 +417,8 @@ async function runUpdate(interaction, env, ctx, userId) {
     const eta = position * (firstScan ? 25 : 3);
 
     body =
-      `## ${member.psn_online_id} update queued\n\n` +
-      `**${ahead.psn_online_id}** is scanning right now - ${mins} minute${mins === 1 ? '' : 's'} in.\n\n` +
+      `## ${md(member.psn_online_id)} update queued\n\n` +
+      `**${md(ahead.psn_online_id)}** is scanning right now - ${mins} minute${mins === 1 ? '' : 's'} in.\n\n` +
       (position > 1
         ? `You're **${ordinal(position)}** in the ${firstScan ? 'first-scan ' : ''}queue, so roughly ` +
           `**${eta} minutes**${firstScan ? '. Big libraries take longer' : ''}.\n\n`
@@ -515,7 +515,7 @@ async function rank(env, target) {
 
   return reply(
     [
-      text(`**${member.psn_online_id}** - ${ordinal(member.rank)} of ${n(total)}`),
+      text(`**${md(member.psn_online_id)}** - ${ordinal(member.rank)} of ${n(total)}`),
       ...cards,
       row(
         button('Who\'s near me', 'lb:me'),
@@ -847,7 +847,7 @@ async function backlog(env, userId, sort) {
       container(
         [
           text(
-            `## ${member.psn_online_id}'s backlog\n` +
+            `## ${md(member.psn_online_id)}'s backlog\n` +
               `-# ${n(member.projects - member.completed)} unfinished · ${SORT_LABEL[sort] ?? SORT_LABEL.value}\n\n` +
               lines.join('\n\n'),
           ),
@@ -855,7 +855,7 @@ async function backlog(env, userId, sort) {
           text(
             gain > 0
               ? `-# Finishing the top 3 would put you at **${ordinal(wouldBe)}** - up ${gain} place${gain === 1 ? '' : 's'}` +
-                (passed.length ? `, past ${passed.slice(0, 2).map((p) => `**${p.psn_online_id}**`).join(' and ')}.` : '.')
+                (passed.length ? `, past ${passed.slice(0, 2).map((p) => `**${md(p.psn_online_id)}**`).join(' and ')}.` : '.')
               : `-# Finishing the top 3 keeps you at **${ordinal(member.rank)}** - nobody close enough to catch.`,
           ),
           ...(member.completion < 100
@@ -947,7 +947,7 @@ async function profile(env, targetId, viewerId) {
     container(
       [
         section(
-          [`## ${m.psn_online_id}`, trophyLine(m), lines.join('\n')],
+          [`## ${md(m.psn_online_id)}`, trophyLine(m), lines.join('\n')],
           thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),
         ),
       ],
@@ -1064,7 +1064,7 @@ async function handleComponent(interaction, env, ctx) {
             [
               text(
                 `### Played by\n${list
-                  .map((o) => `${o.progress === 100 ? '✅' : '▫️'} **${o.psn_online_id}** - ${o.progress}%`)
+                  .map((o) => `${o.progress === 100 ? '✅' : '▫️'} **${md(o.psn_online_id)}** - ${o.progress}%`)
                   .join('\n')}`,
               ),
             ],
@@ -1195,7 +1195,7 @@ async function addMember(interaction, env, ctx, targetId, psnId) {
   const existing = await db.memberByDiscordId(env, targetId);
   if (existing) {
     return errorReply(
-      `<@${targetId}> is already on the board as **${existing.psn_online_id}**. ` +
+      `<@${targetId}> is already on the board as **${md(existing.psn_online_id)}**. ` +
         'Use `/unlink` first if it needs changing.',
     );
   }

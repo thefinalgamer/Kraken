@@ -100,7 +100,9 @@ const week = (over = {}) => ({
 test('a full week prints every line', () => {
   const out = s(digestBlocks(week()));
   assert.match(out, /The week on Platinum Intel/);
-  assert.match(out, /N7_Maxxi.*7th.*4th/);
+  // N7\\_Maxxi, not N7_Maxxi: the underscore is escaped so Discord prints it
+  // instead of reading _Maxxi_ as the start of an italic run.
+  assert.match(out, /N7\\\\_Maxxi.*7th.*4th/);
   assert.match(out, /Ragowit/);
   assert.match(out, /0\.42%/);
   assert.match(out, /Sekiro/);

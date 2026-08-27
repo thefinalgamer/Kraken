@@ -26,6 +26,7 @@ import {
   chunkBoard,
   row,
   n,
+  md,
   COLOR,
 } from '../../shared/ui.mjs';
 
@@ -73,7 +74,7 @@ async function rest(path, { method = 'POST', body, useBotToken = true } = {}) {
  */
 export async function postUpdateResult({ member, result, interactionToken }) {
   const body = message([
-    container([text(`## ${member.psn_online_id} update finished!`)], COLOR.grey),
+    container([text(`## ${md(member.psn_online_id)} update finished!`)], COLOR.grey),
     updateCard({
       member,
       updateNo: result.updateNo,
@@ -140,7 +141,7 @@ export async function postUpdateFailure({ member, updateNo, error, interactionTo
   if (isPrivate) {
     body =
       `## Couldn't read your trophies\n\n` +
-      `**${member.psn_online_id}**'s trophy list isn't public, so PlayStation won't let ` +
+      `**${md(member.psn_online_id)}**'s trophy list isn't public, so PlayStation won't let ` +
       `Kraken see it.\n\n` +
       `**On your console:** Settings → Users and Accounts → Privacy → Trophies → **Anyone**\n` +
       `**On the web:** account settings on playstation.com, same option\n\n` +
@@ -148,13 +149,13 @@ export async function postUpdateFailure({ member, updateNo, error, interactionTo
   } else if (notFound) {
     body =
       `## No such PSN account\n\n` +
-      `I couldn't find a PlayStation account called **${member.psn_online_id}**.\n\n` +
+      `I couldn't find a PlayStation account called **${md(member.psn_online_id)}**.\n\n` +
       `Check the spelling against your profile. It has to match exactly, and run ` +
       `\`/register\` again.`;
   } else {
     body =
       `## Update failed\n\n` +
-      `Something went wrong scanning **${member.psn_online_id}**. This is a fault at ` +
+      `Something went wrong scanning **${md(member.psn_online_id)}**. This is a fault at ` +
       `Kraken's end, not yours.\n\n` +
       `\`\`\`\n${String(error?.message ?? 'Unknown error').slice(0, 300)}\n\`\`\`\n` +
       `Your existing stats are untouched. Try \`/update\` again in a few minutes. If it ` +

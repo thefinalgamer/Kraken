@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   tierFor, trend, flag, ordinal, memberCard, configureEmoji,
   chaseLine, lastSeen, rarestLine, pct,
-  boardBlocks, blockChars, chunkBoard, text, row, button, updateCard,
+  boardBlocks, blockChars, chunkBoard, text, row, button, updateCard, md,
 } from '../shared/ui.mjs';
 
 test('tiers hold up at every server size', () => {
@@ -53,7 +53,10 @@ test('trend arrows', () => {
 
 test('chase line', () => {
   const me = { points: 226198 };
-  assert.match(chaseLine(me, { points: 367581, psn_online_id: 'JFL__Leon' }), /141,383.*JFL__Leon/);
+  assert.match(
+    chaseLine(me, { points: 367581, psn_online_id: 'JFL__Leon' }),
+    /141,383.*JFL\\_\\_Leon/,
+  );
   assert.equal(chaseLine(me, null), '');
   // A tie, or somebody below you, gets no line rather than "0 behind".
   assert.equal(chaseLine(me, { points: 226198, psn_online_id: 'x' }), '');
@@ -260,4 +263,39 @@ test('several zero-scoring trophies read as plural', () => {
     durationSeconds: 20,
   });
   assert.match(JSON.stringify(card), /Your 6 trophies are common enough to score nothing/);
+});
+
+/**
+ * The JFL__Leon bug.
+ *
+ * /rank underlines the row of whoever ran it, using Discord's `__text__`. His
+ * PSN ID contains a `__` of its own, so the card emitted `__JFL__Leon__`,
+ * Discord closed the underline on the FIRST pair, and his own name came back to
+ * him as "JFLLeon__" with three letters underlined.
+ *
+ * These stay because the failure is invisible in code review — the template
+ * literal looks perfectly correct, and the damage happens inside Discord.
+ */
+test('a PSN ID cannot be eaten by Discord markdown', () => {
+  assert.equal(md('JFL__Leon'), 'JFL\\_\\_Leon');
+  assert.equal(md('Nurse_Feel_Good'), 'Nurse\\_Feel\\_Good');
+
+  // Hyphens are NOT escaped. A hyphen is only markdown at the start of a line.
+  assert.equal(md('th3finalgamer--'), 'th3finalgamer--');
+  assert.equal(md('coregamer1998'), 'coregamer1998');
+  assert.equal(md(null), '');
+});
+
+test('the highlighted row survives a name with underscores', () => {
+  const leon = {
+    rank: 27, prev_rank: 28, psn_online_id: 'JFL__Leon', country: 'GB',
+    points: 186406, completion: 87.45, platinum: 310, gold: 2041,
+    silver: 2397, bronze: 6462, last_update_at: Date.now(),
+  };
+  const out = JSON.stringify(memberCard(leon, { total: 64, highlight: true }));
+
+  // The underline wraps the WHOLE name, and both inner underscores are escaped,
+  // so Discord has exactly one pair to match.
+  assert.ok(out.includes('__JFL\\\\_\\\\_Leon__'), out);
+  assert.ok(!out.includes('__JFL__Leon__'), 'the unescaped form must not appear');
 });

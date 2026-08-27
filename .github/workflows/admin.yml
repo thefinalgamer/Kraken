@@ -92,7 +92,7 @@ jobs:
       - name: Import unobtainable trophy list
         if: inputs.task == 'import-unobtainable'
         env:
-          UNOBTAINABLE_WRITE: "1"
+          UNOBTAINABLE_WRITE: "0"
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}

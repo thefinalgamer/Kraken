@@ -68,3 +68,46 @@ test('an empty board says so rather than rendering nothing', async () => {
   const { out } = await render([]);
   assert.ok(out.includes('Nobody has finished a scan yet'));
 });
+
+/**
+ * The bioluminescence at the foot of the page.
+ *
+ * DETERMINISM IS THE POINT. These responses sit in Cloudflare's edge cache, and
+ * a page whose HTML differs on every request is one that can never be diffed,
+ * compared or trusted. Math.random would have looked identical in a screenshot
+ * and been wrong in a way nothing would ever have caught.
+ */
+test('the deep is decorative, deterministic and out of the way', async () => {
+  const a = await render(members);
+  const b = await render(members);
+  assert.equal(a.out, b.out, 'two renders of the same data are byte-identical');
+
+  assert.ok(a.out.includes('<div class="deep" aria-hidden="true">'), 'the layer exists');
+  assert.ok(a.out.includes('aria-hidden="true"'), 'and is hidden from screen readers');
+  assert.equal((a.out.match(/<i style="--sz:/g) || []).length, 44, 'forty-four motes');
+
+  // It must never sit in front of a word or eat a click.
+  assert.ok(a.out.includes('pointer-events:none'), 'cannot intercept clicks');
+  assert.ok(a.out.includes('prefers-reduced-motion:reduce'), 'motion can be turned off');
+});
+
+test('the Discord link is real, external and safe', async () => {
+  const { out } = await render(members);
+  assert.ok(out.includes('https://discord.com/invite/gdSqDYrXaH'), 'the invite');
+  assert.ok(out.includes('rel="noopener noreferrer"'), 'no window.opener handle back to us');
+
+  // The pages that do not exist are still labels, not links that 404.
+  assert.ok(out.includes('<span class="soon" title="Coming soon">Games</span>'));
+  assert.ok(out.includes('<span class="soon" title="Coming soon">Contested</span>'));
+});
+
+test('the logo is the artwork, not an emoji, and doubles as the favicon', async () => {
+  const { out } = await render(members);
+  assert.ok(out.includes('<img src="/Kraken.png" alt="" width="38" height="38">'), 'header mark');
+  assert.ok(out.includes('<link rel="icon" href="/Kraken.png"'), 'favicon');
+  assert.ok(!out.includes('🐙'), 'the placeholder emoji is gone');
+
+  // width and height are on the tag on purpose: without them the header jumps
+  // when the image lands, which is the cheapest layout shift there is to avoid.
+  assert.ok(out.includes('width="38" height="38"'));
+});

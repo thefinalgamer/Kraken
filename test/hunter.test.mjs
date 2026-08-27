@@ -133,9 +133,12 @@ test('the accent bar marks finished work and nothing else', async () => {
   const rows = out.split('<tr').slice(1);
   const rowFor = (title) => rows.find((r) => r.includes(title));
 
-  // The pip itself must exist, not just its class. An earlier version had the
-  // CSS and no element, so every bar was invisible and every test still passed.
-  assert.ok(out.includes('<span class="pip"></span>'), 'the pip is rendered');
+  // The strip cell itself must exist, not just the row class. An earlier version
+  // had the CSS and no element, so every bar was invisible and every test still
+  // passed — the class was the hook, and the hook was all anything checked.
+  assert.ok(out.includes('<td class="bar"></td>'), 'the strip cell is rendered');
+  // And it is the LAST cell in the row, on the right, where Esto had it.
+  assert.match(out, /<td class="bar"><\/td>\s*<\/tr>/, 'the strip closes the row');
   assert.match(rowFor('Bloodborne'), /^ class="full"/, '100% is green');
   assert.match(rowFor('Bunny Mahjo'), /^ class="full"/, '100% worth nothing is still green');
   assert.match(rowFor('Sea of Thieves'), /^ class="plat"/, 'platinum but unfinished is blue');
@@ -230,8 +233,9 @@ test('the platform is a chip and the trophy breakdown is on every row', async ()
 
   // Bloodborne: 40 of 40, nothing left. Neverwinter: 8 of 70, 62 to go.
   assert.ok(out.includes('40 / 40'), 'earned out of total');
-  assert.ok(out.includes('8 / 70 · 62 to go'), 'and what is left when there is some');
-  assert.ok(!out.includes('40 / 40 · '), 'a finished game is not told it has 0 to go');
+  assert.ok(out.includes('8 / 70'), 'and on an unfinished one');
+  // "38 to go" was a third number saying what the other two already said.
+  assert.ok(!out.includes('to go'), 'no remainder text');
 
   // Zero counts are dimmed rather than dropped, so the row shape never changes.
   assert.ok(out.includes('class="mc g off"'), 'a zero gold is greyed, not hidden');

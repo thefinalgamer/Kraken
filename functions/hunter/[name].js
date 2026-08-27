@@ -222,13 +222,11 @@ function gameRow(g) {
           ? 's'
           : 'b';
   const width = Math.max(0, Math.min(100, Number(g.progress) || 0));
-  const got_left = Math.max(0, (Number(g.trophy_count) || 0) - (Number(g.earned_total) || 0));
 
   return `<tr${mark ? ` class="${mark}"` : ''}>
-    <td class="bar"><span class="pip"></span></td>
     <td class="gi">${
       g.icon_url
-        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="40" height="40">`
+        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="56" height="56">`
         : '<span class="ico"></span>'
     }</td>
     <td class="gt">
@@ -245,13 +243,12 @@ function gameRow(g) {
     <td class="num prog" data-v="${width}">
       <span class="${done ? 'done' : ''}">${width}%</span>
       <span class="track"><span class="fill ${shade}" style="width:${width}%"></span></span>
-      <span class="tcount">${n(g.earned_total)} / ${n(g.trophy_count)}${
-        got_left > 0 ? ` · ${n(got_left)} to go` : ''
-      }</span>
+      <span class="tcount">${n(g.earned_total)} / ${n(g.trophy_count)}</span>
     </td>
     <td class="num pts" data-v="${got}" title="${
       max ? `${n(left)} points left to earn` : 'No trophy in this game is hard for anybody'
     }">${max ? `${n(got)} <span class="of-max">/ ${n(max)}</span>` : '<span class="zero">0</span>'}</td>
+    <td class="bar"></td>
   </tr>`;
 }
 
@@ -445,13 +442,13 @@ export async function onRequestGet({ params, env, request }) {
     ${
       games.length
         ? `<div class="tablewrap">
-             <table>
+             <table class="games">
                <thead><tr>
-                 <th class="bar"></th>
                  <th class="gi"></th>
                  <th>Game</th>
                  <th class="num">Progress</th>
                  <th class="num" title="Earned out of what a full completion pays">Points</th>
+                 <th class="bar"></th>
                </tr></thead>
                <tbody>${games.map(gameRow).join('')}</tbody>
              </table>
@@ -463,10 +460,6 @@ export async function onRequestGet({ params, env, request }) {
     }
 
     <footer>
-      <b>Points</b> is what this hunter has banked in a game against what a full
-      completion pays. A game showing <b>0</b> has no trophy in it that is hard for
-      anybody. The bar down the left is <b style="color:#4a9eff">blue</b> for a
-      platinum and <b style="color:var(--up)">green</b> for everything, DLC included.<br>
       <a href="/">Back to the board</a>
     </footer>`;
 

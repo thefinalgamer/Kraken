@@ -376,7 +376,7 @@ export async function onRequestGet({ params, env, request }) {
                <span class="d">others starting and finishing your games, and world rarity drifting</span></li>
          </ul>
          <details class="numbers">
-           <summary>Show the numbers</summary>
+           <summary>Show the numbers<span class="soon-tag">Rivals &middot; soon</span></summary>
            <div class="tablewrap"><table><thead><tr>
              <th>When</th><th class="num">Points</th><th class="num">Change</th>
            </tr></thead><tbody>${curve
@@ -404,7 +404,7 @@ export async function onRequestGet({ params, env, request }) {
       }
       <h1>${country ? `${country} ` : ''}${esc(m.psn_online_id)}</h1>
       <p class="sub">
-        <b>${ordinal(m.rank)}</b> of ${n(total)}
+        <b>${ordinal(m.rank)}</b>
         <span class="tier" style="color:${color}">${tierName}</span>
       </p>
     </section>

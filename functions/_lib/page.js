@@ -132,6 +132,7 @@ export const miniCups = (p, g, s, b) =>
  * ignored. That is the right ceiling for decoration.
  */
 const MOTES = 44;
+const CUPS = 6;
 
 export function motes() {
   // Lehmer generator. Any fixed seed does; 7 looked best.
@@ -153,6 +154,33 @@ export function motes() {
         `--dur:${dur}s;--delay:${delay}s;--blur:${blur}px;--rise:-${rise}px"></i>`,
     );
   }
+
+  /**
+   * A few trophies drifting up with the light.
+   *
+   * DELIBERATELY FEW, and dimmer than the motes. The joke only works if you
+   * catch it — six of them among forty-four specks reads as "was that a trophy?"
+   * and rewards a second look. Twenty would read as clip art falling upward.
+   *
+   * No glow on these: a shape with a halo turns into a blob, and the whole point
+   * is that the silhouette is recognisable.
+   */
+  for (let i = 0; i < CUPS; i++) {
+    const size = (rnd() * 9 + 11).toFixed(0);
+    const left = (rnd() * 100).toFixed(1);
+    const start = (rnd() * 55).toFixed(1);
+    const peak = (rnd() * 0.16 + 0.12).toFixed(2);
+    const dur = (rnd() * 20 + 26).toFixed(1);
+    const delay = (-rnd() * 46).toFixed(1);
+    const rise = (rnd() * 120 + 170).toFixed(0);
+    const spin = (rnd() * 26 - 13).toFixed(0);
+    out.push(
+      `<b style="--sz:${size}px;--x:${left}%;--y:${start}%;--o:${peak};` +
+        `--dur:${dur}s;--delay:${delay}s;--rise:-${rise}px;--tilt:${spin}deg">` +
+        `${trophyGlyph()}</b>`,
+    );
+  }
+
   return `<div class="deep" aria-hidden="true">${out.join('')}</div>`;
 }
 
@@ -366,6 +394,13 @@ td.prog{min-width:112px}
 details.numbers{margin:0 0 18px}
 details.numbers summary{cursor:pointer;color:var(--soft);font-size:13px;padding:4px 0}
 details.numbers summary:hover{color:var(--kraken)}
+/* Holding the space for the private board so the layout does not jump when it
+   lands, and so somebody asks about it before it exists. */
+.soon-tag{
+  margin-left:14px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--faint);border:1px solid var(--edge);border-radius:99px;padding:2px 9px;
+  opacity:.7;
+}
 
 /* ---- the deep ----
    Bioluminescence at the foot of every page. The gradient does the depth; the
@@ -386,6 +421,19 @@ details.numbers summary:hover{color:var(--kraken)}
   animation:drift var(--dur) linear var(--delay) infinite;
   will-change:transform,opacity;
 }
+.deep b{
+  position:absolute;display:block;color:var(--kraken);
+  width:var(--sz);height:var(--sz);left:var(--x);bottom:var(--y);opacity:0;
+  animation:driftcup var(--dur) linear var(--delay) infinite;
+  will-change:transform,opacity;
+}
+.deep b svg{width:100%;height:100%;display:block}
+@keyframes driftcup{
+  0%   {transform:translateY(0) rotate(var(--tilt));        opacity:0}
+  16%  {                                                    opacity:var(--o)}
+  70%  {                                                    opacity:var(--o)}
+  100% {transform:translateY(var(--rise)) rotate(calc(var(--tilt) * -1));opacity:0}
+}
 @keyframes drift{
   0%   {transform:translateY(0);        opacity:0}
   14%  {                                opacity:var(--o)}
@@ -396,7 +444,7 @@ details.numbers summary:hover{color:var(--kraken)}
    movement. The effect is atmosphere, and atmosphere is not worth making
    somebody queasy for. */
 @media (prefers-reduced-motion:reduce){
-  .deep i{animation:none;opacity:var(--o)}
+  .deep i,.deep b{animation:none;opacity:var(--o)}
 }
 /* Everything the page actually says sits above it. */
 .wrap{position:relative;z-index:1}
@@ -406,13 +454,21 @@ details.numbers summary:hover{color:var(--kraken)}
    rather than a dead anchor, because a link that goes nowhere is worse than no
    link, and swapping the text for an href later is a one-line change. */
 .credit{
-  margin-top:44px;padding:22px 0 0;border-top:1px solid var(--rule);
-  text-align:center;color:var(--faint);font-size:12.5px;
+  margin-top:44px;padding:20px 0 0;border-top:1px solid var(--rule);
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
+  color:var(--faint);font-size:12.5px;
 }
-.credit .by{display:flex;align-items:center;justify-content:center;gap:8px}
+.credit .by{text-align:center}
 .credit .by b{color:var(--soft);font-weight:600}
-.credit .logo{width:22px;height:22px;flex:0 0 22px;opacity:.85}
-.credit .small{display:block;margin-top:7px;opacity:.8}
+/* Sony's name appears on this site constantly — platforms, trophies, the whole
+   premise. The disclaimer is not decoration; it is the sentence that makes it
+   obvious this is a fan project. Bottom left, quiet, on every page. */
+.credit .legal{text-align:left;line-height:1.5;opacity:.85}
+.credit .end{text-align:right}
+@media (max-width:720px){
+  .credit{grid-template-columns:1fr;text-align:center}
+  .credit .legal,.credit .end{text-align:center}
+}
 
 footer{margin-top:26px;color:var(--faint);font-size:13px;line-height:1.7}
 footer b{color:var(--soft);font-weight:500}
@@ -478,8 +534,10 @@ ${motes()}
   </header>
   ${body}
   <div class="credit">
+    <span class="legal">Kraken is a fan project and is not affiliated with,<br>
+      endorsed by or connected to Sony or PlayStation.</span>
     <span class="by">Brought to you by <b>Happy Squid Studios</b></span>
-    <span class="small">Kraken scores PlayStation trophies for Platinum Intel. Joining happens in Discord.</span>
+    <span class="end">Joining happens in Discord.</span>
   </div>
 </div>
 </body>

@@ -111,3 +111,15 @@ test('the logo is the artwork, not an emoji, and doubles as the favicon', async 
   // when the image lands, which is the cheapest layout shift there is to avoid.
   assert.ok(out.includes('width="38" height="38"'));
 });
+
+test('trophies drift up with the light, but only a few', async () => {
+  const { out } = await render(members);
+  assert.equal((out.match(/<i style="--sz:/g) || []).length, 44, 'motes');
+  assert.equal((out.match(/<b style="--sz:/g) || []).length, 6, 'trophies');
+  // The joke only works if you catch it. Twenty would read as clip art.
+});
+
+test('the site says plainly that it is not Sony', async () => {
+  const { out } = await render(members);
+  assert.match(out, /not affiliated with,[\s\S]*endorsed by or connected to Sony or PlayStation/);
+});

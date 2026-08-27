@@ -118,13 +118,47 @@ async function nameGame(psn, game) {
 
 // ------------------------------------------------------------------ run ----
 
-const remaining = await db.one(
-  `SELECT COUNT(*) AS c FROM games g
-    WHERE NOT EXISTS (
-      SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL)
-      AND EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)`,
-);
-console.log(`${remaining?.c ?? '?'} games still have no trophy names.`);
+/**
+ * How much is left, split two ways.
+ *
+ * `total` is every game in the database. `owned` is the ones somebody here
+ * actually has, and it is the only one that matters: the website only ever
+ * shows a game page for a game one of us owns, so once `owned` reaches zero the
+ * job is finished for every practical purpose. The remaining thousands are
+ * games nobody has touched, sitting in the table because one member owns a
+ * bundle or a delisted edition, and naming them changes nothing anybody sees.
+ *
+ * Written as one query with two conditional sums rather than two queries,
+ * because D1 bills on rows read and this scans the same rows either way.
+ */
+const PROGRESS = `
+  SELECT COUNT(*) AS total,
+         SUM(CASE WHEN g.local_started > 0 THEN 1 ELSE 0 END) AS owned
+    FROM games g
+   WHERE NOT EXISTS (
+           SELECT 1 FROM trophies t
+            WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL)
+     AND EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)`;
+
+const report = (row, label) => {
+  const total = Number(row?.total ?? 0);
+  const owned = Number(row?.owned ?? 0);
+  if (!total) {
+    console.log(`${label}: nothing left. Every game with trophies has names.`);
+    return;
+  }
+  console.log(
+    `${label}: ${total.toLocaleString('en-GB')} games still unnamed, ` +
+      `${owned.toLocaleString('en-GB')} of them owned by somebody here.`,
+  );
+  if (!owned) {
+    console.log('  Every game anybody here owns is named. The rest is long tail —');
+    console.log('  nothing on the website is waiting on it.');
+  }
+};
+
+const remaining = await db.one(PROGRESS);
+report(remaining, 'Before');
 console.log(`Budget ${Math.round(BUDGET_MS / 60000)} minutes, ${env.PSN_RATE_LIMIT || 600} PSN calls per 15 min.\n`);
 
 const psn = await connect();
@@ -182,10 +216,18 @@ console.log(
     `${failed} failed, ${empty} have no names published by PSN.`,
 );
 
-const left = await db.one(
-  `SELECT COUNT(*) AS c FROM games g
-    WHERE NOT EXISTS (
-      SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL)
-      AND EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)`,
-);
-console.log(`${left?.c ?? '?'} games still to go.`);
+const left = await db.one(PROGRESS);
+report(left, 'After');
+
+// How many more runs. Measured from THIS run's actual rate rather than a
+// guess, so it gets more honest the longer the job goes on, and it counts
+// only owned games because those are the ones that gate anything.
+const ownedLeft = Number(left?.owned ?? 0);
+if (ownedLeft > 0 && done > 0) {
+  const perRun = Math.max(1, Math.round((done / Math.max(1, mins)) * (BUDGET_MS / 60000)));
+  console.log(
+    `\nAt this run's pace (~${perRun.toLocaleString('en-GB')} games per full run), ` +
+      `roughly ${Math.ceil(ownedLeft / perRun)} more run${Math.ceil(ownedLeft / perRun) === 1 ? '' : 's'} ` +
+      'to finish the games people own.',
+  );
+}

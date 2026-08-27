@@ -66,17 +66,40 @@ const norm = (s) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-/** "PS4,PS5" and ["PS4"] compared honestly. */
-const platformsOf = (s) =>
-  String(s ?? '')
-    .toUpperCase()
-    .split(/[,\s/]+/)
-    .map((p) => p.replace(/[^A-Z0-9]/g, ''))
-    .filter(Boolean);
+/**
+ * Platforms, compared honestly.
+ *
+ * The first version split on whitespace as well as commas, which turned our
+ * "PS Vita" into two tokens, PS and VITA, and matched neither. And PSNP+ write
+ * plain "Vita" where PSN writes "PSVITA". Between them that lost roughly half
+ * of the near-misses in the first dry run — eleven of the fifteen reported.
+ *
+ * So: split only on real separators, strip punctuation and spaces WITHIN a
+ * token, then map the aliases. Both sides go through the identical function,
+ * which is the only way to be sure they agree.
+ */
+const ALIAS = {
+  VITA: 'PSVITA',
+  PSVITA: 'PSVITA',
+  PSVITATV: 'PSVITA',
+  PLAYSTATIONVITA: 'PSVITA',
+  PSTV: 'PSVITA',
+};
+
+const canon = (token) => {
+  const t = String(token ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return ALIAS[t] ?? t;
+};
+
+const platformSet = (value) => {
+  const parts = Array.isArray(value) ? value : String(value ?? '').split(/[,;/]+/);
+  return new Set(parts.map(canon).filter(Boolean));
+};
 
 const overlaps = (ours, theirs) => {
-  const mine = new Set(platformsOf(ours));
-  return (theirs ?? []).some((p) => mine.has(String(p).toUpperCase().replace(/[^A-Z0-9]/g, '')));
+  const mine = platformSet(ours);
+  for (const p of platformSet(theirs)) if (mine.has(p)) return true;
+  return false;
 };
 
 // ------------------------------------------------------------------ load ---

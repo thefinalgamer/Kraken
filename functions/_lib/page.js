@@ -214,17 +214,25 @@ body{
 a{color:inherit}
 .wrap{max-width:1080px;margin:0 auto;padding:0 clamp(12px,3vw,24px) 72px}
 
-/* The logo sits dead centre with the navigation either side of it. Three
-   equal columns rather than flex, so the mark stays centred on the PAGE and
-   does not drift when one side has more links than the other. */
+/* THE HEADER IS FULL-BLEED, and that is why it now reads as a header.
+   Sitting it inside .wrap made it a row of links floating in the content
+   column; a band that runs edge to edge with its own surface is the thing
+   every site has at the top, and the eye knows what it is before reading it.
+
+   The logo still sits dead centre of the PAGE — three equal columns rather
+   than flex, so it cannot drift when one side has more links than the other. */
 header.top{
-  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
-  padding:18px 0 16px;border-bottom:1px solid var(--rule);margin-bottom:24px;
+  background:linear-gradient(180deg,#0e1a1d,#0b1517);
+  border-bottom:1px solid var(--edge);margin-bottom:30px;
 }
-header.top nav{display:flex;gap:22px;align-items:center;min-width:0}
+.topin{
+  max-width:1080px;margin:0 auto;padding:20px clamp(12px,3vw,24px);
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
+}
+header.top nav{display:flex;gap:30px;align-items:center;min-width:0}
 header.top nav.r{justify-content:flex-end}
 header.top nav a,header.top nav span{
-  font-size:14px;letter-spacing:.01em;text-decoration:none;white-space:nowrap;
+  font-size:15px;font-weight:500;letter-spacing:.015em;text-decoration:none;white-space:nowrap;
 }
 header.top nav a{color:var(--soft)}
 header.top nav a:hover{color:var(--kraken)}
@@ -234,17 +242,19 @@ header.top nav a.on{color:var(--kraken);font-weight:600}
 header.top nav .soon{color:var(--faint);cursor:default;opacity:.55}
 
 .mark{
-  display:flex;align-items:center;gap:10px;text-decoration:none;justify-self:center;
+  display:flex;align-items:center;gap:13px;text-decoration:none;justify-self:center;
 }
 /* No CSS ring around it — the artwork brings its own, and two concentric
-   circles at 36px is mud. */
-.mark img{width:38px;height:38px;flex:0 0 38px;display:block}
-.mark b{font-size:17px;font-weight:700;letter-spacing:-.01em}
+   circles at this size is mud. */
+.mark img{width:60px;height:60px;flex:0 0 60px;display:block}
+.mark b{font-size:26px;font-weight:700;letter-spacing:-.015em}
 .stats{color:var(--soft);font-size:13.5px;font-variant-numeric:tabular-nums}
 @media (max-width:720px){
-  header.top{grid-template-columns:1fr;justify-items:center;gap:10px}
-  header.top nav{order:2} header.top nav.r{order:3;justify-content:center}
+  .topin{grid-template-columns:1fr;justify-items:center;gap:12px;padding:16px}
+  header.top nav{order:2;gap:22px} header.top nav.r{order:3;justify-content:center}
   .mark{order:1}
+  .mark img{width:48px;height:48px;flex:0 0 48px}
+  .mark b{font-size:22px}
 }
 
 .tablewrap{overflow-x:auto;border:1px solid var(--edge);border-radius:10px;background:var(--panel)}
@@ -447,7 +457,7 @@ details.numbers summary:hover{color:var(--kraken)}
   .deep i,.deep b{animation:none;opacity:var(--o)}
 }
 /* Everything the page actually says sits above it. */
-.wrap{position:relative;z-index:1}
+.wrap,header.top{position:relative;z-index:1}
 
 /* The site credit, on every page. PLACEHOLDER LINK until Martin's domain is
    finished — see the to-do list in the project doc. It renders as plain text
@@ -526,12 +536,14 @@ ${description ? `<meta name="description" content="${esc(description)}">` : ''}
 </head>
 <body>
 ${motes()}
-<div class="wrap">
-  <header class="top">
+<header class="top">
+  <div class="topin">
     <nav class="l">${navLinks(NAV_LEFT, here)}</nav>
-    <a class="mark" href="/" aria-label="Kraken home"><img src="/Kraken.png" alt="" width="38" height="38"><b>Kraken</b></a>
+    <a class="mark" href="/" aria-label="Kraken home"><img src="/Kraken.png" alt="" width="60" height="60"><b>Kraken</b></a>
     <nav class="r">${navLinks(NAV_RIGHT, here)}</nav>
-  </header>
+  </div>
+</header>
+<div class="wrap">
   ${body}
   <div class="credit">
     <span class="legal">Kraken is a fan project and is not affiliated with,<br>

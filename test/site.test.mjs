@@ -103,13 +103,13 @@ test('the Discord link is real, external and safe', async () => {
 
 test('the logo is the artwork, not an emoji, and doubles as the favicon', async () => {
   const { out } = await render(members);
-  assert.ok(out.includes('<img src="/Kraken.png" alt="" width="38" height="38">'), 'header mark');
+  assert.ok(out.includes('<img src="/Kraken.png" alt="" width="60" height="60">'), 'header mark');
   assert.ok(out.includes('<link rel="icon" href="/Kraken.png"'), 'favicon');
   assert.ok(!out.includes('🐙'), 'the placeholder emoji is gone');
 
   // width and height are on the tag on purpose: without them the header jumps
   // when the image lands, which is the cheapest layout shift there is to avoid.
-  assert.ok(out.includes('width="38" height="38"'));
+  assert.ok(out.includes('width="60" height="60"'));
 });
 
 test('trophies drift up with the light, but only a few', async () => {

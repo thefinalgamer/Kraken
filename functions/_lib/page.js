@@ -65,6 +65,33 @@ export function tierFor(rank, total) {
   return 'bronze';
 }
 
+/**
+ * A trophy, drawn here rather than fetched from Discord.
+ *
+ * The obvious move was to hotlink the server's custom emoji from
+ * cdn.discordapp.com so the site and the cards match exactly. That is four
+ * extra requests per page, four new environment variables to configure, and a
+ * standing dependency on Discord continuing to serve images to a domain that
+ * is not Discord — which they throttle. The failure mode is four broken images
+ * one Tuesday with nothing in any log to say why.
+ *
+ * At seventeen pixels a trophy is a silhouette and a colour. This is both, it
+ * costs one inline path, and it cannot break.
+ *
+ * `currentColor` on purpose: the .cup class carries the metal, so the count and
+ * the cup are always the same colour and there is one place to change it.
+ */
+export const trophyGlyph = () =>
+  '<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">' +
+  '<path d="M6 2h12v6a6 6 0 0 1-12 0V2z"/>' +
+  '<path d="M6 4H4a2 2 0 0 0-2 2v1a5 5 0 0 0 3.8 4.9l.5-2A3 3 0 0 1 4 7V6h2V4z"/>' +
+  '<path d="M18 4h2a2 2 0 0 1 2 2v1a5 5 0 0 1-3.8 4.9l-.5-2A3 3 0 0 0 20 7V6h-2V4z"/>' +
+  '<path d="M11 14h2v4h-2z"/><path d="M7 20h10v2H7z"/></svg>';
+
+/** One count with its cup. `metal` is p | g | s | b. */
+export const cup = (metal, count, label) =>
+  `<span class="cup ${metal}" title="${esc(label)}">${trophyGlyph()}${n(count)}</span>`;
+
 export const ordinal = (v) => {
   const num = Number(v);
   if (!Number.isFinite(num)) return String(v ?? '');
@@ -140,6 +167,26 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .facts dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 .facts dd{margin:2px 0 0;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
 
+/* The four trophy counts. Drawn, not fetched — see trophyGlyph(). */
+.cups{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 18px;padding:9px 14px;
+  border:1px solid var(--edge);border-radius:10px;background:var(--panel)}
+.cup{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600}
+.cup svg{width:17px;height:17px;flex:0 0 17px;display:block}
+.cup.p{color:#7fd6f5} .cup.g{color:#f0c419} .cup.s{color:#c9ccd1} .cup.b{color:#e08a4a}
+
+/* Search. A form, submitted with Enter — never on keystroke. Every search is a
+   full scan of that member's library, so live filtering would be thirty
+   queries for one word. */
+.find{display:flex;gap:8px;margin:0 0 12px}
+.find input{flex:1 1 auto;min-width:0;background:var(--panel);color:var(--ink);
+  border:1px solid var(--edge);border-radius:8px;padding:7px 11px;font:inherit;font-size:14px}
+.find input:focus{outline:none;border-color:var(--kraken)}
+.find button{background:var(--panel);color:var(--soft);border:1px solid var(--edge);
+  border-radius:8px;padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer}
+.find button:hover{color:var(--ink);border-color:var(--faint)}
+.found{color:var(--faint);font-size:13px;margin:0 0 12px}
+.found a{color:var(--kraken)}
+
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
 .tab{
   font-size:12.5px;padding:5px 11px;border-radius:99px;text-decoration:none;
@@ -148,8 +195,25 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .tab:hover{color:var(--ink);border-color:var(--faint)}
 .tab.on{color:var(--deep);background:var(--kraken);border-color:var(--kraken);font-weight:600}
 
+/* The accent bar, copied from the old site because it was the best thing on it.
+   Blue = the platinum is in. Green = everything is, DLC included. Nothing at
+   all otherwise, so the eye only lands on finished work. */
+td.bar{width:4px;padding:0;background:transparent}
+tr.plat td.bar{background:#4a9eff}
+tr.full td.bar{background:var(--up)}
+
 td.gi,th.gi{width:1%;padding-right:0}
 .ico{width:40px;height:40px;border-radius:6px;display:block;background:var(--edge);object-fit:cover}
+.of-max{color:var(--faint);font-weight:400}
+
+/* The progress bar. Fills to the progress percentage; the colour is the best
+   trophy earned, and green once the whole game is done. */
+td.prog{min-width:112px}
+.track{display:block;height:4px;border-radius:99px;background:var(--rule);margin-top:5px;overflow:hidden}
+.fill{display:block;height:100%;border-radius:99px}
+.fill.b{background:#e08a4a} .fill.s{background:#c9ccd1}
+.fill.g{background:#f0c419} .fill.p{background:#7fd6f5}
+.fill.ok{background:var(--up)}
 .gt{white-space:normal;min-width:220px}
 .tname{font-weight:600}
 .gt .meta{display:block;font-size:11.5px;color:var(--faint);margin-top:1px}
@@ -165,26 +229,6 @@ td.gi,th.gi{width:1%;padding-right:0}
 .name a{color:inherit;text-decoration:none}
 .name a:hover{color:var(--kraken);text-decoration:underline}
 
-
-/* ---- chart ---- */
-.chart{margin:0 0 18px;padding:12px 14px 4px;border:1px solid var(--edge);border-radius:10px;
-  background:var(--panel);position:relative}
-.chart figcaption{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
-  font-weight:600;margin-bottom:2px}
-.chart svg{display:block;overflow:visible;touch-action:pan-y}
-.chart .gl{stroke:var(--rule);stroke-width:1;shape-rendering:crispEdges}
-.chart .gt{fill:var(--faint);font-size:10.5px;font-variant-numeric:tabular-nums}
-.chart .xt{fill:var(--faint);font-size:10.5px}
-.chart .end-x{text-anchor:end}
-.chart .wash{fill:var(--kraken);opacity:.10}
-.chart .ln{fill:none;stroke:var(--kraken);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
-.chart .end{fill:var(--kraken);stroke:var(--panel);stroke-width:2}
-.chart .cross{stroke:var(--faint);stroke-width:1}
-.chart .hit{fill:var(--kraken);stroke:var(--panel);stroke-width:2}
-.chart .tip{position:absolute;top:6px;pointer-events:none;background:var(--deep);
-  border:1px solid var(--edge);border-radius:7px;padding:5px 9px;font-size:12px;white-space:nowrap}
-.chart .tip b{display:block;font-variant-numeric:tabular-nums}
-.chart .tip span{color:var(--faint);font-size:11px}
 
 /* ---- where the points came from ---- */
 .split{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px;padding:0;list-style:none}

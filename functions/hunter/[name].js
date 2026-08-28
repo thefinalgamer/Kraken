@@ -136,6 +136,75 @@ const gamesSql = (order, search) => `
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
 
+/**
+ * "What should I play?" — three from the backlog, two from the whole index.
+ *
+ * COST, because this is the one feature on the site that cannot be cached.
+ * A random picker that sits in the edge cache for five minutes gives everybody
+ * the same three games and returns the same three when you click again, which
+ * is not a picker, it is a list. So every roll is real queries, and the two
+ * expensive ways to write this had to be avoided:
+ *
+ *   1. `ORDER BY RANDOM()` over the games table reads all 26,000 rows, every
+ *      click, forever. The version below jumps to a random rowid and takes the
+ *      first row at or after it, which reads a handful.
+ *
+ *   2. Their backlog IS `ORDER BY RANDOM()`, over their own rows only — up to
+ *      1,500 for the biggest library here, which is what the search box already
+ *      costs and happens far less often. Doing it properly would need a COUNT
+ *      first, so it would be two queries to save one scan of a small table.
+ *
+ * At every member rolling five times a day that is a rounding error beside the
+ * 78 million rows the bot already reads daily.
+ */
+const BACKLOG_PICKS = 3;
+const WILDCARD_PICKS = 2;
+
+/**
+ * Games they own, have not finished, and would gain points for finishing.
+ *
+ * `max_points > mg.points` is doing real work: without it the picker cheerfully
+ * suggests shovelware worth nothing, which is exactly the advice this board
+ * exists to stop people taking.
+ */
+const ROLL_BACKLOG = `
+  SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
+         g.unobtainable, g.closes_at, mg.points, mg.progress
+    FROM member_games mg
+    JOIN games g ON g.np_comm_id = mg.np_comm_id
+   WHERE mg.psn_account_id = ?
+     AND mg.progress < 100
+     AND g.unobtainable = 0
+     AND g.max_points > mg.points
+   ORDER BY RANDOM()
+   LIMIT ?`;
+
+/**
+ * One wildcard from the whole index.
+ *
+ * The rowid jump is the trick that makes this affordable: pick a number, take
+ * the first qualifying row after it. `ORDER BY rowid` then `LIMIT 1` stops as
+ * soon as it finds one instead of sorting the table.
+ *
+ * Run once per wildcard rather than LIMIT 2, because two rows next to each
+ * other in rowid order are usually two editions of the same game.
+ */
+const ROLL_WILD = `
+  SELECT np_comm_id, title, platform, icon_url, max_points, trophy_count,
+         unobtainable, closes_at, local_started
+    FROM games
+   WHERE rowid >= ?
+     AND max_points > 0
+     AND unobtainable = 0
+     AND title IS NOT NULL AND TRIM(title) <> ''
+     AND NOT EXISTS (
+           SELECT 1 FROM member_games mg
+            WHERE mg.psn_account_id = ? AND mg.np_comm_id = games.np_comm_id)
+   ORDER BY rowid
+   LIMIT 1`;
+
+const MAX_ROWID = `SELECT MAX(rowid) AS m FROM games`;
+
 const likeTerm = (q) => `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 /** "3 days ago". Coarse on purpose — nobody needs the minute they last played. */
@@ -200,6 +269,69 @@ const delta = (v) => {
   if (x === 0) return '<span class="d">0</span>';
   return `<span class="d ${x > 0 ? 'pos' : 'neg'}">${x > 0 ? '+' : '\u2212'}${n(Math.abs(x))}</span>`;
 };
+
+/**
+ * Two wildcards, drawn one at a time.
+ *
+ * WRAPS AROUND. A jump near the end of the table can land past the last
+ * qualifying row and come back empty — so a miss retries from rowid 0, which is
+ * the same query and always finds something. Without it the picker would
+ * silently show one wildcard instead of two, roughly whenever the dice landed
+ * high, and nobody would ever work out why.
+ */
+async function wildcards(env, accountId, count) {
+  const top = await env.DB.prepare(MAX_ROWID).first();
+  const max = Number(top?.m) || 0;
+  if (!max) return [];
+
+  const picked = [];
+  const seen = new Set();
+
+  for (let i = 0; i < count * 3 && picked.length < count; i++) {
+    const from = Math.floor(Math.random() * max);
+    let row = await env.DB.prepare(ROLL_WILD).bind(from, accountId).first();
+    if (!row) row = await env.DB.prepare(ROLL_WILD).bind(0, accountId).first();
+    if (row && !seen.has(row.np_comm_id)) {
+      seen.add(row.np_comm_id);
+      picked.push(row);
+    }
+  }
+  return picked;
+}
+
+function rollCard(g, { mine }) {
+  const max = Number(g.max_points) || 0;
+  const got = Number(g.points) || 0;
+  const left = Math.max(0, max - got);
+  const state = closingState(g);
+
+  return `<li>
+    ${
+      g.icon_url
+        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="48" height="48">`
+        : '<span class="ico"></span>'
+    }
+    <div class="rb">
+      <span class="t">${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}${esc(
+        g.title,
+      )}</span>
+      <span class="s">${
+        mine
+          ? `${Number(g.progress) || 0}% done &middot; <b>${n(left)}</b> points left`
+          : `<b>${n(max)}</b> points on the table${
+              Number(g.local_started) > 0
+                ? ` &middot; ${n(g.local_started)} here own it`
+                : ' &middot; nobody here owns it'
+            }`
+      }${
+        state === 'closing'
+          ? ` &middot; <b class="closes${isUrgent(g.closes_at) ? '' : ' later'}"
+                style="display:inline">${esc(closingLabel(g.closes_at))}</b>`
+          : ''
+      }</span>
+    </div>
+  </li>`;
+}
 
 /**
  * The mark beside a game title: nothing, a countdown, or a warning.
@@ -353,6 +485,7 @@ export async function onRequestGet({ params, env, request }) {
   // 60 characters is longer than any game anybody is looking for, and it caps
   // what a bored person can put into a LIKE pattern.
   const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
+  const rolling = url.searchParams.has('roll');
 
   const m = await env.DB.prepare(MEMBER).bind(name).first();
   if (!m) {
@@ -403,6 +536,15 @@ export async function onRequestGet({ params, env, request }) {
     updates,
     m.reported_points ?? m.points,
   );
+
+  // Only when asked. Nobody pays for the dice unless somebody rolls them.
+  const [backlogPicks, wildPicks] = rolling
+    ? await Promise.all([
+        env.DB.prepare(ROLL_BACKLOG).bind(m.psn_account_id, BACKLOG_PICKS).all()
+          .then((r) => r.results ?? []),
+        wildcards(env, m.psn_account_id, WILDCARD_PICKS),
+      ])
+    : [[], []];
 
   const country = flag(m.country);
 
@@ -465,6 +607,43 @@ export async function onRequestGet({ params, env, request }) {
          </details>`
       : '';
 
+  /**
+   * The dice.
+   *
+   * The link carries a throwaway number so the browser treats every click as a
+   * new address. The response is no-store as well, but a browser that has just
+   * been handed the identical URL will happily not ask at all, and "click again
+   * for the same three games" is the one behaviour this feature cannot have.
+   */
+  const rollHref = `/hunter/${encodeURIComponent(m.psn_online_id)}?roll=${Date.now() % 100000}`;
+
+  const rollBlock = rolling
+    ? `<section class="panel roll">
+         <h2>What should I play?
+           <a href="${esc(rollHref)}">Roll again &rsaquo;</a>
+         </h2>
+         ${
+           backlogPicks.length
+             ? `<p class="rlabel">From your backlog</p>
+                <ul class="rolls">${backlogPicks
+                  .map((g) => rollCard(g, { mine: true }))
+                  .join('')}</ul>`
+             : `<p class="note">Nothing unfinished worth points — which is its own kind of answer.</p>`
+         }
+         ${
+           wildPicks.length
+             ? `<p class="rlabel">Wildcards from the index</p>
+                <ul class="rolls">${wildPicks
+                  .map((g) => rollCard(g, { mine: false }))
+                  .join('')}</ul>`
+             : ''
+         }
+         <p class="note">Three you already own and two you do not. Nothing here is a
+           recommendation about difficulty — it is a coin toss with the shovelware
+           filtered out.</p>
+       </section>`
+    : `<p class="rollcta"><a href="${esc(rollHref)}">🎲 Don't know what to play? Roll the dice</a></p>`;
+
   const body = `
     <section class="hero">
       ${
@@ -492,6 +671,8 @@ export async function onRequestGet({ params, env, request }) {
     </div>
 
     ${splitBlock}
+
+    ${rollBlock}
 
     <form class="find" method="get" action="/hunter/${encodeURIComponent(m.psn_online_id)}">
       <input type="search" name="q" value="${esc(q)}" placeholder="Search this library"
@@ -539,5 +720,9 @@ export async function onRequestGet({ params, env, request }) {
       description: `${m.psn_online_id} is ${ordinal(m.rank)} of ${total} on Platinum Intel with ${n(m.points)} points.`,
       body,
     }),
+    // A ROLL IS NEVER CACHED. Five minutes in the edge cache would hand every
+    // member the same three games and return the same three when they click
+    // again, which is a list wearing a dice emoji.
+    rolling ? { maxAge: 0 } : undefined,
   );
 }

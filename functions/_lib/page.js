@@ -379,7 +379,7 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
    the right-hand edge — the one place the design was doing the most work was
    the one place nobody could see it. position:sticky pins it to the viewport
    edge while everything else slides underneath. */
-td.bar,th.bar{width:4px;padding:0;background:transparent;position:sticky;right:0}
+td.bar,th.bar{width:4px;padding:0;background:transparent}
 tr.sh-b  td.bar{background:#e08a4a}
 tr.sh-s  td.bar{background:#c9ccd1}
 tr.sh-g  td.bar{background:#f0c419}
@@ -392,12 +392,30 @@ tr.sh-none td.bar{background:var(--rule)}
 /* Chunkier rows — scoped to the game table only, so the 64-row leaderboard
    stays dense. The 40px icon and 9px padding fitted more games on a screen than
    anybody wanted; a library is browsed, not audited. */
-/* border-collapse: SEPARATE, and this is not cosmetic.
-   position:sticky does not work on a <td> inside a collapsed-border table in
-   Chrome — which is why the strip vanished on phones even after it was made
-   sticky. Separate borders make sticky legal. Every border here is already on
-   the cells rather than the table, so nothing looks different. */
+/* border-collapse: separate. Kept from the sticky attempt below — it changes
+   nothing visually because every border is on the cells already. */
 .games{border-collapse:separate;border-spacing:0}
+
+/* ON A PHONE THE STRIP MOVES TO THE LEFT EDGE, and this is the third attempt.
+   position:sticky on the last <td> was the elegant version and it did not work
+   on a real handset, twice. The table scrolls sideways, the strip is the last
+   cell, and the right edge of that table is simply somewhere the phone never
+   shows without scrolling.
+
+   The left edge, though, is where every phone starts. So on narrow screens the
+   right-hand cell is hidden and the colour becomes a border on the first cell
+   instead — no sticky, no scroll container, nothing that can quietly stop
+   working. Different edge on mobile than desktop is a small inconsistency and
+   an invisible strip is a missing feature; the trade is not close. */
+@media (max-width:640px){
+  .games td.bar,.games th.bar{display:none}
+  .games td.gi{border-left:4px solid var(--rule);padding-left:10px}
+  .games tr.sh-b  td.gi{border-left-color:#e08a4a}
+  .games tr.sh-s  td.gi{border-left-color:#c9ccd1}
+  .games tr.sh-g  td.gi{border-left-color:#f0c419}
+  .games tr.sh-p  td.gi{border-left-color:#4a9eff}
+  .games tr.sh-ok td.gi{border-left-color:var(--up)}
+}
 .games th,.games td{padding:14px 14px}
 .games td.gi,.games th.gi{width:1%;padding-right:0}
 .games .ico{width:56px;height:56px;border-radius:8px;display:block;background:var(--edge);object-fit:cover}
@@ -493,6 +511,23 @@ td.prog{min-width:112px}
 .split .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;display:block;margin-top:1px}
 .split .d{font-size:11.5px;color:var(--faint);display:block;margin-top:2px}
 .split .pos{color:var(--up)} .split .neg{color:var(--down)}
+
+/* ---- the dice ---- */
+.rollcta{margin:0 0 14px;font-size:14px}
+.rollcta a{color:var(--kraken);text-decoration:none;font-weight:600}
+.rollcta a:hover{text-decoration:underline}
+.panel.roll{margin:0 0 18px}
+.rlabel{margin:12px 0 6px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--faint);font-weight:700}
+.rlabel:first-of-type{margin-top:2px}
+ul.rolls{list-style:none;margin:0;padding:0}
+ul.rolls li{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--rule)}
+ul.rolls li:last-child{border-bottom:none}
+ul.rolls .ico{width:48px;height:48px;flex:0 0 48px;border-radius:8px}
+ul.rolls .rb{min-width:0}
+ul.rolls .t{display:block;font-weight:600;font-size:15px}
+ul.rolls .s{display:block;color:var(--faint);font-size:12.5px;margin-top:2px}
+ul.rolls .s b{color:var(--soft)}
 
 details.numbers{margin:0 0 18px}
 details.numbers summary{cursor:pointer;color:var(--soft);font-size:13px;padding:4px 0}
@@ -766,7 +801,11 @@ export const html = (markup, { status = 200, maxAge = 300 } = {}) =>
     status,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': `public, max-age=${maxAge}, s-maxage=${maxAge}`,
+      // maxAge 0 means genuinely never store it, not "store it for no seconds":
+      // a random picker served from any cache is not random.
+      'Cache-Control': maxAge > 0
+        ? `public, max-age=${maxAge}, s-maxage=${maxAge}`
+        : 'no-store, max-age=0',
       'X-Content-Type-Options': 'nosniff',
     },
   });

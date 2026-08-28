@@ -463,3 +463,96 @@ test('the row says when it was last played, matching the sort', async () => {
   assert.ok(out.includes('2 days ago'), 'shows when it was played');
   assert.ok(!out.includes('1 years ago'), 'not when it last paid out');
 });
+
+
+/**
+ * The dice.
+ *
+ * The costly mistakes are both invisible if you only look at the page: an
+ * ORDER BY RANDOM() over 26,000 games, and a random picker sitting in a cache.
+ * So these assert on the QUERIES and the HEADERS, not on which games came back.
+ */
+const rollEnv = (opts = {}) => {
+  const seen = { sqls: [] };
+  const env = {
+    DB: {
+      prepare(sql) {
+        seen.sqls.push(sql);
+        const pick = () => ({
+          first: async () => {
+            if (sql.includes('MAX(rowid)')) return { m: 26000 };
+            if (sql.includes('FROM members')) return sql.includes('COUNT(*)') ? { c: 64 } : MEMBER;
+            if (sql.includes('FROM games\n   WHERE rowid')) return opts.wild ?? WILD;
+            return MEMBER;
+          },
+          all: async () => ({
+            results: sql.includes('FROM member_games mg')
+              ? (sql.includes('RANDOM()') ? (opts.backlog ?? [GAMES[3]]) : GAMES)
+              : sql.includes('FROM updates') ? UPDATES : [],
+          }),
+        });
+        return { ...pick(), bind: () => pick() };
+      },
+    },
+  };
+  return { env, seen };
+};
+
+const WILD = { np_comm_id: 'W1', title: 'Wild One', platform: 'PS5', icon_url: null,
+  max_points: 5000, trophy_count: 40, unobtainable: 0, closes_at: null, local_started: 2 };
+
+const roll = async (opts) => {
+  const { env, seen } = rollEnv(opts);
+  const res = await mod.onRequestGet({
+    params: { name: 'JFL__Leon' }, env,
+    request: new Request('https://kraken.test/hunter/JFL__Leon?roll=123'),
+  });
+  return { res, out: await res.text(), seen };
+};
+
+test('the dice only roll when asked', async () => {
+  const { out } = await render('JFL__Leon');
+  assert.ok(out.includes('Roll the dice'), 'the invitation is there');
+  assert.ok(!out.includes('What should I play?'), 'but nothing was drawn');
+});
+
+test('a roll never touches a cache', async () => {
+  const { res } = await roll();
+  assert.match(res.headers.get('Cache-Control'), /no-store/);
+  // Five minutes in the edge cache would hand everybody the same three games
+  // and return the same three on the next click.
+  assert.ok(!res.headers.get('Cache-Control').includes('max-age=300'));
+});
+
+test('wildcards jump to a rowid instead of sorting 26,000 games', async () => {
+  const { seen } = await roll();
+  const wild = seen.sqls.find((q) => q.includes('WHERE rowid >='));
+  assert.ok(wild, 'the rowid jump is used');
+  assert.ok(!wild.includes('ORDER BY RANDOM()'), 'never a full-table shuffle');
+  assert.ok(wild.includes('ORDER BY rowid'), 'stops at the first match');
+  assert.ok(seen.sqls.some((q) => q.includes('MAX(rowid)')), 'needs the ceiling');
+});
+
+test('the picker refuses to suggest junk or dead games', async () => {
+  const { seen } = await roll();
+  const backlog = seen.sqls.find((q) => q.includes('mg.progress < 100'));
+
+  // Without this it cheerfully recommends shovelware worth nothing, which is
+  // the exact advice this whole board exists to stop people taking.
+  assert.ok(backlog.includes('g.max_points > mg.points'), 'must be worth finishing');
+  assert.ok(backlog.includes('g.unobtainable = 0'), 'and still finishable');
+
+  const wild = seen.sqls.find((q) => q.includes('WHERE rowid >='));
+  assert.ok(wild.includes('max_points > 0'));
+  assert.ok(wild.includes('unobtainable = 0'));
+  assert.ok(wild.includes('NOT EXISTS'), 'and not something they already own');
+});
+
+test('a roll renders both halves and a way to roll again', async () => {
+  const { out } = await roll();
+  assert.ok(out.includes('What should I play?'));
+  assert.ok(out.includes('From your backlog'));
+  assert.ok(out.includes('Wildcards from the index'));
+  assert.ok(out.includes('Wild One'));
+  assert.ok(out.includes('Roll again'));
+});

@@ -513,7 +513,10 @@ const roll = async (opts) => {
 test('the dice only roll when asked', async () => {
   const { out } = await render('JFL__Leon');
   assert.ok(out.includes('Roll the dice'), 'the invitation is there');
-  assert.ok(!out.includes('What should I play?'), 'but nothing was drawn');
+  assert.ok(!out.includes('What should'), 'but nothing was drawn');
+  // It shares the row with Show the numbers and Rivals, which is what that
+  // half-empty row was for.
+  assert.ok(out.includes('<div class="toolrow">'));
 });
 
 test('a roll never touches a cache', async () => {
@@ -550,8 +553,12 @@ test('the picker refuses to suggest junk or dead games', async () => {
 
 test('a roll renders both halves and a way to roll again', async () => {
   const { out } = await roll();
-  assert.ok(out.includes('What should I play?'));
-  assert.ok(out.includes('From your backlog'));
+  // "THEIR backlog", never "yours" — the site has no idea who is reading it, so
+  // rolling on Leon's page draws Leon's games and must say so.
+  assert.ok(out.includes('What should JFL__Leon play?'));
+  assert.ok(out.includes("From JFL__Leon's backlog"));
+  assert.ok(!out.includes('your backlog'), 'never claims the reader owns them');
+  assert.ok(out.includes('class="d20"'), 'and a die to roll');
   assert.ok(out.includes('Wildcards from the index'));
   assert.ok(out.includes('Wild One'));
   assert.ok(out.includes('Roll again'));

@@ -21,7 +21,7 @@
 
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
-  closingState, closingLabel, isUrgent,
+  closingState, closingLabel, isUrgent, d20,
 } from '../_lib/page.js';
 
 const PER_PAGE = 50;
@@ -586,8 +586,12 @@ export async function onRequestGet({ params, env, request }) {
                <span class="d">your % moving, re-pricing everything</span></li>
            <li><span class="k">From the server</span><span class="v">${delta(split.drift)}</span>
                <span class="d">others starting and finishing your games, and world rarity drifting</span></li>
-         </ul>
-         <details class="numbers">
+         </ul>`
+      : '';
+
+  const numbersBlock =
+    updates.length >= 2 && curve.length >= 2
+      ? `<details class="numbers">
            <summary>Show the numbers<span class="soon-tag">Rivals &middot; soon</span></summary>
            <div class="tablewrap"><table><thead><tr>
              <th>When</th><th class="num">Points</th><th class="num">Change</th>
@@ -617,14 +621,25 @@ export async function onRequestGet({ params, env, request }) {
    */
   const rollHref = `/hunter/${encodeURIComponent(m.psn_online_id)}?roll=${Date.now() % 100000}`;
 
+  /**
+   * "THEIR backlog", never "yours".
+   *
+   * The site has no idea who is reading it — there is no login until Phase 4 —
+   * so a roll on somebody else's page draws from THEIR library, which is
+   * correct behaviour said wrongly: "From your backlog" on Leon's page was a
+   * flat lie to anybody who was not Leon. Naming the hunter is true on every
+   * page including your own, and costs nothing.
+   */
+  const whose = esc(m.psn_online_id);
+
   const rollBlock = rolling
-    ? `<section class="panel roll">
-         <h2>What should I play?
+    ? `<section class="panel roll rolled">
+         <h2>${d20()} What should ${whose} play?
            <a href="${esc(rollHref)}">Roll again &rsaquo;</a>
          </h2>
          ${
            backlogPicks.length
-             ? `<p class="rlabel">From your backlog</p>
+             ? `<p class="rlabel">From ${whose}'s backlog</p>
                 <ul class="rolls">${backlogPicks
                   .map((g) => rollCard(g, { mine: true }))
                   .join('')}</ul>`
@@ -638,11 +653,15 @@ export async function onRequestGet({ params, env, request }) {
                   .join('')}</ul>`
              : ''
          }
-         <p class="note">Three you already own and two you do not. Nothing here is a
-           recommendation about difficulty — it is a coin toss with the shovelware
-           filtered out.</p>
+         <p class="note">Three from this library and two from games it does not have.
+           Nothing here is a recommendation about difficulty — it is a coin toss with
+           the shovelware filtered out.</p>
        </section>`
-    : `<p class="rollcta"><a href="${esc(rollHref)}">🎲 Don't know what to play? Roll the dice</a></p>`;
+    : '';
+
+  const rollLink = `<a class="rollcta" href="${esc(rollHref)}">${d20()}${
+    rolling ? 'Roll again' : 'Roll the dice'
+  }</a>`;
 
   const body = `
     <section class="hero">
@@ -671,6 +690,9 @@ export async function onRequestGet({ params, env, request }) {
     </div>
 
     ${splitBlock}
+
+    <!-- The row that was half empty. Rivals will land in the same one. -->
+    <div class="toolrow">${numbersBlock}${rollLink}</div>
 
     ${rollBlock}
 

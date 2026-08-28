@@ -220,6 +220,23 @@ export const isUrgent = (closesAt, now = Date.now()) => {
   return Math.ceil((at - now) / DAY_MS) <= URGENT_DAYS;
 };
 
+/**
+ * A d20, drawn as a path.
+ *
+ * Martin is a D&D player and asked for a real die, so this is an icosahedron
+ * silhouette rather than a game-show wheel: hexagonal outline, the face
+ * triangle, three spokes. It tumbles once on arrival and stops. It is theatre —
+ * the numbers were decided on the server before the page was sent — and that is
+ * fine, because the roll happened, this is just the animation of it landing.
+ */
+export const d20 = () =>
+  '<span class="d20" aria-hidden="true"><svg viewBox="0 0 100 100" fill="none" ' +
+  'stroke="currentColor" stroke-width="6" stroke-linejoin="round">' +
+  '<path d="M50 4 89 27v46L50 96 11 73V27z"/>' +
+  '<path d="M50 30 74 70H26z"/>' +
+  '<path d="M50 4v26M89 27 74 70M11 27l15 43M50 96 26 70M50 96l24-26"/>' +
+  '</svg></span>';
+
 export const ordinal = (v) => {
   const num = Number(v);
   if (!Number.isFinite(num)) return String(v ?? '');
@@ -513,10 +530,41 @@ td.prog{min-width:112px}
 .split .pos{color:var(--up)} .split .neg{color:var(--down)}
 
 /* ---- the dice ---- */
-.rollcta{margin:0 0 14px;font-size:14px}
-.rollcta a{color:var(--kraken);text-decoration:none;font-weight:600}
-.rollcta a:hover{text-decoration:underline}
+/* The trigger sits IN the row with "Show the numbers" and Rivals, which is what
+   that row was half-empty for. */
+.toolrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px}
+.toolrow details.numbers{margin:0}
+.rollcta{display:inline-flex;align-items:center;gap:7px;color:var(--kraken);
+  text-decoration:none;font-weight:600;font-size:13.5px;white-space:nowrap}
+.rollcta:hover{text-decoration:underline}
+.rollcta .d20{width:17px;height:17px}
+
+/* THE TUMBLE.
+   Once, on arrival, then it stops — a die that never settles is a spinner, and
+   a spinner means "still loading" to everybody who has ever used a computer.
+   Transform only, so it costs the compositor and nothing else. */
+.d20{display:inline-block;line-height:0;color:var(--kraken)}
+.d20 svg{width:100%;height:100%;display:block}
+.rolled .d20{width:30px;height:30px;animation:tumble .85s cubic-bezier(.2,.9,.25,1) 1 both}
+@keyframes tumble{
+  0%   {transform:rotate(-220deg) scale(.55); opacity:0}
+  55%  {transform:rotate(28deg)   scale(1.14);opacity:1}
+  75%  {transform:rotate(-11deg)  scale(.97)}
+  100% {transform:rotate(0)       scale(1)}
+}
+/* The picks land after the die does, one after another, so it reads as a result
+   rather than as a page that happened to contain a die. */
+.rolls li{animation:land .42s ease-out both}
+.rolls li:nth-child(2){animation-delay:.09s}
+.rolls li:nth-child(3){animation-delay:.18s}
+@keyframes land{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+
+@media (prefers-reduced-motion:reduce){
+  .rolled .d20,.rolls li{animation:none}
+}
 .panel.roll{margin:0 0 18px}
+.panel.roll h2{gap:9px}
+.panel.roll h2 .d20{color:var(--kraken)}
 .rlabel{margin:12px 0 6px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
   color:var(--faint);font-weight:700}
 .rlabel:first-of-type{margin-top:2px}

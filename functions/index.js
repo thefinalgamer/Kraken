@@ -19,7 +19,10 @@
  * computed. "6 of 9 still in it" is two stored columns printed side by side.
  */
 
-import { page, html, esc, n, flag, ordinal, navButtons } from './_lib/page.js';
+import {
+  page, html, esc, n, flag, ordinal, navButtons,
+  closingState, closingLabel, isUrgent,
+} from './_lib/page.js';
 
 const TOTALS = `
   SELECT COUNT(*)        AS hunters,
@@ -52,7 +55,7 @@ const TOP = `
  */
 const CONTESTED = `
   SELECT g.np_comm_id, g.title, g.platform, g.local_started, g.unobtainable,
-         t.local_earned AS platted_here
+         g.closes_at, t.local_earned AS platted_here
     FROM games g
     JOIN trophies t
       ON t.np_comm_id = g.np_comm_id AND t.type = 'platinum'
@@ -60,7 +63,9 @@ const CONTESTED = `
      AND t.local_earned < g.local_started
      AND g.max_points > 0
      AND g.unobtainable = 0
-   ORDER BY (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
+   ORDER BY CASE WHEN g.closes_at IS NOT NULL THEN 0 ELSE 1 END,
+            g.closes_at ASC,
+            (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
             g.local_started DESC,
             g.max_points DESC
    LIMIT 5`;
@@ -188,12 +193,18 @@ export async function onRequestGet({ env }) {
             ? `<ul class="feed">${contested.results
                 .map(
                   (g) => `<li>
-                    <span class="t">${esc(g.title)}${
-                      g.unobtainable ? ' <span class="warn">&#9888;</span>' : ''
-                    }</span>
+                    <span class="t">${esc(g.title)}</span>
                     <span class="s">${n(
                       (Number(g.local_started) || 0) - (Number(g.platted_here) || 0),
-                    )} of ${n(g.local_started)} still in it</span>
+                    )} of ${n(g.local_started)} still in it${
+                      // A deadline outranks the contest, so it is said out loud
+                      // rather than left as an icon.
+                      closingState(g) === 'closing'
+                        ? ` &middot; <b class="closes${
+                            isUrgent(g.closes_at) ? '' : ' later'
+                          }" style="display:inline">${esc(closingLabel(g.closes_at))}</b>`
+                        : ''
+                    }</span>
                   </li>`,
                 )
                 .join('')}</ul>

@@ -16,6 +16,7 @@
  */
 
 import { nextCompletionStep } from './scoring.mjs';
+import { closingState, closingLabel, isUrgent, DEAD, CLOSING } from './closing.mjs';
 
 export const IS_COMPONENTS_V2 = 1 << 15; // 32768
 
@@ -245,6 +246,35 @@ export const n = (value) => Number(value ?? 0).toLocaleString('en-GB');
  * Hyphens are deliberately NOT escaped. A hyphen is only markdown at the start
  * of a line, never inside a word, and th3finalgamer-- must survive untouched.
  */
+/**
+ * The two clocks.
+ *
+ * ⚠️ says "this is already dead". ⏳ and 🕒 say "you have time, but not
+ * forever" — and that second state is the only mark on this board that makes
+ * anybody hurry. Martin: "one icon says ive got time to do this - this icon at
+ * a glance people think oh ill do it".
+ *
+ * Never both. A dead game has no deadline worth reading, and showing a
+ * countdown beside a closed door would just be cruel.
+ *
+ * ⏳ inside a month, 🕒 beyond it: an hourglass reads as running out, a clock
+ * face reads as scheduled, and the difference between "this weekend" and "some
+ * time next year" is exactly the difference between those two feelings.
+ */
+export function clockMark(game) {
+  const state = closingState(game);
+  if (state === DEAD) return ' ⚠️';
+  if (state === CLOSING) return isUrgent(game.closes_at) ? ' ⏳' : ' 🕒';
+  return '';
+}
+
+/** "⏳ closes in 12 days" — the whole line, or nothing at all. */
+export function clockLine(game) {
+  return closingState(game) === CLOSING
+    ? `${isUrgent(game.closes_at) ? '⏳' : '🕒'} ${closingLabel(game.closes_at)}`
+    : '';
+}
+
 export const md = (value) => String(value ?? '').replace(/([\\_*~`|])/g, '\\$1');
 
 export const signed = (value, suffix = '') => {
@@ -784,7 +814,7 @@ export function contestedBlocks(rows, { standing = true } = {}) {
   const lines = rows.map((g, i) => {
     const stuck = Math.max(0, Number(g.local_started ?? 0) - Number(g.platted_here ?? 0));
     return (
-      `\`${String(i + 1).padStart(2)}\` **${g.title}**${g.unobtainable ? ' ⚠️' : ''} - ` +
+      `\`${String(i + 1).padStart(2)}\` **${md(g.title)}**${clockMark(g)} - ` +
       `**×${Number(g.multiplier ?? 1).toFixed(2)}**\n` +
       `-# ${n(g.local_started)} own it · ${n(g.platted_here)} platted · ` +
       `**${n(stuck)}** still in it`
@@ -858,6 +888,16 @@ export function projectBlocks(member, kind, games) {
           ],
           thumbnail(g.icon_url || FALLBACK_AVATAR, g.title),
         ),
+        // Dying and dead are two different messages and never both. One is an
+        // invitation with a deadline; the other is a closed door.
+        ...(closingState(g) === CLOSING
+          ? [text(
+              `> ### ${isUrgent(g.closes_at) ? '⏳' : '🕒'} This one ${closingLabel(g.closes_at)}\n` +
+                `> Everything in it is still earnable until then.${
+                  g.unobtainable_note ? ` ${md(g.unobtainable_note)}` : ''
+                }`,
+            )]
+          : []),
         ...(g.unobtainable
           ? [text(
               `> ### ⚠️ Some trophies here cannot be earned\n> ${
@@ -877,7 +917,7 @@ export function projectBlocks(member, kind, games) {
   let used = 0;
   for (const g of games) {
     const line =
-      `${icon} **${g.title}**${g.unobtainable ? ' ⚠️' : ''} - ` +
+      `${icon} **${md(g.title)}**${clockMark(g)} - ` +
       (started
         ? `${n(g.trophy_count)} trophies · **${n(g.max_points)}** points at 100% · ${localLine(g)}`
         : `**+${n(g.member_points)}** points banked · ${finisherLine(g)}`);

@@ -26,6 +26,19 @@
  *                     a crowd
  *   everybody platted it
  *                     settled, back to ×1, off the board
+ * WHAT JUMPS THE QUEUE: a game with an announced closing date sorts above
+ * everything else, soonest first. Contest is about how stuck we are; a deadline
+ * is about how long we have, and a deadline beats a difficulty ranking every
+ * time. A game with three weeks left is the most useful row this board can
+ * show, and burying it under a permanently-hard game nobody is in a rush about
+ * would waste the only urgency Kraken has.
+ *
+ * A game whose date has PASSED is excluded like any other dead one — the
+ * nightly rescore sets unobtainable = 1 the night it expires, so it leaves this
+ * board on its own without a second rule here.
+ *
+ * WHAT IS EXCLUDED:
+ *
  *   flagged unobtainable
  *                     Martin: "whos going to want to go for that when they
  *                     cant get it". A board headed "most contested" is a
@@ -70,6 +83,7 @@ export const CONTESTED_SQL = `
          g.local_started,
          g.unobtainable,
          g.unobtainable_note,
+         g.closes_at,
          t.local_earned AS platted_here
     FROM games g
     JOIN trophies t
@@ -78,7 +92,9 @@ export const CONTESTED_SQL = `
      AND t.local_earned < g.local_started
      AND g.max_points > 0
      AND g.unobtainable = 0
-   ORDER BY (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
+   ORDER BY CASE WHEN g.closes_at IS NOT NULL THEN 0 ELSE 1 END,
+            g.closes_at ASC,
+            (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
             g.local_started DESC,
             g.max_points DESC
    LIMIT ?`;

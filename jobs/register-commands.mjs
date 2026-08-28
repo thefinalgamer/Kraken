@@ -83,6 +83,16 @@ const commands = [
         type: 3,
         required: false,
       },
+      {
+        // A separate field rather than asking mods to write the date into the
+        // note. Prose cannot be counted down from, and the countdown is the
+        // entire reason this exists: "dead" is a warning, "12 days left" is a
+        // plan for the weekend.
+        name: 'closes',
+        description: 'Date the trophies die, YYYY-MM-DD. Sets the countdown instead of the dead flag',
+        type: 3,
+        required: false,
+      },
     ],
   },
   {

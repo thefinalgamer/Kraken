@@ -139,10 +139,37 @@ test('the accent bar marks finished work and nothing else', async () => {
   assert.ok(out.includes('<td class="bar"></td>'), 'the strip cell is rendered');
   // And it is the LAST cell in the row, on the right, where Esto had it.
   assert.match(out, /<td class="bar"><\/td>\s*<\/tr>/, 'the strip closes the row');
-  assert.match(rowFor('Bloodborne'), /^ class="full"/, '100% is green');
-  assert.match(rowFor('Bunny Mahjo'), /^ class="full"/, '100% worth nothing is still green');
-  assert.match(rowFor('Sea of Thieves'), /^ class="plat"/, 'platinum but unfinished is blue');
-  assert.match(rowFor('Neverwinter'), /^>/, 'no platinum, no bar');
+  // The strip now matches the progress bar and appears on EVERY row. The old
+  // blue-or-green-or-nothing left a gap beside every merely-started game, which
+  // members read as dead space.
+  assert.match(rowFor('Bloodborne'), /^ class="sh-ok"/, '100% is green');
+  assert.match(rowFor('Bunny Mahjo'), /^ class="sh-ok"/, '100% worth nothing is still green');
+  assert.match(rowFor('Sea of Thieves'), /^ class="sh-p"/, 'platinum but unfinished is blue');
+  assert.match(rowFor('Neverwinter'), /^ class="sh-b"/, 'bronzes earned, so bronze');
+
+  // No row is ever without one.
+  assert.equal(
+    (out.match(/<td class="bar"><\/td>/g) || []).length,
+    (out.match(/<tr class="sh-/g) || []).length,
+    'every row has a strip',
+  );
+});
+
+test('a game with nothing earned gets the track colour, not a bronze', async () => {
+  const untouched = [{ ...GAMES[3], title: 'Untouched', earned_total: 0, earned_bronze: 0,
+    earned_silver: 0, earned_gold: 0, earned_platinum: 0, progress: 0 }];
+  const { out } = await render('JFL__Leon', '', { games: untouched });
+  assert.ok(out.includes('<tr class="sh-none">'), 'no hole in the column, no trophy claimed');
+});
+
+test('the unobtainable note is readable without a mouse', async () => {
+  const { out } = await render('JFL__Leon');
+
+  // A title attribute cannot be opened on a touch screen, so on a phone there
+  // was no way to find out why a game was flagged.
+  assert.ok(out.includes('<details class="flagwrap">'), 'tappable');
+  assert.ok(out.includes('<span class="flagnote">Servers closed</span>'), 'note is in the DOM');
+  assert.ok(!out.includes('class="warn" title='), 'the hover-only version is gone');
 });
 
 test('points read as earned out of the full completion, like the backlog does', async () => {
@@ -206,7 +233,7 @@ test('worth finishing survives as a sort even without a column', async () => {
 test('the unobtainable flag and its note reach the page', async () => {
   const { out } = await render('JFL__Leon');
   assert.ok(out.includes('&#9888;'), 'warning triangle');
-  assert.ok(out.includes('Servers closed'), 'the note, as a tooltip');
+  assert.ok(out.includes('Servers closed'), 'and the note it opens');
 });
 
 test('sort is a whitelist, never interpolated', async () => {
@@ -356,4 +383,65 @@ test('history is skipped on later pages and during a search', async () => {
 
   const b = await render('JFL__Leon', '?q=blood');
   assert.ok(!b.out.includes('From trophies'), 'a search is a search');
+});
+
+
+/**
+ * The clock.
+ *
+ * The whole point of the feature, in Martin's words: "one icon says this is
+ * already dead / one icon says ive got time to do this - this icon at a glance
+ * people think oh ill do it". So the two states must never look alike, and a
+ * game with a future date must NOT be marked dead.
+ */
+const DAYS = 86400000;
+
+test('a closing game is an invitation, not a warning', async () => {
+  const soon = [{ ...GAMES[0], title: 'Closing Soon', unobtainable: 0,
+    unobtainable_note: null, closes_at: Date.now() + 12 * DAYS }];
+  const { out } = await render('JFL__Leon', '', { games: soon });
+
+  assert.ok(out.includes('closes in 12 days'), 'the countdown is said out loud');
+  assert.ok(out.includes('&#8987;'), 'hourglass, not a warning triangle');
+  assert.ok(!out.includes('&#9888;'), 'and definitely not both');
+  assert.ok(out.includes('still earnable until then'), 'it says you can still do it');
+});
+
+test('near and far deadlines read differently', async () => {
+  const far = [{ ...GAMES[0], title: 'Later', unobtainable: 0, unobtainable_note: null,
+    closes_at: Date.now() + 200 * DAYS }];
+  const { out } = await render('JFL__Leon', '', { games: far });
+
+  // A clock face for scheduled, an hourglass for running out. Two hundred days
+  // away is a diary entry, not a panic.
+  assert.ok(out.includes('&#128338;'), 'clock face');
+  assert.ok(!out.includes('&#8987;'), 'no hourglass this far out');
+  assert.match(out, /closes on \d+ \w+ \d{4}/, 'a date, not a countdown');
+});
+
+test('a passed date is dead, and a mod flag beats any date', async () => {
+  const expired = [{ ...GAMES[0], title: 'Gone', unobtainable: 0,
+    unobtainable_note: null, closes_at: Date.now() - DAYS }];
+  const a = await render('JFL__Leon', '', { games: expired });
+  assert.ok(a.out.includes('&#9888;'), 'past its date is dead');
+  assert.ok(!a.out.includes('closes in'), 'and has no countdown');
+
+  // A mod has looked at the game; a date is a prediction typed weeks ago.
+  const both = [{ ...GAMES[0], title: 'Broken', unobtainable: 1,
+    unobtainable_note: 'Broken by a patch', closes_at: Date.now() + 90 * DAYS }];
+  const b = await render('JFL__Leon', '', { games: both });
+  assert.ok(b.out.includes('&#9888;'), 'the human wins');
+  assert.ok(b.out.includes('Broken by a patch'));
+  assert.ok(!b.out.includes('closes in'), 'no countdown beside a closed door');
+});
+
+test('a game with no date carries no mark at all', async () => {
+  const clean = [{ ...GAMES[0], title: 'Fine', unobtainable: 0,
+    unobtainable_note: null, closes_at: null }];
+  const { out } = await render('JFL__Leon', '', { games: clean });
+  // Assert on the ELEMENT, not the class name: the stylesheet is inlined into
+  // every page, so "flagwrap" appears whether or not any game uses it. This is
+  // the same trap that let the invisible pip ship.
+  assert.ok(!out.includes('<details class="flagwrap'), 'nothing to say, so nothing said');
+  assert.ok(!out.includes('&#9888;') && !out.includes('&#8987;'), 'no marks');
 });

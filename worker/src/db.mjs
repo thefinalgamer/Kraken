@@ -233,14 +233,34 @@ export const gameVersions = (env, title, accountId = null) =>
  * many rows were touched so the reply can say "all 3 editions", which is the
  * only way a mod finds out the PS3 version existed.
  */
-export async function setUnobtainable(env, title, { on, note, by }) {
+/**
+ * @param on        mark it dead now
+ * @param closesAt  ms timestamp it dies, or null
+ *
+ * `on` and `closesAt` are independent. A game can be dead (on), dying
+ * (closesAt), both — a mod who knows it is already broken AND knows the servers
+ * go in March — or neither, which clears everything.
+ *
+ * EVERY EDITION, matched on title: Sea of Thieves on PS4 and PS5 are separate
+ * np_comm_ids and the servers do not close on one of them.
+ */
+export async function setUnobtainable(env, title, { on, note, by, closesAt = null }) {
   const rows = await all(env, 'SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE', [title]);
+  const touched = on || closesAt !== null;
   await env.DB.prepare(
     `UPDATE games
-        SET unobtainable = ?, unobtainable_note = ?, flagged_by = ?, flagged_at = ?
+        SET unobtainable = ?, unobtainable_note = ?, closes_at = ?,
+            flagged_by = ?, flagged_at = ?
       WHERE title = ? COLLATE NOCASE`,
   )
-    .bind(on ? 1 : 0, note ?? null, by ?? null, on ? Date.now() : null, title)
+    .bind(
+      on ? 1 : 0,
+      note ?? null,
+      closesAt ?? null,
+      touched ? by ?? null : null,
+      touched ? Date.now() : null,
+      title,
+    )
     .run();
   return rows.length;
 }

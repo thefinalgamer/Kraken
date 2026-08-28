@@ -20,6 +20,7 @@ import {
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 import { faqSection, faqOptions } from '../../shared/faq.mjs';
+import { parseClosingDate, closingLabel } from '../../shared/closing.mjs';
 import { rankContested } from '../../shared/contested.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
@@ -94,7 +95,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'verify':     return verify(interaction, env, ctx, userId);
     case 'unlink':     return unlink(interaction, env, opt('member'));
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
-    case 'flag':       return flagGame(interaction, env, userId, opt('game'), opt('note'));
+    case 'flag':       return flagGame(interaction, env, userId, opt('game'), opt('note'), opt('closes'));
     case 'faq':        return faq(env);
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
@@ -305,7 +306,7 @@ async function unlink(interaction, env, targetId) {
  * An empty note clears the flag, so the same command undoes itself — there is
  * no /unflag to remember, and a mod who over-flagged can fix it in seconds.
  */
-async function flagGame(interaction, env, userId, title, note) {
+async function flagGame(interaction, env, userId, title, note, closes) {
   // MANAGE_MESSAGES, not MANAGE_GUILD.
   //
   // Martin made JFL__Leon a mod and he still could not run this. The gate was
@@ -331,13 +332,33 @@ async function flagGame(interaction, env, userId, title, note) {
   if (!match) return errorReply(`I have no game called **${title}**.`);
 
   const clean = String(note ?? '').trim().slice(0, 300);
+
+  /**
+   * A bad date STOPS the whole command.
+   *
+   * The alternative — store the note and quietly drop the date — is the worst
+   * outcome available: the mod believes they set a countdown, the countdown
+   * never appears, and nobody finds out until the servers go off.
+   */
+  const parsed = parseClosingDate(closes);
+  if (!parsed.ok) return errorReply(`That closing date did not work. ${parsed.reason}`);
+
+  const closesAt = parsed.at;
+
+  /**
+   * A DATE ALONE DOES NOT KILL THE GAME. `/flag <game> closes:2027-03-15` means
+   * "you have until March", not "it is over" — so `unobtainable` stays 0 and the
+   * nightly rescore flips it when the day actually arrives. Only a note, which
+   * is a moderator saying "this is broken now", sets the dead flag.
+   */
   const editions = await db.setUnobtainable(env, match.title, {
     on: Boolean(clean),
     note: clean || null,
-    by: clean ? userId : null,
+    by: clean || closesAt ? userId : null,
+    closesAt,
   });
 
-  if (!clean) {
+  if (!clean && !closesAt) {
     return reply(
       [
         container(
@@ -355,15 +376,42 @@ async function flagGame(interaction, env, userId, title, note) {
     );
   }
 
+  // Two different messages, because they are two different situations and a mod
+  // who set a countdown should not be told the game is dead.
+  const spread = editions > 1 ? ` - applied to all **${editions}** editions of the title.` : '.';
+
+  if (!clean && closesAt) {
+    return reply(
+      [
+        container(
+          [
+            text(
+              `### ⏳ ${match.title} is on the clock\n` +
+                `**${closingLabel(closesAt)}**, and it stays fully playable until then` +
+                spread +
+                `\n\nIt will show a countdown everywhere it appears, and it rises up ` +
+                `\`/contested\` as the date gets closer. The night it passes, Kraken marks ` +
+                `it unobtainable on its own.` +
+                `\n\n-# Recorded against you. Run \`/flag\` with nothing else to clear it.`,
+            ),
+          ],
+          COLOR.orange,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
   return reply(
     [
       container(
         [
           text(
             `### ⚠️ ${match.title} flagged\n> ${clean}\n\n` +
+              (closesAt ? `Also counting down: **${closingLabel(closesAt)}**.\n\n` : '') +
               `This shows on \`/game\`, in the backlog, and on the card whenever somebody ` +
               `starts or finishes it` +
-              (editions > 1 ? ` - applied to all **${editions}** editions of the title.` : '.') +
+              spread +
               `\n\n-# Recorded against you. Run \`/flag\` with no note to clear it.`,
           ),
         ],

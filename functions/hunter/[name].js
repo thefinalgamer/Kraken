@@ -19,7 +19,10 @@
  * we are already storing, which is the exact thing this file is avoiding.
  */
 
-import { page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor } from '../_lib/page.js';
+import {
+  page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
+  closingState, closingLabel, isUrgent,
+} from '../_lib/page.js';
 
 const PER_PAGE = 50;
 
@@ -106,7 +109,7 @@ const UPDATES = `
  */
 const gamesSql = (order, search) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
-         g.unobtainable, g.unobtainable_note, g.trophy_count,
+         g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
          mg.points, mg.progress, mg.earned_total, mg.earned_platinum,
          mg.earned_gold, mg.earned_silver, mg.earned_bronze, mg.last_earned_at
     FROM member_games mg
@@ -181,22 +184,40 @@ const delta = (v) => {
   return `<span class="d ${x > 0 ? 'pos' : 'neg'}">${x > 0 ? '+' : '\u2212'}${n(Math.abs(x))}</span>`;
 };
 
+/**
+ * The mark beside a game title: nothing, a countdown, or a warning.
+ *
+ * Both live in a <details> so the reason is readable by tapping, which a title
+ * attribute never was on a phone.
+ */
+function clock(g) {
+  const state = closingState(g);
+
+  if (state === 'closing') {
+    const soon = isUrgent(g.closes_at);
+    const note = g.unobtainable_note ? ` ${esc(g.unobtainable_note)}` : '';
+    return `<details class="flagwrap clock${soon ? ' soon' : ''}"><summary
+        aria-label="Closing soon">${soon ? '&#8987;' : '&#128338;'}</summary><span
+        class="flagnote"><b>${esc(closingLabel(g.closes_at))}</b>. Everything in it is
+        still earnable until then.${note}</span></details>`;
+  }
+
+  if (state === 'dead') {
+    return `<details class="flagwrap"><summary aria-label="Has unobtainable trophies"
+        >&#9888;</summary><span class="flagnote">${esc(
+          g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
+        )}</span></details>`;
+  }
+
+  return '';
+}
+
 function gameRow(g) {
   const done = Number(g.progress) === 100;
   const max = Number(g.max_points) || 0;
   const got = Number(g.points) || 0;
   const left = Math.max(0, max - got);
 
-  /**
-   * The accent bar, lifted straight from the old site because it was the best
-   * idea on it: BLUE once the platinum is in, GREEN once everything is, DLC
-   * included, and nothing at all otherwise. Two colours doing what a column of
-   * forty "done"s was doing badly, in four pixels, with no text.
-   *
-   * Green wins where both apply — 100% is the stronger statement, and a game
-   * with no platinum at all still earns it.
-   */
-  const mark = done ? 'full' : Number(g.earned_platinum) > 0 ? 'plat' : '';
 
   /**
    * The progress bar, from the old site.
@@ -220,10 +241,12 @@ function gameRow(g) {
         ? 'g'
         : Number(g.earned_silver) > 0
           ? 's'
-          : 'b';
+          : Number(g.earned_total) > 0
+            ? 'b'
+            : 'none';
   const width = Math.max(0, Math.min(100, Number(g.progress) || 0));
 
-  return `<tr${mark ? ` class="${mark}"` : ''}>
+  return `<tr class="sh-${shade}">
     <td class="gi">${
       g.icon_url
         ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="56" height="56">`
@@ -232,13 +255,39 @@ function gameRow(g) {
     <td class="gt">
       ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<span
         class="tname">${esc(g.title)}</span>${
-        g.unobtainable
-          ? ` <span class="warn" title="${esc(g.unobtainable_note || 'Has unobtainable trophies.')}">&#9888;</span>`
-          : ''
+        /*
+         * A <details>, not a title attribute.
+         *
+         * The tooltip was invisible on a phone — there is no hover on a touch
+         * screen, so the reason a game was flagged could not be read at all on
+         * the device most people use. This opens on tap, on click and on
+         * keyboard focus, and needs no JavaScript.
+         *
+         * It also quietly answers the PSNProfiles clock icon: the note already
+         * says "servers closed May 2024" when a mod types that into /flag, so
+         * making the note readable delivers the same thing without a schema
+         * change and without asking mods to type dates in a fixed format.
+         */
+        /*
+         * DYING AND DEAD GET DIFFERENT MARKS, and that is the entire feature.
+         * The warning triangle is a closed door. The hourglass is an invitation
+         * with a deadline, and it is the only thing on this page that makes
+         * anybody hurry — so it is never the same colour or the same shape as
+         * the thing that means "do not bother".
+         */
+        clock(g)
       }
       <span class="meta">${
         g.last_earned_at ? `${ago(g.last_earned_at)} · ` : ''
-      }${miniCups(g.earned_platinum, g.earned_gold, g.earned_silver, g.earned_bronze)}</span>
+      }${miniCups(g.earned_platinum, g.earned_gold, g.earned_silver, g.earned_bronze)}</span>${
+        // A deadline is worth a line of its own, not just an icon. An icon says
+        // "something is up"; "closes in 12 days" says what to do about it.
+        closingState(g) === 'closing'
+          ? `<span class="closes${isUrgent(g.closes_at) ? '' : ' later'}">${esc(
+              closingLabel(g.closes_at),
+            )}</span>`
+          : ''
+      }
     </td>
     <td class="num prog" data-v="${width}">
       <span class="${done ? 'done' : ''}">${width}%</span>

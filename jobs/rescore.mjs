@@ -383,9 +383,53 @@ async function recomputeRanks() {
 
 // ----------------------------------------------------------------- main ----
 
+
+/**
+ * Games whose announced closing date has passed become properly unobtainable.
+ *
+ * ONE PLACE DECIDES A GAME HAS DIED, and it is here, on a schedule, where it
+ * leaves a line in a log. The alternative — every page working out "is the date
+ * past yet" as it renders — would have Discord and the website disagreeing for
+ * up to a day depending on which one was looked at first, and the whole project
+ * rests on those two never disagreeing.
+ *
+ * The note is only written if a moderator did not leave one, so somebody's own
+ * words about a game are never overwritten by a generated sentence.
+ */
+async function closeExpiredGames() {
+  const now = Date.now();
+  const due = await db.query(
+    `SELECT np_comm_id, title, closes_at, unobtainable_note
+       FROM games
+      WHERE closes_at IS NOT NULL AND closes_at <= ? AND unobtainable = 0`,
+    [now],
+  );
+  if (!due.length) return 0;
+
+  for (const g of due) {
+    const note =
+      g.unobtainable_note ||
+      `Closed on ${new Date(Number(g.closes_at)).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'long', year: 'numeric',
+      })}. Trophies needing the servers can no longer be earned.`;
+    await db.run(
+      `UPDATE games SET unobtainable = 1, unobtainable_note = ?, flagged_at = ?
+        WHERE np_comm_id = ?`,
+      [note, now, g.np_comm_id],
+    );
+    console.log(`  the clock ran out on ${g.title}`);
+  }
+  return due.length;
+}
+
 async function main() {
   const started = Date.now();
   console.log('Rescoring the board from stored data — no PSN calls.\n');
+
+  // Before anything is priced: a game whose deadline passed overnight is dead
+  // for the whole of this run, not from the next one.
+  const closed = await closeExpiredGames();
+  if (closed) console.log(`${closed} game${closed === 1 ? '' : 's'} passed their closing date.\n`);
 
   console.log('counting what the server has earned...');
   const local = await countLocalRarity();

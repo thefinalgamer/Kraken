@@ -243,14 +243,20 @@ test('sort is a whitelist, never interpolated', async () => {
   // The injection attempt falls back to the default rather than reaching SQL.
   await render('JFL__Leon', `?sort=${encodeURIComponent('title; DROP TABLE members;--')}`);
   assert.ok(!lastGamesSql.includes('DROP'), 'the string never reached the query');
-  assert.ok(lastGamesSql.includes('mg.last_earned_at'), 'fell back to the default sort');
+  assert.ok(lastGamesSql.includes('mg.last_played_at'), 'fell back to the default sort');
 });
 
 test('the default sort is last played', async () => {
   // Opening on points shows the same five games at the top of every hunter
   // forever. Last played is the only ordering that moves when they play.
   await render('JFL__Leon');
-  assert.ok(lastGamesSql.includes('COALESCE(mg.last_earned_at, 0) DESC'), lastGamesSql);
+  // last PLAYED, not last trophy earned. Sorting on last_earned_at put a game
+  // Wilko had not touched in sixteen months above one he played that week,
+  // because that was when its final trophy happened to pop.
+  assert.ok(
+    lastGamesSql.includes('COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC'),
+    lastGamesSql,
+  );
 });
 
 test('the platform is a chip and the trophy breakdown is on every row', async () => {
@@ -444,4 +450,16 @@ test('a game with no date carries no mark at all', async () => {
   // the same trap that let the invisible pip ship.
   assert.ok(!out.includes('<details class="flagwrap'), 'nothing to say, so nothing said');
   assert.ok(!out.includes('&#9888;') && !out.includes('&#8987;'), 'no marks');
+});
+
+
+test('the row says when it was last played, matching the sort', async () => {
+  // The column and the ordering have to tell the same story about a row, or one
+  // of them is lying. Both read last_played_at now.
+  const g = [{ ...GAMES[0], title: 'Recent',
+    last_played_at: Date.now() - 2 * 86400000,      // played this week
+    last_earned_at: Date.now() - 480 * 86400000 }]; // last trophy ages ago
+  const { out } = await render('JFL__Leon', '', { games: g });
+  assert.ok(out.includes('2 days ago'), 'shows when it was played');
+  assert.ok(!out.includes('1 years ago'), 'not when it last paid out');
 });

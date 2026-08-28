@@ -16,11 +16,13 @@ import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
   memberCard, boardBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
-  ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor, md,
+  ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor, md, clockMark,
 } from '../../shared/ui.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 import { faqSection, faqOptions } from '../../shared/faq.mjs';
-import { parseClosingDate, closingLabel } from '../../shared/closing.mjs';
+import {
+  parseClosingDate, closingLabel, closingState, isUrgent, CLOSING,
+} from '../../shared/closing.mjs';
 import { rankContested } from '../../shared/contested.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
@@ -746,7 +748,7 @@ async function game(env, query, userId, pinned = null) {
         [
           section(
             [
-              `## ${found.title}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
+              `## ${found.title}${clockMark(found)}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
               `**Worth to you:** ${n(banked)} of ${n(fullValue)} points earned` +
                 (worth > 0 ? `\n-# ${n(worth)} still on the table` : '') +
                 (mine ? `\n**Your progress:** ${mine.progress}%` : '\n**Your progress:** not started'),
@@ -761,6 +763,17 @@ async function game(env, query, userId, pinned = null) {
           // Above the points, deliberately. Somebody deciding whether to start
           // a game needs to know it cannot be finished BEFORE they read what it
           // is worth, not in a footnote underneath.
+          // A DEADLINE GOES HERE TOO, and it is the more useful of the two.
+          // "Cannot be finished" stops somebody starting; "you have 12 days"
+          // starts them tonight. This card is where that decision gets made.
+          ...(closingState(found) === CLOSING
+            ? [text(
+                `> ### ${isUrgent(found.closes_at) ? '⏳' : '🕒'} This one ${closingLabel(found.closes_at)}\n` +
+                  `> Everything in it is still earnable until then.${
+                    found.unobtainable_note ? ` ${found.unobtainable_note}` : ''
+                  }`,
+              )]
+            : []),
           ...(found.unobtainable
             ? [text(
                 `> ### ⚠️ Some trophies here cannot be earned\n> ${

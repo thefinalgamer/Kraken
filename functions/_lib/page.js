@@ -392,6 +392,12 @@ tr.sh-none td.bar{background:var(--rule)}
 /* Chunkier rows — scoped to the game table only, so the 64-row leaderboard
    stays dense. The 40px icon and 9px padding fitted more games on a screen than
    anybody wanted; a library is browsed, not audited. */
+/* border-collapse: SEPARATE, and this is not cosmetic.
+   position:sticky does not work on a <td> inside a collapsed-border table in
+   Chrome — which is why the strip vanished on phones even after it was made
+   sticky. Separate borders make sticky legal. Every border here is already on
+   the cells rather than the table, so nothing looks different. */
+.games{border-collapse:separate;border-spacing:0}
 .games th,.games td{padding:14px 14px}
 .games td.gi,.games th.gi{width:1%;padding-right:0}
 .games .ico{width:56px;height:56px;border-radius:8px;display:block;background:var(--edge);object-fit:cover}

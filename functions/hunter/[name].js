@@ -42,7 +42,23 @@ const SORTS = {
   points: { label: 'Points', sql: 'mg.points DESC, g.title ASC' },
   worth: { label: 'Worth finishing', sql: '(g.max_points - mg.points) DESC, g.title ASC' },
   progress: { label: 'Progress', sql: 'mg.progress DESC, mg.points DESC' },
-  played: { label: 'Last played', sql: 'COALESCE(mg.last_earned_at, 0) DESC, g.title ASC' },
+  /**
+   * LAST PLAYED means last PLAYED.
+   *
+   * This sorted on `last_earned_at` — the date of the last trophy — which is a
+   * different thing and produced a visibly wrong list: Wilko had Suikoden at
+   * the top having not touched it in sixteen months, because that was when its
+   * last trophy popped, while a game he had played that week sat further down
+   * for the crime of not paying out.
+   *
+   * `last_played_at` is PSN's own `lastUpdatedDateTime` for the title, which is
+   * exactly the field PSNProfiles sorts by. The COALESCE is for rows scanned
+   * before we stored it.
+   */
+  played: {
+    label: 'Last played',
+    sql: 'COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC, g.title ASC',
+  },
   title: { label: 'Name', sql: 'g.title ASC' },
 };
 // LAST PLAYED, not points. Opening on the biggest scores shows the same five
@@ -111,7 +127,8 @@ const gamesSql = (order, search) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
          mg.points, mg.progress, mg.earned_total, mg.earned_platinum,
-         mg.earned_gold, mg.earned_silver, mg.earned_bronze, mg.last_earned_at
+         mg.earned_gold, mg.earned_silver, mg.earned_bronze,
+         mg.last_played_at, mg.last_earned_at
     FROM member_games mg
     JOIN games g ON g.np_comm_id = mg.np_comm_id
    WHERE mg.psn_account_id = ?
@@ -278,7 +295,11 @@ function gameRow(g) {
         clock(g)
       }
       <span class="meta">${
-        g.last_earned_at ? `${ago(g.last_earned_at)} · ` : ''
+        // The same field the sort uses, or the column and the order would tell
+        // two different stories about the same row.
+        g.last_played_at || g.last_earned_at
+          ? `${ago(g.last_played_at || g.last_earned_at)} · `
+          : ''
       }${miniCups(g.earned_platinum, g.earned_gold, g.earned_silver, g.earned_bronze)}</span>${
         // A deadline is worth a line of its own, not just an icon. An icon says
         // "something is up"; "closes in 12 days" says what to do about it.

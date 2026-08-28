@@ -96,8 +96,15 @@ test('the totals are the stored ones, grouped', async () => {
   const { out } = await render();
   assert.ok(out.includes('12,809,536'), 'points');
   assert.ok(out.includes('68,060'), 'platinums');
-  assert.ok(out.includes('25,928'), 'games tracked');
   assert.ok(out.includes('>64<'), 'hunters');
+
+  // These two are SUMS ACROSS MEMBERS, so the labels must not claim distinct
+  // counts. 83,809 games owned between 64 people is true; "83,809 games
+  // tracked" was not, when the database holds about 26,000.
+  assert.ok(out.includes('Games owned'), 'sum, and labelled as one');
+  assert.ok(out.includes('100% completions'), 'completions, not distinct games');
+  assert.ok(!out.includes('Games tracked'), 'the misleading label is gone');
+  assert.ok(!out.includes('Taken to 100%'));
 });
 
 test('the top five link through to their pages, with tiers', async () => {

@@ -154,8 +154,21 @@ export async function onRequestGet({ env }) {
       ${stat('Hunters', n(hunters))}
       ${stat('Points banked', n(totals?.points))}
       ${stat('Platinums', n(totals?.platinum))}
-      ${stat('Games tracked', n(totals?.projects))}
-      ${stat('Taken to 100%', n(totals?.completed))}
+      ${/*
+         "Games owned", not "Games tracked", and "100% completions", not "Taken
+         to 100%". Both figures are SUMS ACROSS MEMBERS: a game five people own
+         counts five times, and a game five people finished counts five times.
+         The old labels claimed 83,809 distinct games when the database holds
+         about 26,000, and 70,301 games taken to 100% when it is 70,301
+         completions of far fewer games.
+
+         Counting distinct instead would mean COUNT(*) over the whole games
+         table on every cache miss, to print a number nobody asked for. The
+         honest fix was the label, not the query — the site prints stored
+         numbers, so the words have to match what is stored.
+      */ ''}
+      ${stat('Games owned', n(totals?.projects))}
+      ${stat('100% completions', n(totals?.completed))}
     </dl>
 
     <div class="cols">

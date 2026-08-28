@@ -221,20 +221,40 @@ export const isUrgent = (closesAt, now = Date.now()) => {
 };
 
 /**
- * A d20, drawn as a path.
+ * A d20, drawn as ten shaded faces.
  *
- * Martin is a D&D player and asked for a real die, so this is an icosahedron
- * silhouette rather than a game-show wheel: hexagonal outline, the face
- * triangle, three spokes. It tumbles once on arrival and stops. It is theatre —
- * the numbers were decided on the server before the page was sent — and that is
- * fine, because the roll happened, this is just the animation of it landing.
+ * NOT WEBGL. A real physics die means three.js plus a physics engine — some six
+ * hundred kilobytes and a canvas — to make a shape fall over on a page whose
+ * entire stylesheet is a few kilobytes. This is the same illusion for nothing:
+ * an icosahedron has exactly ten faces visible head-on, so ten triangles with
+ * light coming from the top left read as a solid object, and the tumble does
+ * the rest.
+ *
+ * The geometry is the standard d20 projection: a hexagonal outline, a face
+ * triangle in the middle, and the ring of faces between them.
  */
+const D20_FACES = [
+  // [points, fill]  — lit from the top left, so upper-left faces are brightest.
+  ['50,4 10,27 50,32', '#3ee0bd'],
+  ['50,4 90,27 50,32', '#2fcfae'],
+  ['90,27 50,32 76,70', '#23b89a'],
+  ['90,27 90,73 76,70', '#1a9a80'],
+  ['90,73 50,96 76,70', '#137964'],
+  ['50,96 76,70 24,70', '#0f6353'],
+  ['50,96 10,73 24,70', '#12775f'],
+  ['10,73 24,70 10,27', '#1b9c81'],
+  ['10,27 50,32 24,70', '#28c0a1'],
+  // The face pointing at you, brightest, so the eye reads a solid.
+  ['50,32 76,70 24,70', '#4bf0cb'],
+];
+
 export const d20 = () =>
-  '<span class="d20" aria-hidden="true"><svg viewBox="0 0 100 100" fill="none" ' +
-  'stroke="currentColor" stroke-width="6" stroke-linejoin="round">' +
-  '<path d="M50 4 89 27v46L50 96 11 73V27z"/>' +
-  '<path d="M50 30 74 70H26z"/>' +
-  '<path d="M50 4v26M89 27 74 70M11 27l15 43M50 96 26 70M50 96l24-26"/>' +
+  '<span class="d20" aria-hidden="true"><svg viewBox="0 0 100 100">' +
+  D20_FACES.map(
+    ([pts, fill]) =>
+      `<polygon points="${pts}" fill="${fill}" stroke="#0a2f28" stroke-width="1.6" ` +
+      'stroke-linejoin="round"/>',
+  ).join('') +
   '</svg></span>';
 
 export const ordinal = (v) => {
@@ -537,20 +557,48 @@ td.prog{min-width:112px}
 .rollcta{display:inline-flex;align-items:center;gap:7px;color:var(--kraken);
   text-decoration:none;font-weight:600;font-size:13.5px;white-space:nowrap}
 .rollcta:hover{text-decoration:underline}
-.rollcta .d20{width:17px;height:17px}
+.rollcta .d20{width:18px;height:18px}
 
-/* THE TUMBLE.
-   Once, on arrival, then it stops — a die that never settles is a spinner, and
-   a spinner means "still loading" to everybody who has ever used a computer.
-   Transform only, so it costs the compositor and nothing else. */
-.d20{display:inline-block;line-height:0;color:var(--kraken)}
-.d20 svg{width:100%;height:100%;display:block}
-.rolled .d20{width:30px;height:30px;animation:tumble .85s cubic-bezier(.2,.9,.25,1) 1 both}
-@keyframes tumble{
-  0%   {transform:rotate(-220deg) scale(.55); opacity:0}
-  55%  {transform:rotate(28deg)   scale(1.14);opacity:1}
-  75%  {transform:rotate(-11deg)  scale(.97)}
-  100% {transform:rotate(0)       scale(1)}
+/* THE THROW.
+   It falls in from above the panel, lands, bounces twice and settles — once,
+   then it stops. A die that never settles is a spinner, and a spinner means
+   "still loading" to everybody who has ever used a computer.
+
+   Transform and opacity only, so the browser does the whole thing on the
+   compositor and never touches layout. The shadow underneath is a separate
+   element squashing on each impact, which is most of why it reads as weight
+   rather than as a picture sliding down the screen. */
+.d20{display:inline-block;line-height:0;position:relative}
+.d20 svg{width:100%;height:100%;display:block;filter:drop-shadow(0 3px 5px rgba(0,0,0,.5))}
+
+.rolled .d20{width:46px;height:46px;animation:throw 1.15s cubic-bezier(.3,.7,.4,1) both}
+.rolled .d20::after{
+  content:"";position:absolute;left:12%;right:12%;bottom:-7px;height:7px;
+  border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
+  animation:landshadow 1.15s cubic-bezier(.3,.7,.4,1) both;
+}
+@keyframes throw{
+  0%   {transform:translate3d(-46px,-150px,0) rotate(-620deg) scale(.5); opacity:0}
+  12%  {opacity:1}
+  /* first contact */
+  42%  {transform:translate3d(0,0,0) rotate(-26deg) scale(1.06)}
+  /* big bounce */
+  56%  {transform:translate3d(4px,-30px,0) rotate(12deg) scale(.97)}
+  70%  {transform:translate3d(0,0,0) rotate(4deg) scale(1.04)}
+  /* small bounce */
+  82%  {transform:translate3d(1px,-9px,0) rotate(-3deg) scale(.99)}
+  92%  {transform:translate3d(0,0,0) rotate(0) scale(1.01)}
+  100% {transform:translate3d(0,0,0) rotate(0) scale(1)}
+}
+@keyframes landshadow{
+  0%   {opacity:0;   transform:scale(.3)}
+  40%  {opacity:0;   transform:scale(.5)}
+  /* squashes wide on each impact, shrinks while the die is in the air */
+  44%  {opacity:.62; transform:scale(1.18)}
+  56%  {opacity:.24; transform:scale(.66)}
+  70%  {opacity:.55; transform:scale(1.08)}
+  82%  {opacity:.3;  transform:scale(.82)}
+  100% {opacity:.45; transform:scale(1)}
 }
 /* The picks land after the die does, one after another, so it reads as a result
    rather than as a page that happened to contain a die. */

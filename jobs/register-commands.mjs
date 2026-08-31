@@ -96,6 +96,33 @@ const commands = [
     ],
   },
   {
+    name: 'supporter',
+    description: 'Mods only. Give somebody the supporter star, or set how many months they have given',
+    // Same authority as /flag: MANAGE_MESSAGES. This decorates a name, it does
+    // not rewrite who somebody is on the board, so it does not need the heavier
+    // Manage Server that /unlink and /addmember carry.
+    default_member_permissions: '8192',
+    options: [
+      {
+        name: 'member',
+        description: 'Who chipped in',
+        type: 6,
+        required: true,
+      },
+      {
+        // The TOTAL, not an increment. A mod setting the same number twice must
+        // not double it — running a command again after a timeout is the most
+        // ordinary thing in the world and it should be harmless.
+        name: 'months',
+        description: 'Total months they have supported. 0 removes the star',
+        type: 4,
+        required: true,
+        min_value: 0,
+        max_value: 600,
+      },
+    ],
+  },
+  {
     name: 'faq',
     description: 'How the board works: points, roles, joining, all of it',
   },

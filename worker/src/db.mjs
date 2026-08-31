@@ -244,6 +244,37 @@ export const gameVersions = (env, title, accountId = null) =>
  * EVERY EDITION, matched on title: Sea of Thieves on PS4 and PS5 are separate
  * np_comm_ids and the servers do not close on one of them.
  */
+/**
+ * Give somebody the supporter star, or take it away.
+ *
+ * COSMETIC, AND IT MUST STAY THAT WAY. This writes two columns that nothing in
+ * the scoring reads. If a future change ever makes points, rank, tier or the
+ * order of a list depend on either of them, the board stops being a record of
+ * what people earned and becomes something buyable — which is the one thing it
+ * cannot survive being.
+ *
+ * NO PAYMENT DATA. Ko-fi holds the money. All that arrives here is a number of
+ * months a mod typed in, so there is nothing in this table worth stealing.
+ *
+ * `supporter_since` is stamped only on the way UP from zero, and never cleared
+ * by a later change, so "since March" keeps meaning the first time they helped
+ * rather than the last time a mod touched the row.
+ */
+export async function setSupporter(env, discordId, months) {
+  const m = Math.max(0, Math.floor(Number(months) || 0));
+  const res = await env.DB.prepare(
+    `UPDATE members
+        SET supporter_months = ?,
+            supporter_since = CASE
+              WHEN ? > 0 AND supporter_since IS NULL THEN ?
+              ELSE supporter_since END
+      WHERE discord_id = ?`,
+  )
+    .bind(m, m, Date.now(), String(discordId))
+    .run();
+  return res?.meta?.changes ?? 0;
+}
+
 export async function setUnobtainable(env, title, { on, note, by, closesAt = null }) {
   const rows = await all(env, 'SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE', [title]);
   const touched = on || closesAt !== null;

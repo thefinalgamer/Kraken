@@ -16,12 +16,14 @@
  * read no matter how many different ways people look at it.
  */
 
-import { page, html, esc, n, pct, flag, tierFor, TIER, ordinal, crumb } from './_lib/page.js';
+import {
+  page, html, esc, n, pct, flag, tierFor, TIER, ordinal, crumb, supporterStar,
+} from './_lib/page.js';
 
 const BOARD = `
   SELECT rank, prev_rank, psn_online_id, country, avatar_url,
          points, completion, platinum, gold, silver, bronze,
-         projects, completed
+         projects, completed, supporter_months
     FROM members
    WHERE rank IS NOT NULL AND last_update_at IS NOT NULL
    ORDER BY rank ASC`;
@@ -49,7 +51,7 @@ function row(m, total) {
         ${m.avatar_url ? `<img class="av" src="${esc(m.avatar_url)}" alt="" loading="lazy" width="26" height="26">` : '<span class="av"></span>'}
         <span class="name">${country ? `${country} ` : ''}<a href="/hunter/${encodeURIComponent(
           m.psn_online_id,
-        )}">${esc(m.psn_online_id)}</a></span>
+        )}">${esc(m.psn_online_id)}</a>${supporterStar(m.supporter_months)}</span>
       </span>
     </td>
     <td class="hide-s"><span class="tier" style="color:${color}">${name}</span></td>

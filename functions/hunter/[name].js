@@ -21,7 +21,7 @@
 
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
-  closingState, closingLabel, isUrgent, d20, gameHref, crumb,
+  closingState, closingLabel, isUrgent, d20, gameHref, crumb, supporterStar,
 } from '../_lib/page.js';
 
 const PER_PAGE = 50;
@@ -70,7 +70,7 @@ const DEFAULT_SORT = 'played';
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, country, avatar_url, rank, prev_rank,
          points, reported_points, completion, platinum, gold, silver, bronze,
-         projects, completed, last_update_at
+         projects, completed, last_update_at, supporter_months
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -672,7 +672,9 @@ export async function onRequestGet({ params, env, request }) {
           ? `<img class="bigav" src="${esc(m.avatar_url)}" alt="" width="76" height="76">`
           : '<span class="bigav"></span>'
       }
-      <h1>${country ? `${country} ` : ''}${esc(m.psn_online_id)}</h1>
+      <h1>${country ? `${country} ` : ''}${esc(m.psn_online_id)}${supporterStar(
+        m.supporter_months,
+      )}</h1>
       <p class="sub">
         <b>${ordinal(m.rank)}</b>
         <span class="tier" style="color:${color}">${tierName}</span>

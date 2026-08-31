@@ -282,6 +282,52 @@ export const gameHref = (id, as = '') =>
 export const crumb = (href, label) =>
   `<nav class="crumb"><a href="${esc(href)}">&lsaquo; ${esc(label)}</a></nav>`;
 
+/**
+ * The supporter star. A five-pointed star inside a ring.
+ *
+ * MIRRORED FROM shared/supporter.mjs, exactly as TIER is, because Pages
+ * Functions bundle from their own directory and reaching up into shared/ is a
+ * build-config fight for a dozen lines. If the thresholds change they change in
+ * both places — the shared file is the canonical one.
+ *
+ * A GLYPH, NEVER A WORD. The leaderboard already has a column reading GOLD and
+ * SILVER for rank, so a supporter badge that also SAID gold would be two metal
+ * rankings on one row meaning different things. A small star cannot be confused
+ * with a bordered pill; only the tooltip spells it out.
+ *
+ * COSMETIC. It sits beside a name and touches nothing that decides an order.
+ */
+const SUPPORTER_TIERS = [
+  { months: 12, key: 'p', name: 'Platinum' },
+  { months: 6, key: 'g', name: 'Gold' },
+  { months: 3, key: 's', name: 'Silver' },
+  { months: 1, key: 'b', name: 'Bronze' },
+];
+
+export function supporterTier(months) {
+  const m = Math.floor(Number(months) || 0);
+  if (m < 1) return null;
+  return SUPPORTER_TIERS.find((t) => m >= t.months) ?? null;
+}
+
+/**
+ * `aria-hidden` on the drawing and a real title on the wrapper: a screen reader
+ * hears "Gold supporter, 8 months" once, rather than reading out a star path.
+ */
+export function supporterStar(months) {
+  const tier = supporterTier(months);
+  if (!tier) return '';
+  const m = Math.floor(Number(months) || 0);
+  const label = `${tier.name} supporter \u00b7 ${m} month${m === 1 ? '' : 's'}`;
+  return (
+    `<span class="star ${tier.key}" title="${esc(label)}" role="img" aria-label="${esc(label)}">` +
+    '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="10.6" fill="none" stroke="currentColor" stroke-width="1.7"/>' +
+    '<path fill="currentColor" d="M12 5.4l1.94 3.93 4.34.63-3.14 3.06.74 4.32L12 15.3l-3.88 2.04.74-4.32L5.72 9.96l4.34-.63z"/>' +
+    '</svg></span>'
+  );
+}
+
 export const ordinal = (v) => {
   const num = Number(v);
   if (!Number.isFinite(num)) return String(v ?? '');
@@ -1222,6 +1268,18 @@ ul.feed a.t{color:inherit;text-decoration:none}
 ul.feed a.t:hover{color:var(--kraken)}
 ul.rolls a.t{color:inherit;text-decoration:none}
 ul.rolls a.t:hover{color:var(--kraken)}
+
+/* The supporter star. Sized to sit on a name without shouting over it — it is
+   a thank-you, not a rank, and the row already has a rank on it. */
+.star{display:inline-flex;align-items:center;vertical-align:-2px;margin-left:6px;line-height:0}
+.star svg{width:15px;height:15px;display:block}
+.star.b{color:#e08a4a}
+.star.s{color:#c9ccd1}
+.star.g{color:#f0c419}
+.star.p{color:#7fd6f5}
+.hero h1 .star svg{width:22px;height:22px}
+.hero h1 .star{margin-left:9px;vertical-align:-3px}
+
 
 footer{margin-top:26px;color:var(--faint);font-size:13px;line-height:1.7}
 footer b{color:var(--soft);font-weight:500}

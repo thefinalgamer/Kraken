@@ -17,6 +17,7 @@
 
 import { nextCompletionStep } from './scoring.mjs';
 import { closingState, closingLabel, isUrgent, DEAD, CLOSING } from './closing.mjs';
+import { supporterTier, supporterLabel } from './supporter.mjs';
 
 export const IS_COMPONENTS_V2 = 1 << 15; // 32768
 
@@ -405,6 +406,19 @@ export const trophyLine = (m) =>
  *   where the accent colour already says it and the label is pure noise; on
  *   for /rank, which has room and where somebody might genuinely be checking.
  */
+/**
+ * The supporter star, for Discord.
+ *
+ * A PLAIN UNICODE STAR, not one of the metal emoji above, and that is the whole
+ * point. Those four are TROPHY emoji: putting the gold one beside a name would
+ * say "gold trophies", not "gold supporter", right next to a card that is
+ * already covered in trophy counts. One star for every tier, and the footer
+ * line says which tier in words — where there is room to be unambiguous.
+ *
+ * COSMETIC. It changes nothing about the card's numbers or the member's rank.
+ */
+export const supporterMark = (months) => (supporterTier(months) ? ' \u2b50' : '');
+
 export function memberCard(m, { total = 0, highlight = false, above = null, showTier = false } = {}) {
   const tier = tierFor(m.rank, total);
   const { name: tierName, color } = TIERS[tier];
@@ -418,6 +432,9 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
     chaseLine(m, above),
     lastSeen(m.last_update_at),
     showTier ? `${tierEmoji(tier)} ${tierName} tier` : '',
+    // Named in words here, where there is room, because the star alone cannot
+    // say which tier and guessing from a yellow glyph is not reading.
+    supporterTier(m.supporter_months) ? `\u2b50 ${supporterLabel(m.supporter_months)}` : '',
   ]
     .filter(Boolean)
     .map((line) => `-# ${line}`)
@@ -431,7 +448,9 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
       // Anything extra has to be folded into one of these three, not appended.
       section(
         [
-          `### ${position} · ${country ? `${country} ` : ''}${who}`,
+          `### ${position} · ${country ? `${country} ` : ''}${who}${supporterMark(
+            m.supporter_months,
+          )}`,
           trophyLine(m),
           `**Completion** ${pct(m.completion)}\n**Points** ${n(m.points)}` +
             nextPayout(m.completion) +

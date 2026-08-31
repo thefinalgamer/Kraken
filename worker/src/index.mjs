@@ -18,6 +18,7 @@ import {
   memberCard, boardBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
   ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor, md, clockMark,
 } from '../../shared/ui.mjs';
+import { supporterTier } from '../../shared/supporter.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 import { faqSection, faqOptions } from '../../shared/faq.mjs';
 import {
@@ -98,6 +99,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'unlink':     return unlink(interaction, env, opt('member'));
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
     case 'flag':       return flagGame(interaction, env, userId, opt('game'), opt('note'), opt('closes'));
+    case 'supporter':  return setSupporterStar(interaction, env, opt('member'), opt('months'));
     case 'faq':        return faq(env);
     case 'update':     return runUpdate(interaction, env, ctx, userId);
     case 'rank':       return rank(env, opt('member') ?? userId);
@@ -1225,6 +1227,57 @@ const AUTOCOMPLETE_FIELDS = new Set(['game', 'title']);
  * only runs once the mod has typed enough for it to mean something.
  */
 const MIN_QUERY = 2;
+
+/**
+ * The supporter star. Mods only.
+ *
+ * COSMETIC, AND THE REPLY SAYS SO OUT LOUD. Every time a mod runs this they are
+ * told, in the confirmation, that it changes nothing about points or rank —
+ * because the pressure to make supporters "worth something" arrives later, it
+ * always sounds reasonable at the time, and the place to hold the line is where
+ * the decision is actually made rather than in a comment nobody opens.
+ *
+ * THE NUMBER IS A TOTAL, NOT AN INCREMENT. Running it twice with the same value
+ * leaves the same result. A mod re-running a command after Discord times out is
+ * the most ordinary thing in the world and it must never double anybody's star.
+ */
+async function setSupporterStar(interaction, env, targetId, months) {
+  const actor = interaction.member?.permissions ?? '0';
+  if ((BigInt(actor) & 8192n) !== 8192n) {
+    return errorReply('That command is for mods.');
+  }
+
+  const m = Math.max(0, Math.floor(Number(months) || 0));
+  const member = await db.memberByDiscordId(env, targetId);
+  if (!member) {
+    return errorReply('That member is not on the board yet — they need to register first.');
+  }
+
+  const changed = await db.setSupporter(env, targetId, m);
+  if (!changed) return errorReply('Nothing was updated. Is that member registered?');
+
+  const tier = supporterTier(m);
+  return reply(
+    [
+      container(
+        [
+          text(
+            m === 0
+              ? `Removed the supporter star from **${md(member.psn_online_id)}**.`
+              : `⭐ **${md(member.psn_online_id)}** is now a **${tier.name}** supporter ` +
+                `at ${m} month${m === 1 ? '' : 's'}.`,
+          ),
+          text(
+            '-# Cosmetic only. It changes nothing about their points, rank, tier or ' +
+              'position on the board.',
+          ),
+        ],
+        m === 0 ? COLOR.grey : COLOR.green,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
 
 async function handleAutocomplete(interaction, env) {
   const option = interaction.data.options?.find((o) => o.focused);

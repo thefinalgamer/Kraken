@@ -566,18 +566,22 @@ export async function onRequestGet({ params, env, request }) {
 
     ${
       viewer
-        ? `<div class="viewbar">${
-            viewer.avatar_url
-              ? `<img class="av" src="${esc(viewer.avatar_url)}" alt="" width="22" height="22">`
-              : ''
-          }<span><b>${esc(viewer.psn_online_id)}</b>'s trophies are lit up &middot; ${
-            Number(viewer.progress) || 0
-          }% done</span><a href="${esc(href({ as: null }))}">Turn off</a></div>`
+        ? `<div class="viewbar">
+             <span class="whochip">${
+               viewer.avatar_url
+                 ? `<img class="av" src="${esc(viewer.avatar_url)}" alt="" width="24" height="24">`
+                 : '<span class="av"></span>'
+             }<b>${esc(viewer.psn_online_id)}</b><span class="pc">${
+               Number(viewer.progress) || 0
+             }%</span><a class="x" href="${esc(href({ as: null }))}"
+                 aria-label="Stop showing ${esc(viewer.psn_online_id)}'s trophies"
+                 title="Stop showing ${esc(viewer.psn_online_id)}'s trophies">&times;</a></span>
+             <span class="why">trophies they have earned are highlighted below</span>
+           </div>`
         : as
-          ? `<div class="viewbar"><span><b>${esc(
+          ? `<div class="viewbar"><span class="why"><b>${esc(
               as,
-            )}</b> does not own this one, so there is nothing to light up.</span>
-             <a href="${esc(href({ as: null }))}">Turn off</a></div>`
+            )}</b> does not own this one, so there is nothing to highlight.</span></div>`
           : ''
     }
 

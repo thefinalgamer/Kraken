@@ -84,6 +84,20 @@ const fakeEnv = ({
   },
 });
 
+/**
+ * The markup, without the stylesheet.
+ *
+ * THE SAME TRAP, FROM THE OTHER SIDE. Positive assertions on an inlined
+ * stylesheet pass over an empty page — that lesson is written three times in
+ * this repo. This is the mirror image: `assert.ok(!out.includes('Turn off'))`
+ * FAILED even after the words were gone from every element, because they were
+ * still in a CSS comment explaining why they had been removed.
+ *
+ * Anything asserting about what the page SAYS should look at what the page
+ * says, so a negative goes through here.
+ */
+const bodyOf = (out) => out.slice(out.indexOf('</style>'));
+
 const render = async (opts = {}, query = '') => {
   const res = await mod.onRequestGet({
     params: { id: opts.id ?? 'NPWR07110_00' },
@@ -282,7 +296,13 @@ const VIEWER = {
 test('?as= lights up that hunter\'s trophies and nobody else\'s', async () => {
   const { out } = await render({ viewer: VIEWER }, '?as=JFL__Leon');
 
-  assert.ok(out.includes("<b>JFL__Leon</b>'s trophies are lit up"), 'the page says whose list it is');
+  // A PERSON, not a sentence with a verb on the end. The chip carries their
+  // name and an ✕; "Turn off" was a verb with no object and nobody could say
+  // what it turned off.
+  assert.match(out, /class="whochip"[\s\S]{0,300}<b>JFL__Leon<\/b>/, 'the chip names them');
+  assert.match(out, /class="x" href="\/game\/[^"]*"/, 'and carries a way to clear it');
+  assert.ok(out.includes('highlighted below'), 'and says what the highlighting means');
+  assert.ok(!bodyOf(out).includes('Turn off'), 'the unlabelled verb is gone');
   assert.match(out, /<ol class="tlist viewing"/, 'the list is in viewing mode');
 
   // Assert on the CARD, not the class name — the stylesheet is inlined, so

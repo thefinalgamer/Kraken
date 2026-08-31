@@ -892,7 +892,44 @@ p.warn.clock.soon{border-color:rgba(240,196,25,.45)}
   border:1px solid var(--edge);
   border-left:4px solid var(--rule);
 }
-.tcin{display:flex;align-items:center;gap:14px;padding:11px 20px 11px 16px}
+.tcin{display:flex;align-items:center;gap:14px;padding:11px 20px 11px 16px;
+  position:relative}
+
+/* HOVER, BUT NOT A CURSOR.
+   A card is not a link and nothing happens when you click it, so it must not
+   grow a pointer or lift like a button — that promises something the page
+   cannot deliver. What it does is brighten its own edge and rise a hair, which
+   is enough to say "this is the row your eye is on" while scrolling a hundred
+   and thirty-six of them.
+
+   The scale is on the SKEWED BACKGROUND LAYER, never on the card, because the
+   card contains text and the whole reason that layer exists is that a transform
+   over glyphs turns the antialiasing to mush. 1.006 on a 70px row is under half
+   a pixel of movement — felt rather than seen, which is the right size for
+   something that happens forty times on the way down a page.
+
+   Only where a mouse actually exists. The hover:hover query keeps it off
+   phones, where
+   :hover sticks after a tap and would leave a random card lit for good. */
+@media (hover: hover) {
+  .tc::before{transition:border-color .14s ease,transform .14s ease,filter .14s ease}
+  .tc:hover::before{
+    transform:skewX(-3deg) scale(1.006);
+    border-color:var(--faint);
+    filter:brightness(1.14);
+  }
+  /* An earned card is already carrying a metal wash, so brightness alone barely
+     registers on it. It gets the same lift with a lighter touch on the colour. */
+  .tc.got:hover::before{filter:brightness(1.1);border-color:rgba(255,255,255,.3)}
+  /* A faded row brightens back toward full as you pass over it, so you can read
+     one you have not earned without turning the whole list back on. */
+  .tlist.viewing .tc:not(.got){transition:opacity .14s ease}
+  .tlist.viewing .tc:not(.got):hover{opacity:.9}
+}
+@media (prefers-reduced-motion:reduce){
+  .tc::before{transition:none}
+  .tc:hover::before{transform:skewX(-3deg)}
+}
 
 /* The metal. Same vocabulary as the accent strip on every table: colour means
    which trophy, never how far along. */
@@ -981,15 +1018,29 @@ span.tic svg{width:26px;height:26px}
    and half-fading all of it would be a lie about a page nobody is signed in to. */
 .tlist.viewing .tc:not(.got){opacity:.62}
 
-/* Whose list this is. */
-.viewbar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
-  padding:8px 14px;border:1px solid var(--edge);border-radius:99px;background:var(--panel);
-  font-size:13px;color:var(--soft);width:fit-content;max-width:100%}
-.viewbar b{color:var(--ink)}
-.viewbar .av{width:22px;height:22px;flex:0 0 22px}
-.viewbar a{color:var(--kraken);text-decoration:none;border:1px solid var(--edge);
-  border-radius:99px;padding:3px 11px;font-size:12px}
-.viewbar a:hover{border-color:var(--kraken)}
+/* WHOSE LIST THIS IS, AS A PERSON RATHER THAN A SETTING.
+   This was a sentence with a button on the end reading "Turn off", and the
+   honest verdict on that was that you could not tell what it turned off. A verb
+   with no object is not a label.
+   So the state is drawn as the person it is about: their face, their name, how
+   far they have got, and an ✕. An ✕ on a chip reads as "remove this" to
+   everybody who has ever closed a browser tab, and it needs no verb at all. */
+.viewbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
+  font-size:12.5px;color:var(--faint)}
+.whochip{display:inline-flex;align-items:center;gap:8px;
+  padding:4px 5px 4px 5px;border:1px solid var(--edge);border-radius:99px;
+  background:var(--panel);color:var(--soft);font-size:13px}
+.whochip .av{width:24px;height:24px;flex:0 0 24px}
+.whochip b{color:var(--ink);font-weight:600}
+.whochip .pc{color:var(--faint);font-variant-numeric:tabular-nums}
+/* The ✕ is a real link with a real hit area — 26px square, which is the
+   smallest thing a thumb can reliably hit. */
+.whochip .x{display:inline-flex;align-items:center;justify-content:center;
+  width:26px;height:26px;border-radius:50%;color:var(--faint);text-decoration:none;
+  font-size:15px;line-height:1;flex:0 0 26px}
+.whochip .x:hover{background:rgba(255,255,255,.09);color:var(--ink)}
+.viewbar .why{color:var(--faint)}
+@media (max-width:520px){ .viewbar .why{flex:1 1 100%} }
 .viewbar a:hover{text-decoration:underline}
 .vchip{font-size:11.5px;color:var(--faint);border:1px solid var(--edge);border-radius:99px;
   padding:2px 10px;text-decoration:none;white-space:nowrap}

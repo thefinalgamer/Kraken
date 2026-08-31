@@ -221,41 +221,42 @@ export const isUrgent = (closesAt, now = Date.now()) => {
 };
 
 /**
- * A d20, drawn as ten shaded faces.
+ * A d20. TWENTY TRIANGLES IN ACTUAL THREE DIMENSIONS.
  *
- * NOT WEBGL. A real physics die means three.js plus a physics engine — some six
- * hundred kilobytes and a canvas — to make a shape fall over on a page whose
- * entire stylesheet is a few kilobytes. This is the same illusion for nothing:
- * an icosahedron has exactly ten faces visible head-on, so ten triangles with
- * light coming from the top left read as a solid object, and the tumble does
- * the rest.
+ * The first version was ten flat polygons in an SVG, shaded to LOOK like a
+ * solid and tumbled with a 2D rotation. It read well enough, and it was a
+ * drawing of a die rather than a die — spin it and the illusion is over,
+ * because a flat thing rotating is still flat.
  *
- * The geometry is the standard d20 projection: a hexagonal outline, a face
- * triangle in the middle, and the ring of faces between them.
+ * This is the real shape. Twenty equilateral triangles placed on the faces of
+ * an icosahedron with matrix3d, inside a preserve-3d context, so the browser
+ * does genuine perspective on genuine geometry. It rotates on any axis and
+ * stays a solid from every angle, because it IS one.
+ *
+ * AND IT COSTS ABOUT THREE KILOBYTES. Rejecting three.js was right — six
+ * hundred kilobytes and a WebGL canvas to drop a shape on a page whose entire
+ * stylesheet is a few KB. What was wrong was concluding that no 3D was
+ * affordable. CSS has had 3D transforms for over a decade and they cost
+ * nothing but the numbers.
+ *
+ * THE MATHS IS PRE-COMPUTED, NOT DERIVED AT RUNTIME. Face positions, in-plane
+ * rotations and per-face lighting are all baked into the transforms below by a
+ * generator, so the browser evaluates twenty static matrices and no JavaScript
+ * ever runs. Regenerating them is a script, not an edit — hand-tweaking one of
+ * these matrices will simply put a hole in the solid.
+ *
+ * The lighting is baked to each FACE rather than to the world, which is
+ * physically wrong: turn the die and the light turns with it. It does not
+ * matter for a second of tumbling, and the throw ends on a whole number of
+ * turns so the die comes to rest in the same orientation it started — lit from
+ * the top left, which is the only frame anybody actually looks at.
  */
-const D20_FACES = [
-  // [points, fill]  — lit from the top left, so upper-left faces are brightest.
-  ['50,4 10,27 50,32', '#3ee0bd'],
-  ['50,4 90,27 50,32', '#2fcfae'],
-  ['90,27 50,32 76,70', '#23b89a'],
-  ['90,27 90,73 76,70', '#1a9a80'],
-  ['90,73 50,96 76,70', '#137964'],
-  ['50,96 76,70 24,70', '#0f6353'],
-  ['50,96 10,73 24,70', '#12775f'],
-  ['10,73 24,70 10,27', '#1b9c81'],
-  ['10,27 50,32 24,70', '#28c0a1'],
-  // The face pointing at you, brightest, so the eye reads a solid.
-  ['50,32 76,70 24,70', '#4bf0cb'],
-];
+const D20_FACES = 20;
 
 export const d20 = () =>
-  '<span class="d20" aria-hidden="true"><svg viewBox="0 0 100 100">' +
-  D20_FACES.map(
-    ([pts, fill]) =>
-      `<polygon points="${pts}" fill="${fill}" stroke="#0a2f28" stroke-width="1.6" ` +
-      'stroke-linejoin="round"/>',
-  ).join('') +
-  '</svg></span>';
+  '<span class="d20" aria-hidden="true"><span class="dscale"><span class="dspin">' +
+  '<i></i>'.repeat(D20_FACES) +
+  '</span></span></span>';
 
 /**
  * The address of a game.
@@ -286,9 +287,8 @@ export const crumb = (href, label) =>
  * The supporter star. A five-pointed star inside a ring.
  *
  * MIRRORED FROM shared/supporter.mjs, exactly as TIER is, because Pages
- * Functions bundle from their own directory and reaching up into shared/ is a
- * build-config fight for a dozen lines. If the thresholds change they change in
- * both places — the shared file is the canonical one.
+ * Functions bundle from their own directory. If the thresholds change they
+ * change in both places — the shared file is the canonical one.
  *
  * A GLYPH, NEVER A WORD. The leaderboard already has a column reading GOLD and
  * SILVER for rank, so a supporter badge that also SAID gold would be two metal
@@ -311,7 +311,7 @@ export function supporterTier(months) {
 }
 
 /**
- * `aria-hidden` on the drawing and a real title on the wrapper: a screen reader
+ * `aria-hidden` on the drawing and a real label on the wrapper: a screen reader
  * hears "Gold supporter, 8 months" once, rather than reading out a star path.
  */
 export function supporterStar(months) {
@@ -651,38 +651,82 @@ td.prog{min-width:112px}
 .rollcta{display:inline-flex;align-items:center;gap:7px;color:var(--kraken);
   text-decoration:none;font-weight:600;font-size:13.5px;white-space:nowrap}
 .rollcta:hover{text-decoration:underline}
-.rollcta .d20{width:18px;height:18px}
+.rollcta .d20{width:18px;height:18px;flex:0 0 18px}
 
 /* THE THROW.
-   It falls in from above the panel, lands, bounces twice and settles — once,
+   It falls in from above the panel, tumbles, bounces twice and settles — once,
    then it stops. A die that never settles is a spinner, and a spinner means
    "still loading" to everybody who has ever used a computer.
+
+   Three nested elements, each with one job, because they change for different
+   reasons: the stage holds the perspective and the layout box, the scaler sets
+   how big the die is, and only the spinner is animated. Putting the size on the
+   same element as the animation means the keyframes have to restate it, and the
+   first thing anybody forgets when editing a keyframe is the bit that was only
+   there to stop the die changing size.
 
    Transform and opacity only, so the browser does the whole thing on the
    compositor and never touches layout. The shadow underneath is a separate
    element squashing on each impact, which is most of why it reads as weight
    rather than as a picture sliding down the screen. */
-.d20{display:inline-block;line-height:0;position:relative}
-.d20 svg{width:100%;height:100%;display:block;filter:drop-shadow(0 3px 5px rgba(0,0,0,.5))}
-
-.rolled .d20{width:46px;height:46px;animation:throw 1.15s cubic-bezier(.3,.7,.4,1) both}
-.rolled .d20::after{
-  content:"";position:absolute;left:12%;right:12%;bottom:-7px;height:7px;
-  border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
-  animation:landshadow 1.15s cubic-bezier(.3,.7,.4,1) both;
+.d20{display:inline-block;position:relative;width:18px;height:18px;
+  perspective:360px;vertical-align:-3px}
+.dscale{position:absolute;left:50%;top:50%;transform-style:preserve-3d;
+  transform:scale(.36)}
+.dspin{display:block;width:0;height:0;position:relative;transform-style:preserve-3d}
+/* Each face is an equilateral triangle whose transform-origin is its own
+   centroid, so the matrices below only have to say where that centroid goes and
+   which way the face points. */
+.dspin i{
+  position:absolute;width:26px;height:22.517px;left:-13px;top:-15.011px;
+  clip-path:polygon(50% 0,100% 100%,0 100%);
+  transform-origin:50% 66.667%;
+  backface-visibility:hidden;
 }
+.dspin i:nth-child(1){transform:matrix3d(0.31829,-0.83329,0.515,0,-0.77843,0.11357,0.66486,0,-0.57735,-0.57735,-0.57735,0,-11.34481,-11.34481,-11.34481,1);background:rgb(33,173,139)}
+.dspin i:nth-child(2){transform:matrix3d(1.03,0,0,0,0,-0.36753,0.9622,0,0,-0.93417,-0.35682,0,0,-18.35629,-7.01148,1);background:rgb(39,209,168)}
+.dspin i:nth-child(3){transform:matrix3d(-0.83329,-0.515,0.31829,0,-0.4811,0.89201,0.18376,0,-0.35682,0,-0.93417,0,-7.01148,0,-18.35629,1);background:rgb(14,76,61)}
+.dspin i:nth-child(4){transform:matrix3d(-0.83329,0.515,-0.31829,0,0.4811,0.89201,0.18376,0,0.35682,0,-0.93417,0,7.01148,0,-18.35629,1);background:rgb(14,76,61)}
+.dspin i:nth-child(5){transform:matrix3d(0.31829,0.83329,-0.515,0,0.77843,0.11357,0.66486,0,0.57735,-0.57735,-0.57735,0,11.34481,-11.34481,-11.34481,1);background:rgb(14,76,61)}
+.dspin i:nth-child(6){transform:matrix3d(0,0,1.03,0,-0.36753,0.9622,0,0,-0.93417,-0.35682,0,0,-18.35629,-7.01148,0,1);background:rgb(46,246,198)}
+.dspin i:nth-child(7){transform:matrix3d(0.83329,-0.515,0.31829,0,0.11357,0.66486,0.77843,0,-0.57735,-0.57735,0.57735,0,-11.34481,-11.34481,11.34481,1);background:rgb(61,255,255)}
+.dspin i:nth-child(8){transform:matrix3d(0.515,-0.31829,-0.83329,0,0.89201,0.18376,0.4811,0,0,-0.93417,0.35682,0,0,-18.35629,7.01148,1);background:rgb(57,255,244)}
+.dspin i:nth-child(9){transform:matrix3d(-0.31829,-0.83329,0.515,0,0.18376,0.4811,0.89201,0,-0.93417,0.35682,0,0,-18.35629,7.01148,0,1);background:rgb(20,109,87)}
+.dspin i:nth-child(10){transform:matrix3d(-0.515,0.31829,0.83329,0,0.66486,0.77843,0.11357,0,-0.57735,0.57735,-0.57735,0,-11.34481,11.34481,-11.34481,1);background:rgb(14,76,61)}
+.dspin i:nth-child(11){transform:matrix3d(0.83329,0.515,0.31829,0,-0.4811,0.89201,-0.18376,0,-0.35682,0,0.93417,0,-7.01148,0,18.35629,1);background:rgb(45,239,192)}
+.dspin i:nth-child(12){transform:matrix3d(-0.31829,-0.83329,-0.515,0,0.77843,0.11357,-0.66486,0,0.57735,-0.57735,0.57735,0,11.34481,-11.34481,11.34481,1);background:rgb(38,201,162)}
+.dspin i:nth-child(13){transform:matrix3d(0.83329,-0.515,-0.31829,0,0.4811,0.89201,-0.18376,0,0.35682,0,0.93417,0,7.01148,0,18.35629,1);background:rgb(30,161,130)}
+.dspin i:nth-child(14){transform:matrix3d(-0.83329,-0.515,-0.31829,0,0.11357,-0.66486,0.77843,0,-0.57735,0.57735,0.57735,0,-11.34481,11.34481,11.34481,1);background:rgb(19,104,84)}
+.dspin i:nth-child(15){transform:matrix3d(0.515,0.31829,0.83329,0,0.89201,-0.18376,-0.4811,0,0,0.93417,-0.35682,0,0,18.35629,-7.01148,1);background:rgb(14,76,61)}
+.dspin i:nth-child(16){transform:matrix3d(-0.515,-0.31829,0.83329,0,0.89201,-0.18376,0.4811,0,0,0.93417,0.35682,0,0,18.35629,7.01148,1);background:rgb(14,76,61)}
+.dspin i:nth-child(17){transform:matrix3d(-0.31829,0.83329,0.515,0,0.77843,-0.11357,0.66486,0,0.57735,0.57735,-0.57735,0,11.34481,11.34481,-11.34481,1);background:rgb(14,76,61)}
+.dspin i:nth-child(18){transform:matrix3d(0,0,-1.03,0,0.36753,0.9622,0,0,0.93417,-0.35682,0,0,18.35629,-7.01148,0,1);background:rgb(14,76,61)}
+.dspin i:nth-child(19){transform:matrix3d(-0.31829,0.83329,-0.515,0,-0.18376,0.4811,0.89201,0,0.93417,0.35682,0,0,18.35629,7.01148,0,1);background:rgb(14,76,61)}
+.dspin i:nth-child(20){transform:matrix3d(0.31829,-0.83329,0.515,0,0.77843,-0.11357,-0.66486,0,0.57735,0.57735,0.57735,0,11.34481,11.34481,11.34481,1);background:rgb(14,76,61)}
+
+.rolled .d20{width:52px;height:52px;vertical-align:middle}
+.rolled .dscale{transform:scale(1)}
+.rolled .dspin{animation:throw 1.25s cubic-bezier(.3,.7,.4,1) both}
+.rolled .d20::after{
+  content:"";position:absolute;left:8%;right:8%;bottom:-6px;height:7px;
+  border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
+  animation:landshadow 1.25s cubic-bezier(.3,.7,.4,1) both;
+}
+/* Whole turns, so the die lands in the orientation it was lit for. A throw that
+   stopped on 430 degrees would settle with its dark side out and look switched
+   off, which is a strange way to end an animation about arriving. */
 @keyframes throw{
-  0%   {transform:translate3d(-46px,-150px,0) rotate(-620deg) scale(.5); opacity:0}
+  0%   {transform:translate3d(-52px,-165px,0) rotate3d(1,.7,.3,-900deg) scale(.55); opacity:0}
   12%  {opacity:1}
   /* first contact */
-  42%  {transform:translate3d(0,0,0) rotate(-26deg) scale(1.06)}
+  42%  {transform:translate3d(0,0,0) rotate3d(1,.7,.3,-430deg) scale(1.05)}
   /* big bounce */
-  56%  {transform:translate3d(4px,-30px,0) rotate(12deg) scale(.97)}
-  70%  {transform:translate3d(0,0,0) rotate(4deg) scale(1.04)}
+  56%  {transform:translate3d(5px,-32px,0) rotate3d(1,.7,.3,-250deg) scale(.97)}
+  70%  {transform:translate3d(0,0,0) rotate3d(1,.7,.3,-110deg) scale(1.04)}
   /* small bounce */
-  82%  {transform:translate3d(1px,-9px,0) rotate(-3deg) scale(.99)}
-  92%  {transform:translate3d(0,0,0) rotate(0) scale(1.01)}
-  100% {transform:translate3d(0,0,0) rotate(0) scale(1)}
+  82%  {transform:translate3d(2px,-10px,0) rotate3d(1,.7,.3,-40deg) scale(.99)}
+  92%  {transform:translate3d(0,0,0) rotate3d(1,.7,.3,-8deg) scale(1.01)}
+  100% {transform:translate3d(0,0,0) rotate3d(1,.7,.3,0deg) scale(1)}
 }
 @keyframes landshadow{
   0%   {opacity:0;   transform:scale(.3)}
@@ -702,11 +746,12 @@ td.prog{min-width:112px}
 @keyframes land{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 
 @media (prefers-reduced-motion:reduce){
-  .rolled .d20,.rolls li{animation:none}
+  /* The die still arrives, it just does not perform. */
+  .rolled .dspin,.rolled .d20::after,.rolls li{animation:none}
 }
 .panel.roll{margin:0 0 18px}
 .panel.roll h2{gap:9px}
-.panel.roll h2 .d20{color:var(--kraken)}
+.panel.roll h2 .d20{margin-right:2px}
 .rlabel{margin:12px 0 6px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
   color:var(--faint);font-weight:700}
 .rlabel:first-of-type{margin-top:2px}
@@ -900,6 +945,45 @@ ul.feed .s a:hover{color:var(--kraken)}
 ul.feed.people li{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
   column-gap:10px;align-items:center}
 ul.feed.people .av{grid-row:1 / span 2;width:30px;height:30px;flex:0 0 30px}
+
+/* ---- the FAQ ----
+   Folders again, and for the same reason the trophy packs are: six sections of
+   prose is a wall, and a wall is what people scroll past looking for the one
+   paragraph they came for. The first is open so the page is never a list of
+   closed boxes. */
+.faq{margin:0 0 8px;border:1px solid var(--edge);border-radius:10px;background:var(--panel)}
+.faqhead{
+  display:flex;align-items:baseline;gap:12px;padding:13px 16px;cursor:pointer;
+  list-style:none;user-select:none;font-weight:700;color:var(--ink);font-size:15.5px;
+}
+.faqhead::-webkit-details-marker{display:none}
+.faqhead:hover{color:var(--kraken)}
+.faqhead .caret{font-size:10px;color:var(--faint);transition:transform .16s ease;
+  align-self:center}
+.faq[open] > .faqhead .caret{transform:rotate(90deg)}
+.faqhead .fq{flex:0 0 auto}
+.faqhead .fd{color:var(--faint);font-weight:400;font-size:12.5px;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:560px){ .faqhead .fd{display:none} }
+
+.faqbody{padding:0 18px 18px;max-width:74ch;color:var(--soft);font-size:14.5px;
+  line-height:1.65}
+.faqbody h2{margin:0 0 10px;font-size:13px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--faint);font-weight:700}
+.faqbody p{margin:0 0 13px}
+.faqbody b{color:var(--ink)}
+.faqbody code{background:var(--ground);border:1px solid var(--edge);border-radius:5px;
+  padding:1px 6px;font-size:13px;color:var(--kraken)}
+.faqbody pre{background:var(--ground);border:1px solid var(--edge);border-radius:8px;
+  padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.7;margin:0 0 13px;
+  color:var(--soft)}
+.faqbody a{color:var(--kraken)}
+.faqbody .fine{color:var(--faint);font-size:12.5px}
+ul.faqlist{list-style:none;margin:0 0 13px;padding:0}
+ul.faqlist li{position:relative;padding-left:18px;margin:0 0 6px}
+ul.faqlist li::before{content:"";position:absolute;left:2px;top:.62em;width:6px;height:6px;
+  border-radius:2px;background:var(--edge)}
+@media (prefers-reduced-motion:reduce){ .faqhead .caret{transition:none} }
 
 /* ---- the game page ----
    The first page here whose subject is a game rather than a person, so it gets
@@ -1335,6 +1419,7 @@ export const NAV = [
   { href: '/leaderboard', label: 'Leaderboards', key: 'board' },
   { href: '/games', label: 'Games', key: 'games' },
   { label: 'Contested', key: 'contested' },
+  { href: '/faq', label: 'FAQ', key: 'faq' },
   // The door. Everything else on this site is a window.
   { href: 'https://discord.com/invite/gdSqDYrXaH', label: 'Discord', key: 'discord', out: true },
 ];

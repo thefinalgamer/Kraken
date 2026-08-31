@@ -146,6 +146,14 @@ export const FAQ = [
       'crowd-sourced by trophy hunters who hit the wall and wrote it down: ' +
       'psnp-plus.huskycode.dev. Mods can add or clear a flag with `/flag`, and a mod ' +
       'always overrules the list.\n\n' +
+      '**And the ⏳ or 🕒?**\n' +
+      'That game is still finishable, but not for ever. A mod has put a date on it — ' +
+      'servers closing, a licence expiring — and the clock counts down to it.\n' +
+      '⏳ means **under a month left**. 🕒 means further out. When the date passes it ' +
+      'becomes ⚠️ on its own, overnight.\n' +
+      'The difference matters: ⚠️ is a closed door, ⏳ is an invitation with a deadline. ' +
+      'Closing games sort to the top of `/contested`, because a deadline beats a ' +
+      'difficulty ranking every time.\n\n' +
       '**Commands**\n' +
       '`/rank` - where you are, and who you are chasing\n' +
       '`/leaderboard` - the five either side of you\n' +
@@ -157,9 +165,73 @@ export const FAQ = [
       '`/verify` - prove the account is yours and start your first scan\n' +
       '`/faq` - this menu, from anywhere\n\n' +
       '**Mods only**\n' +
-      '`/flag` - mark a game as having trophies nobody can earn any more\n' +
+      '`/flag` - mark a game as having trophies nobody can earn any more, or put a ' +
+      'closing date on one\n' +
+      '`/supporter` - give somebody the supporter star\n' +
       '`/unlink` - free somebody\'s PSN link so it can be claimed again\n' +
       '`/addmember` - put somebody on the board by hand, skipping verification',
+  },
+  {
+    value: 'website',
+    label: 'The website',
+    description: 'The board, game pages, the dice, and the star',
+    body:
+      '## The website\n\n' +
+      'Everything the bot knows, with room to breathe. Discord is still the hub — you ' +
+      'join here, you update here, the board posts here. The site is the window.\n\n' +
+      '**Where is it?**\n' +
+      'platinumintel.pages.dev\n\n' +
+      '**Do I need an account?**\n' +
+      'No, and there is nothing to sign up for. If you are on the board you are already ' +
+      'on the site. Nobody joins from there.\n\n' +
+      '**What is on it?**\n' +
+      '▫️ **Leaderboards** - the whole board, sortable by any column. Streamer and ' +
+      'seasonal boards are coming\n' +
+      '▫️ **Your page** - every game you own, what each is worth, and what finishing it ' +
+      'would pay. Click any name on the board\n' +
+      '▫️ **Game pages** - every trophy in a game, how rare it is worldwide AND how many ' +
+      'of us have it, split into the base game and each DLC pack\n' +
+      '▫️ **The dice** - stuck for something to play? Three from your backlog, two from ' +
+      'games you have never touched\n\n' +
+      '**"How many of us have it" — what is that?**\n' +
+      'The column no other trophy site can show you. Every trophy says how many people ' +
+      '*on this server* have earned it. "Four of us have this" is a different fact from ' +
+      '"2% of the world has this", and it is usually the more interesting one.\n\n' +
+      '**Secret trophies?**\n' +
+      'Blurred until you ask. One button at the top of the list reveals the lot, so you ' +
+      'cannot be spoiled by accident scrolling a game you have not played.\n\n' +
+      '**Why is half the trophy list faded?**\n' +
+      'Because you clicked through from somebody\'s page, so it is showing *their* ' +
+      'trophies — earned ones lit, the rest dimmed. The chip at the top says whose. ' +
+      'Click the ✕ to see the plain list.\n\n' +
+      '**Can I see it on my phone?**\n' +
+      'Yes. All of it.',
+  },
+  {
+    value: 'supporting',
+    label: 'Supporting Kraken',
+    description: 'Costs, the star, and what it does not buy',
+    body:
+      '## Supporting Kraken\n\n' +
+      'Kraken is free and always will be. There is nothing behind a paywall, no board ' +
+      'you cannot see, and no advantage anybody can buy.\n\n' +
+      '**So why is there a link?**\n' +
+      'Hosting costs real money every month and somebody pays it. If you want to chip ' +
+      'in there is a Ko-fi link in the footer of the site. If you do not, nothing about ' +
+      'Kraken changes for you — that is the deal.\n\n' +
+      '**What is the star next to some names?**\n' +
+      'A thank-you. Bronze from the first month, silver at three, gold at six, platinum ' +
+      'at a year. Once you have it you keep it, even if you stop — it says *you helped*, ' +
+      'not *you are currently paying*.\n\n' +
+      '**Does it get me anything?**\n' +
+      '**No.** Not points, not rank, not tier, not a nudge up the board, not early ' +
+      'access to anything. It is a small star beside your name and that is the entire ' +
+      'feature. The board is a record of what people earned; the day it becomes ' +
+      'something you can buy into, it is worth nothing to anybody.\n\n' +
+      '**Do you see my card details?**\n' +
+      'No. Ko-fi handles all of it. The only thing that reaches Kraken is a number of ' +
+      'months, typed in by a mod. There is no payment information in the database at ' +
+      'all.',
   },
 ];
 
@@ -183,6 +255,8 @@ export const HOME_BLURB =
   'Easy trophies pay nothing, rare ones pay properly, and your overall completion multiplies ' +
   'the lot, so going back and finishing old games is the fastest way up.\n\n' +
   'It also watches the whole server: a game gets **more valuable while people here are still ' +
-  'stuck on it**, so your points move when other people play.';
+  'stuck on it**, so your points move when other people play.\n\n' +
+  'The full board, every game and every trophy is at **platinumintel.pages.dev** — no ' +
+  'account needed, you are already on it.';
 
 export { DEFAULT_SCORING, localMultiplier };

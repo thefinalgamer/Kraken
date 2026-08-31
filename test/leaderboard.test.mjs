@@ -147,3 +147,31 @@ test('only the hunter count survives from the old stats line', async () => {
   assert.ok(!out.includes('platinums between them'), 'the rest is gone');
   assert.ok(!out.includes('points ·'), 'including the points sum');
 });
+
+test('the footer carries the studio and the coffee link, safely', async () => {
+  const { out } = await render(members);
+
+  assert.ok(out.includes('href="https://happysquidstudios.com"'), 'the studio');
+  assert.ok(out.includes('href="https://ko-fi.com/happysquidstudios"'), 'the coffee');
+
+  // Both leave the site, so both need noopener — without it the page we open
+  // gets a handle on ours through window.opener and can navigate it away.
+  const by = out.slice(out.indexOf('class="by"'), out.indexOf('class="end"'));
+  assert.equal(
+    (by.match(/rel="noopener noreferrer"/g) || []).length,
+    2,
+    'every outbound link in the credit is protected',
+  );
+  assert.equal((by.match(/target="_blank"/g) || []).length, 2);
+});
+
+test('the ask never mentions what supporting gets you', async () => {
+  // The star is a thank-you sent afterwards, not a product on sale. A footer
+  // advertising it would turn the board into a shop, which is the one thing it
+  // cannot survive being.
+  const { out } = await render(members);
+  const by = out.slice(out.indexOf('class="by"'), out.indexOf('class="end"'));
+  for (const word of ['star', 'badge', 'supporter', 'perk', 'reward']) {
+    assert.ok(!by.toLowerCase().includes(word), `the credit line mentions "${word}"`);
+  }
+});

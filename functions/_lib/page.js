@@ -794,6 +794,21 @@ details.numbers summary:hover{color:var(--kraken)}
   border-bottom:1px solid transparent;transition:border-color .15s ease,color .15s ease;
 }
 .credit .by a:hover{color:var(--kraken);border-bottom-color:var(--kraken)}
+/* THE ASK, AND IT IS DELIBERATELY THE QUIETEST THING IN THE ROW.
+   One line under the studio credit, at the bottom of every page, sized well
+   below the name above it and below the disclaimer beside it. Nobody arrives
+   here to be asked for money — they arrive to look at trophies — so it waits
+   until the end of the page and never interrupts. A banner would earn more this
+   month and cost more than it earned by Christmas.
+   It also never mentions what supporting gets you. The star is a thank-you sent
+   afterwards, not a product on sale, and a footer that advertised it would turn
+   the board into a shop. */
+.credit .by .kofi{
+  display:block;margin-top:5px;font-size:12px;font-weight:500;color:var(--faint);
+  border-bottom-color:transparent;
+}
+.credit .by .kofi:hover{color:var(--kraken);border-bottom-color:transparent;
+  text-decoration:underline}
 @media (max-width:720px){ .credit .by a{font-size:16px} }
 /* Sony's name appears on this site constantly — platforms, trophies, the whole
    premise. The disclaimer is not decoration; it is the sentence that makes it
@@ -1384,7 +1399,9 @@ ${
     <span class="legal">Kraken is a fan project and is not affiliated with,<br>
       endorsed by or connected to Sony or PlayStation.</span>
     <span class="by">Brought to you by <a href="https://happysquidstudios.com"
-      target="_blank" rel="noopener noreferrer">Happy Squid Studios</a></span>
+      target="_blank" rel="noopener noreferrer">Happy Squid Studios</a>
+      <a class="kofi" href="https://ko-fi.com/happysquidstudios"
+        target="_blank" rel="noopener noreferrer">Buy us a coffee</a></span>
     <span class="end">Joining happens in Discord.</span>
   </div>
 </div>

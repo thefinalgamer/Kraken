@@ -563,3 +563,15 @@ test('a roll renders both halves and a way to roll again', async () => {
   assert.ok(out.includes('Wild One'));
   assert.ok(out.includes('Roll again'));
 });
+
+test('every game title is a link to that game', async () => {
+  // A library that cannot be clicked through is a screenshot. The game page
+  // exists; the hunter page is the main way anybody reaches it.
+  const { out } = await render();
+  for (const g of GAMES) {
+    assert.ok(
+      out.includes(`href="/game/${g.np_comm_id}"`),
+      `${g.title} is not a link to its page`,
+    );
+  }
+});

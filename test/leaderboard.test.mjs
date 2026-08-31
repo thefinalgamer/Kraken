@@ -97,7 +97,7 @@ test('the Discord link is real, external and safe', async () => {
   assert.ok(out.includes('rel="noopener noreferrer"'), 'no window.opener handle back to us');
 
   // The pages that do not exist are still labels, not links that 404.
-  assert.ok(out.includes('<span class="soon" title="Coming soon">Games</span>'));
+  assert.ok(out.includes('href="/games"'), 'Games is built and linked');
   assert.ok(out.includes('<span class="soon" title="Coming soon">Contested</span>'));
 });
 

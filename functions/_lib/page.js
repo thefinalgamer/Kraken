@@ -257,6 +257,17 @@ export const d20 = () =>
   ).join('') +
   '</svg></span>';
 
+/**
+ * The address of a game.
+ *
+ * ONE FUNCTION, because five pages render a game title and every one of them
+ * was building this string by hand until the game page existed. The id is a
+ * PSN identifier like `NPWR07110_00` — safe characters only — but it is still
+ * encoded, because "safe today" is how a URL builder becomes an injection in
+ * eighteen months when Sony changes a format.
+ */
+export const gameHref = (id) => `/game/${encodeURIComponent(String(id ?? ''))}`;
+
 export const ordinal = (v) => {
   const num = Number(v);
   if (!Number.isFinite(num)) return String(v ?? '');
@@ -785,6 +796,147 @@ ul.feed.people li{display:grid;grid-template-columns:auto 1fr;grid-template-rows
   column-gap:10px;align-items:center}
 ul.feed.people .av{grid-row:1 / span 2;width:30px;height:30px;flex:0 0 30px}
 
+/* ---- the game page ----
+   The first page here whose subject is a game rather than a person, so it gets
+   the same furniture as a hunter — a hero, a cabinet bar, sort tabs, one table
+   — and none of its own. A site where every page invents a layout is four
+   sites. */
+.ghero{display:flex;align-items:center;gap:18px;margin:4px 0 16px}
+.bigico{width:96px;height:96px;border-radius:12px;flex:0 0 96px;background:var(--edge);
+  object-fit:cover;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.gh{min-width:0}
+.gh h1{margin:0;font-size:clamp(21px,3.4vw,30px);letter-spacing:-.015em;line-height:1.2}
+.gh h1 .plat-chip{vertical-align:middle;margin-right:9px}
+.gh .sub{margin:5px 0 0;color:var(--soft);font-size:14px;display:flex;align-items:center;
+  gap:9px;flex-wrap:wrap}
+.gh .sub b{color:var(--ink);font-weight:700}
+@media (max-width:520px){
+  .ghero{gap:13px}
+  .bigico{width:66px;height:66px;flex:0 0 66px}
+}
+
+/* The index and any other page with a title but no face. */
+.hero.plain{align-items:flex-start;text-align:left;gap:5px;margin:6px 0 16px}
+.hero.plain .sub{color:var(--soft)}
+
+/* A guess, labelled. PSN publishes no rarity for some games — usually ones
+   released this week — so the bot prices those from the trophy mix alone. The
+   number is still the number; the word beside it is the difference between a
+   scoring system and a scoring argument. */
+.est{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--brass);
+  border:1px solid var(--edge);border-radius:99px;padding:2px 8px;font-weight:600}
+.est.sm{margin-left:7px;padding:1px 6px;font-size:9.5px}
+
+/* THE DEADLINE, FULL WIDTH, ABOVE EVERYTHING.
+   In a table this is an icon, because a table has forty rows and forty
+   sentences is a wall. On the page ABOUT that one game it is a sentence, at the
+   top, before the trophy list — you cannot make an informed decision about a
+   game after you have read its trophy list. Same two states as everywhere:
+   the triangle is a closed door, the clock is an invitation with a deadline. */
+p.warn{display:flex;gap:11px;align-items:flex-start;margin:0 0 16px;padding:11px 14px;
+  border:1px solid var(--edge);border-radius:10px;background:var(--panel);
+  font-size:13.5px;line-height:1.55;color:var(--soft);cursor:auto}
+p.warn .mk{font-size:17px;line-height:1.2;flex:0 0 auto}
+p.warn b{color:var(--ink);font-weight:600}
+p.warn.dead{border-color:rgba(216,171,62,.4)}
+p.warn.clock{border-color:rgba(32,184,153,.4)}
+p.warn.clock.soon{border-color:rgba(240,196,25,.45)}
+
+/* ---- the trophy list ---- */
+.trophies td.tn{white-space:normal;min-width:220px}
+.trophies .tname{font-weight:600;font-size:15px;display:block}
+.trophies .tdet{display:block;color:var(--faint);font-size:12.5px;margin-top:2px;
+  line-height:1.5;max-width:62ch}
+.trophies .ico.sm{width:44px;height:44px;flex:0 0 44px;border-radius:9px}
+/* No icon from PSN: the cup, in the metal, on the track colour. Better than an
+   empty grey square, which reads as a broken image. */
+.trophies span.ico.sm{display:flex;align-items:center;justify-content:center}
+.trophies span.ico.sm svg{width:22px;height:22px}
+
+/* The type stripe, same column the game tables use for progress. Here it is the
+   metal, because a trophy has no progress — you have it or you do not. */
+tr.tr-p td.bar{background:#4a9eff}
+tr.tr-g td.bar{background:#f0c419}
+tr.tr-s td.bar{background:#c9ccd1}
+tr.tr-b td.bar{background:#e08a4a}
+@media (max-width:640px){
+  .games tr.tr-p td.gi{border-left-color:#4a9eff}
+  .games tr.tr-g td.gi{border-left-color:#f0c419}
+  .games tr.tr-s td.gi{border-left-color:#c9ccd1}
+  .games tr.tr-b td.gi{border-left-color:#e08a4a}
+}
+
+/* Sony's five bands, Sony's five words. The colour ramps with the rarity so the
+   column can be read down without reading any of the numbers in it. */
+td.rare{min-width:104px}
+.rb{font-weight:700;font-variant-numeric:tabular-nums}
+.rb.ur{color:#e86a9a} .rb.vr{color:#c98af0} .rb.r{color:#7fd6f5}
+.rb.u{color:var(--soft)} .rb.c{color:var(--faint)} .rb.none{color:var(--faint)}
+.rl{display:block;font-size:11px;color:var(--faint);margin-top:4px;letter-spacing:.02em}
+
+/* THE COLUMN THAT DOES NOT EXIST ANYWHERE ELSE. Global rarity is on every
+   trophy site there has ever been; "one of us" is on none of them. The bar is
+   the same four pixels as a progress bar so the eye reads the two columns the
+   same way, and the caption underneath says it in words because "2 / 31" is a
+   fraction and "one of us" is a fact about people you know. */
+td.local{min-width:118px}
+.local .nobody{color:var(--faint)}
+.track.sm{height:4px;margin-top:5px}
+.fill.here{background:var(--kraken)}
+
+/* ---- secret trophies ----
+   BLURRED, NOT WITHHELD. The text is in the HTML, exactly as it is on every
+   other trophy site, because a reveal that costs a round trip is a reveal
+   nobody clicks. What the blur buys is not secrecy from somebody determined —
+   it is that you cannot be spoiled BY ACCIDENT while scrolling a game you have
+   not played, which is the whole of the actual risk.
+
+   A checkbox and a sibling selector: no JavaScript, works on a phone, and it is
+   one control for the page instead of a button on every row. The input is
+   off-screen rather than display:none, because a hidden input cannot be
+   focused and the label would stop working from a keyboard. */
+.spoilbox{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.spoillabel{display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  color:var(--soft);font-size:13px;border:1px solid var(--edge);border-radius:99px;
+  padding:5px 13px;background:var(--panel);user-select:none}
+.spoillabel::before{content:"\\2609";font-size:14px;line-height:1;color:var(--faint)}
+.spoillabel:hover{color:var(--ink);border-color:var(--faint)}
+.spoilbox:focus-visible + .toolrow .spoillabel{outline:2px solid var(--kraken);outline-offset:2px}
+.spoilbox:checked + .toolrow .spoillabel{color:var(--kraken);border-color:var(--kraken)}
+.spoilbox:checked + .toolrow .spoillabel::before{content:"\\25C9";color:var(--kraken)}
+
+tr.secret .spoil{filter:blur(5px);opacity:.75;transition:filter .18s ease,opacity .18s ease}
+/* The row keeps its shape while blurred — the text is still there, just
+   unreadable — so revealing does not reflow the table under the reader's
+   thumb. */
+.spoilbox:checked ~ .tablewrap tr.secret .spoil{filter:none;opacity:1}
+.secretmark{display:inline-block;margin-top:6px;font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--brass);border:1px solid var(--edge);
+  border-radius:99px;padding:2px 8px}
+@media (prefers-reduced-motion:reduce){ tr.secret .spoil{transition:none} }
+
+/* The index stripe. A game on its own has no progress — only a clock. */
+tr.st-dead  td.bar{background:var(--brass)}
+tr.st-soon  td.bar{background:#f0c419}
+tr.st-clock td.bar{background:var(--kraken)}
+tr.st-none  td.bar{background:var(--rule)}
+@media (max-width:640px){
+  .games tr.st-dead  td.gi{border-left-color:var(--brass)}
+  .games tr.st-soon  td.gi{border-left-color:#f0c419}
+  .games tr.st-clock td.gi{border-left-color:var(--kraken)}
+}
+
+/* ---- who here has it ---- */
+.games a.tname{color:inherit;text-decoration:none}
+.games a.tname:hover{color:var(--kraken);text-decoration:underline}
+.games a.who{color:inherit;text-decoration:none;font-weight:600;font-size:15px}
+.games a.who:hover{color:var(--kraken);text-decoration:underline}
+.games .av{width:34px;height:34px;flex:0 0 34px}
+ul.feed a.t{color:inherit;text-decoration:none}
+ul.feed a.t:hover{color:var(--kraken)}
+ul.rolls a.t{color:inherit;text-decoration:none}
+ul.rolls a.t:hover{color:var(--kraken)}
+
 footer{margin-top:26px;color:var(--faint);font-size:13px;line-height:1.7}
 footer b{color:var(--soft);font-weight:500}
 .empty{padding:40px;text-align:center;color:var(--soft)}
@@ -811,7 +963,7 @@ footer b{color:var(--soft);font-weight:500}
  */
 export const NAV = [
   { href: '/leaderboard', label: 'Leaderboard', key: 'board' },
-  { label: 'Games', key: 'games' },
+  { href: '/games', label: 'Games', key: 'games' },
   { label: 'Contested', key: 'contested' },
   // The door. Everything else on this site is a window.
   { href: 'https://discord.com/invite/gdSqDYrXaH', label: 'Discord', key: 'discord', out: true },

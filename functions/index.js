@@ -22,6 +22,7 @@
 import {
   page, html, esc, n, flag, ordinal, navButtons,
   closingState, closingLabel, isUrgent,
+  gameHref,
 } from './_lib/page.js';
 
 const TOTALS = `
@@ -193,7 +194,7 @@ export async function onRequestGet({ env }) {
             ? `<ul class="feed">${contested.results
                 .map(
                   (g) => `<li>
-                    <span class="t">${esc(g.title)}</span>
+                    <a class="t" href="${esc(gameHref(g.np_comm_id))}">${esc(g.title)}</a>
                     <span class="s">${n(
                       (Number(g.local_started) || 0) - (Number(g.platted_here) || 0),
                     )} of ${n(g.local_started)} still in it${
@@ -221,7 +222,7 @@ export async function onRequestGet({ env }) {
             ? `<ul class="feed">${finished.results
                 .map(
                   (f) => `<li>
-                    <span class="t">${esc(f.title)}</span>
+                    <a class="t" href="${esc(gameHref(f.np_comm_id))}">${esc(f.title)}</a>
                     <span class="s"><a href="${esc(
                       hunterLink(f.psn_online_id),
                     )}">${esc(f.psn_online_id)}</a> &middot; ${esc(when(f.finished_at))}</span>

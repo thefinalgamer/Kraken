@@ -79,7 +79,10 @@ test('the front page leads with what this is and where to go', async () => {
   for (const label of ['Leaderboard', 'Games', 'Contested', 'Discord']) {
     assert.ok(out.includes(`>${label}<`), `${label} missing from the door`);
   }
-  assert.ok(out.includes('<span class="soon">Games</span>'), 'unbuilt stays a label');
+  // Games is a door now. Contested is still the one that is not, and it stays a
+  // label rather than a link that 404s.
+  assert.ok(out.includes('href="/games"'), 'the index is reachable from the door');
+  assert.ok(out.includes('<span class="soon">Contested</span>'), 'unbuilt stays a label');
 });
 
 test('the panels are still under the door', async () => {

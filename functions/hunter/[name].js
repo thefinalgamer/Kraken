@@ -21,7 +21,7 @@
 
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
-  closingState, closingLabel, isUrgent, d20,
+  closingState, closingLabel, isUrgent, d20, gameHref,
 } from '../_lib/page.js';
 
 const PER_PAGE = 50;
@@ -312,9 +312,9 @@ function rollCard(g, { mine }) {
         : '<span class="ico"></span>'
     }
     <div class="rb">
-      <span class="t">${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}${esc(
-        g.title,
-      )}</span>
+      <a class="t" href="${esc(gameHref(g.np_comm_id))}">${
+        g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''
+      }${esc(g.title)}</a>
       <span class="s">${
         mine
           ? `${Number(g.progress) || 0}% done &middot; <b>${n(left)}</b> points left`
@@ -402,8 +402,8 @@ function gameRow(g) {
         : '<span class="ico"></span>'
     }</td>
     <td class="gt">
-      ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<span
-        class="tname">${esc(g.title)}</span>${
+      ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<a
+        class="tname" href="${esc(gameHref(g.np_comm_id))}">${esc(g.title)}</a>${
         /*
          * A <details>, not a title attribute.
          *

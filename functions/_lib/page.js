@@ -425,6 +425,10 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .found a{color:var(--kraken)}
 
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;align-items:center}
+/* Centred under the mark, for the one page whose tabs are the page's subject
+   rather than a control on it. Everywhere else the tabs sort a list that is
+   already there, so they belong at the left edge with it. */
+.tabs.centre{justify-content:center;margin:0 0 18px}
 .tab{
   font-size:12.5px;padding:5px 11px;border-radius:99px;text-decoration:none;
   color:var(--soft);border:1px solid var(--edge);white-space:nowrap;
@@ -727,17 +731,24 @@ details.numbers summary:hover{color:var(--kraken)}
 /* Everything the page actually says sits above it. */
 .wrap,header.top{position:relative;z-index:1}
 
-/* The site credit, on every page. PLACEHOLDER LINK until Martin's domain is
-   finished — see the to-do list in the project doc. It renders as plain text
-   rather than a dead anchor, because a link that goes nowhere is worse than no
-   link, and swapping the text for an href later is a one-line change. */
+/* The site credit, on every page. The studio link is LIVE now — it was plain
+   text while the domain was unfinished, on the rule that a link going nowhere
+   is worse than no link.
+   It is deliberately the largest thing in this row. Somebody built this and the
+   footer is where that gets said, so the disclaimer and the Discord line stay
+   at 12.5px and the studio's name does not. */
 .credit{
   margin-top:44px;padding:20px 0 0;border-top:1px solid var(--rule);
   display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
   color:var(--faint);font-size:12.5px;
 }
-.credit .by{text-align:center}
-.credit .by b{color:var(--soft);font-weight:600}
+.credit .by{text-align:center;font-size:14px}
+.credit .by a{
+  color:var(--ink);font-weight:700;font-size:17px;text-decoration:none;
+  border-bottom:1px solid transparent;transition:border-color .15s ease,color .15s ease;
+}
+.credit .by a:hover{color:var(--kraken);border-bottom-color:var(--kraken)}
+@media (max-width:720px){ .credit .by a{font-size:16px} }
 /* Sony's name appears on this site constantly — platforms, trophies, the whole
    premise. The disclaimer is not decoration; it is the sentence that makes it
    obvious this is a fan project. Bottom left, quiet, on every page. */
@@ -1314,7 +1325,8 @@ ${
   <div class="credit">
     <span class="legal">Kraken is a fan project and is not affiliated with,<br>
       endorsed by or connected to Sony or PlayStation.</span>
-    <span class="by">Brought to you by <b>Happy Squid Studios</b></span>
+    <span class="by">Brought to you by <a href="https://happysquidstudios.com"
+      target="_blank" rel="noopener noreferrer">Happy Squid Studios</a></span>
     <span class="end">Joining happens in Discord.</span>
   </div>
 </div>

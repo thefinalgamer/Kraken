@@ -113,12 +113,12 @@ export async function onRequestGet({ env }) {
   ).join('');
 
   const body = total
-    ? `<section class="hero plain">
+    ? `<section class="hero">
          <h1>Leaderboards</h1>
          <p class="sub"><b>${n(total)}</b> hunters</p>
        </section>
 
-       <div class="tabs">${tabs}</div>
+       <div class="tabs centre">${tabs}</div>
 
        <div class="tablewrap">
          <table>

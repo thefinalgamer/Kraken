@@ -478,7 +478,7 @@ export async function onRequestGet({ params, env, request }) {
    */
   const HEAD =
     '<div class="tlhead"><span class="h-rare">PSN</span>' +
-    '<span class="h-local">Here</span><span class="h-pts">Points</span></div>';
+    '<span class="h-local">Hunters</span><span class="h-pts">Points</span></div>';
 
   const list = (rows) =>
     `<ol class="tlist${earned ? ' viewing' : ''}">${rows
@@ -491,8 +491,9 @@ export async function onRequestGet({ params, env, request }) {
          who owns it runs a deep scan.
        </p></div>`
     : hasPacks
-      ? [...byGroup.entries()]
-          .map(([key, rows], i) => {
+      ? HEAD +
+        [...byGroup.entries()]
+          .map(([key, rows]) => {
             const meta = groupName.get(key);
             const base = key === 'default';
 
@@ -534,12 +535,7 @@ export async function onRequestGet({ params, env, request }) {
                     : ''
                 }<span class="gname">${esc(label)}</span>
                 <span class="gmeta">${meta2}</span>
-              </summary>${
-                // The column labels ride under the first folder's heading, and
-                // only that one — three words repeated over eight packs is not
-                // a header, it is wallpaper.
-                i === 0 ? HEAD : ''
-              }${list(rows)}
+              </summary>${list(rows)}
             </details>`;
           })
           .join('')

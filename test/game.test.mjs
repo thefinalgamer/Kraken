@@ -450,3 +450,24 @@ test('the page survives the migration not having been run', async () => {
   assert.ok(out.includes('Blood Rapture'), 'the trophy list renders');
   assert.ok(!out.includes('Base game'), 'just without the pack headings');
 });
+
+test('the column labels survive folding the base game away', async () => {
+  // They used to live INSIDE the first folder, so closing it took the header
+  // with it and left every DLC's numbers unexplained. A header that vanishes
+  // with one section is not a header.
+  const { out } = await render({
+    trophies: PACKED,
+    groups: [{ group_id: '001', name: 'Expansion Pack 1', icon_url: null }],
+  });
+  const head = out.indexOf('class="tlhead"');
+  const firstPack = out.indexOf('<details class="pack');
+  assert.ok(head > -1, 'the header is rendered');
+  assert.ok(head < firstPack, 'and sits above every folder, not inside one');
+  assert.equal((out.match(/class="tlhead"/g) || []).length, 1, 'exactly once');
+});
+
+test('the local column is headed Hunters, not Here', async () => {
+  const { out } = await render();
+  assert.ok(out.includes('>Hunters<'), 'it counts people, so it is named after them');
+  assert.ok(!bodyOf(out).includes('>Here<'));
+});

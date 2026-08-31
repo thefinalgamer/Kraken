@@ -72,3 +72,75 @@ test('the commands members actually use are all still present', () => {
     );
   }
 });
+
+// -------------------------------------------------------- autocomplete ----
+
+/**
+ * The dropdown on /flag and /game, which Discord fires PER KEYSTROKE.
+ *
+ * Real behavioural tests rather than source greps, because what was wrong here
+ * was not a missing function — it was a query reading the whole games table,
+ * twenty-six thousand rows at a time, to build a list that then had the wrong
+ * games in it.
+ */
+const dbmod = await import('../worker/src/db.mjs');
+
+let lastSql = '';
+let lastArgs = [];
+const spyEnv = (rows = []) => ({
+  DB: {
+    prepare(sql) {
+      lastSql = sql;
+      return {
+        bind: (...args) => {
+          lastArgs = args;
+          return { all: async () => ({ results: rows }) };
+        },
+      };
+    },
+  },
+});
+
+test('the game search only reads games somebody here owns', async () => {
+  // 26,042 rows per keystroke was a tenth of the bot's daily budget spent on a
+  // dropdown. This cuts it to about 514 — and to exactly the right 514, since a
+  // game nobody here owns cannot usefully be flagged or asked about.
+  await dbmod.searchGames(spyEnv(), 'minecraft', 25);
+  assert.match(lastSql, /local_started > 0/, 'unowned games are not searched');
+  assert.match(lastSql, /LIKE \? COLLATE NOCASE/, 'still a case-insensitive match');
+  assert.equal(lastArgs[0], '%minecraft%', 'mid-word matches still work');
+  assert.equal(lastArgs[1], 'minecraft%', 'and prefix matches sort first');
+});
+
+test('the game search offers the most-owned match first, not the shortest', async () => {
+  // Ordering by LENGTH(title) buried the answer: typing "mine" offered the five
+  // shortest titles on PSN containing those letters, and Minecraft was not
+  // among them. Speed would not have saved that list — it was wrong.
+  await dbmod.searchGames(spyEnv(), 'mine', 25);
+  const order = lastSql.slice(lastSql.indexOf('ORDER BY'));
+  assert.ok(
+    order.indexOf('owners DESC') < order.indexOf('LENGTH(title)'),
+    'how many of us own it outranks how short the name is',
+  );
+});
+
+test('autocomplete asks the database nothing until two characters are typed', () => {
+  // Discord fires the moment the field is focused. A bare focus and a single
+  // letter both have better answers than a search, and a search for "a" is a
+  // lottery over every game ever released.
+  assert.match(SRC, /const MIN_QUERY = 2/, 'the floor exists');
+  const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
+  assert.match(
+    fn.slice(0, 2000),
+    /focused\.length < MIN_QUERY/,
+    'and the handler checks it before searching',
+  );
+});
+
+test('autocomplete answers only for fields it populates', () => {
+  // A future option with autocomplete switched on and no handler should get an
+  // empty list, not silently get a list of game titles.
+  assert.match(SRC, /AUTOCOMPLETE_FIELDS = new Set\(\['game', 'title'\]\)/);
+  const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
+  assert.match(fn.slice(0, 2000), /AUTOCOMPLETE_FIELDS\.has\(option\.name\)/);
+});

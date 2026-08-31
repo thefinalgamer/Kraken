@@ -951,7 +951,12 @@ span.tic svg{width:26px;height:26px}
    "28 / 30" with nothing above it is a riddle. Three words once, at the top,
    answer it for the whole page — and the widths and gaps are the same numbers
    as .tcr below, so the labels sit over their own columns. */
-.tlhead{display:flex;justify-content:flex-end;gap:22px;padding:0 20px 7px 0;
+/* ABOVE THE FOLDERS, NOT INSIDE THE FIRST ONE.
+   It used to ride under the base game's heading, which read well until you
+   folded the base game away — and then the labels went with it, leaving every
+   DLC's numbers unexplained. A header that disappears when you close the one
+   section that happens to contain it is not a header. */
+.tlhead{display:flex;justify-content:flex-end;gap:22px;padding:0 20px 6px 0;
   font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
   font-weight:700}
 .tlhead span{text-align:right}
@@ -969,14 +974,25 @@ span.tic svg{width:26px;height:26px}
    stands out, on the same three-step text hierarchy as the rest of the site.
    Nothing to look up, and it still scans down the column. */
 .rb{display:block;font-weight:600;font-variant-numeric:tabular-nums;color:var(--soft)}
-.rb.ur{color:#fff;font-weight:800}
+/* THE RAMP IS NARROWER THAN IT WAS, and that is a whole-page problem rather
+   than a per-row one.
+   Pure white at weight 800 for ultra rare against --faint at 500 for common is
+   a huge spread, and rarity is not evenly spread across a game: a DLC pack is
+   often ALL ultra rares and a base game is mostly commons. So the two rendered
+   as two different designs — the pack glowing white, the base game looking
+   switched off underneath it — when the only real difference was which
+   trophies happened to be in which group.
+   Compressed to --ink at the top and --soft at the bottom, the order still
+   reads down a column and no group of trophies can make its neighbour look
+   broken. */
+.rb.ur{color:var(--ink);font-weight:800}
 .rb.vr{color:var(--ink);font-weight:700}
-.rb.r{color:var(--ink)}
-.rb.u{color:var(--soft)}
-.rb.c{color:var(--faint);font-weight:500}
+.rb.r{color:var(--ink);font-weight:600}
+.rb.u{color:var(--soft);font-weight:600}
+.rb.c{color:var(--soft);font-weight:500}
 .rb.none{color:var(--faint);font-weight:500}
 .rl{display:block;font-size:11px;color:var(--faint);margin-top:3px;letter-spacing:.02em}
-.tc.got .rb.c,.tc.got .rb.none{color:var(--soft)}
+.tc.got .rb.none{color:var(--soft)}
 
 /* The rarity, the local count and the points, right-aligned in fixed columns so
    the eye can run straight down them the way it could in the table. */
@@ -1057,7 +1073,8 @@ span.tic svg{width:26px;height:26px}
    thirty-six trophies across nine groups: all-open is four screens of
    scrolling, all-closed makes a game with one small DLC cost two clicks to see
    anything, and this is the version that is right for both. */
-.pack{margin:18px 0 0}
+.pack{margin:9px 0 0}
+.pack:first-of-type{margin-top:0}
 .pack[open]{margin-bottom:4px}
 .tgroup{
   display:flex;align-items:center;gap:12px;padding:9px 14px 9px 12px;

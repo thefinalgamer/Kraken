@@ -1206,21 +1206,61 @@ async function changelog(env, updateId) {
   );
 }
 
-async function handleAutocomplete(interaction, env) {
-  const focused = String(interaction.data.options?.find((o) => o.focused)?.value ?? '').trim();
+/**
+ * The dropdown, on every keystroke.
+ *
+ * Discord fires this the moment the field is focused and again as they type,
+ * and gives us three seconds to answer. So the cost that matters is not "per
+ * command" but "per letter", multiplied by every mod who ever opens /flag.
+ */
+const AUTOCOMPLETE_FIELDS = new Set(['game', 'title']);
 
-  // Empty box: offer their own library rather than the shortest titles in the
-  // database, which is what produced a dropdown of "%" and "67".
+/**
+ * TWO LETTERS BEFORE WE ASK THE DATABASE.
+ *
+ * A focused-but-empty box already has a good answer — their own library — and
+ * a single letter has no good answer at all: "a" matches a third of the games
+ * ever released and the twenty-five it returns are a lottery. Both of those
+ * cases now cost one small indexed read instead of a search, and the search
+ * only runs once the mod has typed enough for it to mean something.
+ */
+const MIN_QUERY = 2;
+
+async function handleAutocomplete(interaction, env) {
+  const option = interaction.data.options?.find((o) => o.focused);
+
+  // Answer only for fields we actually populate. A future option with
+  // autocomplete switched on and no handler should return an empty list, not
+  // silently get a list of game titles.
+  if (!option || !AUTOCOMPLETE_FIELDS.has(option.name)) {
+    return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+  }
+
+  const focused = String(option.value ?? '').trim();
+
+  // Empty box, or barely started: offer their own library rather than the
+  // shortest titles in the database, which is what produced a dropdown of
+  // "%" and "67".
   let games = [];
-  if (!focused) {
+  if (focused.length < MIN_QUERY) {
     const userId = interaction.member?.user?.id ?? interaction.user?.id;
     const me = userId ? await db.memberByDiscordId(env, userId) : null;
     if (me?.psn_account_id) games = await db.myRecentGames(env, me.psn_account_id, 25);
+    // Nothing to fall back on — a mod with no games registered. Better an empty
+    // dropdown than a full table scan for one letter.
+    if (!games.length) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+  } else {
+    games = await db.searchGames(env, focused, 25);
   }
-  if (!games.length) games = await db.searchGames(env, focused, 25);
+
   return {
     type: REPLY.AUTOCOMPLETE,
-    data: { choices: games.map((g) => ({ name: g.title.slice(0, 100), value: g.title.slice(0, 100) })) },
+    data: {
+      choices: games.map((g) => ({
+        name: g.title.slice(0, 100),
+        value: g.title.slice(0, 100),
+      })),
+    },
   };
 }
 

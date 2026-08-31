@@ -292,14 +292,38 @@ export const findGame = (env, query) =>
  * ones that merely contain it, so "spider" offers Spider-Man before
  * Rise of the Spiders.
  */
+/**
+ * The autocomplete behind /flag and /game.
+ *
+ * TWO THINGS WERE WRONG WITH THIS AND THEY WERE THE SAME THING.
+ *
+ * It searched all 26,042 games. A mid-word LIKE cannot use the title index, so
+ * every keystroke read the whole table, grouped it and sorted it — call it
+ * 200,000 rows to type one game name. That is a tenth of the bot's entire daily
+ * budget spent on a dropdown.
+ *
+ * And it ordered by LENGTH(title), which was meant to float exact matches and
+ * instead buried them: typing "mine" offered the five shortest titles on PSN
+ * containing those letters, from a global catalogue, and Minecraft was not
+ * among them. Fast would not have saved it — the list was wrong.
+ *
+ * `local_started > 0` fixes both at once. It cuts 26,042 rows to about 514 and
+ * it cuts them to exactly the right 514: you cannot usefully flag, or ask about,
+ * a game nobody on this server owns. Ordering by how many people here own it
+ * then puts the game they almost certainly mean at the top.
+ *
+ * Still no index needed. Five hundred rows is smaller than one /rank.
+ */
 export const searchGames = (env, query, limit = 25) =>
   all(
     env,
-    `SELECT title FROM games
-      WHERE title LIKE ? COLLATE NOCASE AND TRIM(COALESCE(title, '')) <> ''
+    `SELECT title, MAX(local_started) AS owners FROM games
+      WHERE local_started > 0
+        AND title LIKE ? COLLATE NOCASE
+        AND TRIM(COALESCE(title, '')) <> ''
       GROUP BY title COLLATE NOCASE
       ORDER BY CASE WHEN title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
-               LENGTH(title) ASC, title ASC
+               owners DESC, LENGTH(title) ASC, title ASC
       LIMIT ?`,
     [`%${query}%`, `${query}%`, limit],
   );

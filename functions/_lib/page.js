@@ -706,37 +706,60 @@ td.prog{min-width:112px}
 
 .rolled .d20{width:52px;height:52px;vertical-align:middle}
 .rolled .dscale{transform:scale(1)}
-.rolled .dspin{animation:throw 1.25s cubic-bezier(.3,.7,.4,1) both}
+/* Longer, and eased almost linearly: a die crossing a table loses speed to
+   friction, not to a cubic curve. The old ease-out made it arrive at the
+   heading and then hang there. */
+.rolled .dspin{animation:throw 1.9s cubic-bezier(.22,.55,.35,1) both}
 .rolled .d20::after{
   content:"";position:absolute;left:8%;right:8%;bottom:-6px;height:7px;
   border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
-  animation:landshadow 1.25s cubic-bezier(.3,.7,.4,1) both;
+  animation:landshadow 1.9s cubic-bezier(.22,.55,.35,1) both;
 }
-/* Whole turns, so the die lands in the orientation it was lit for. A throw that
-   stopped on 430 degrees would settle with its dark side out and look switched
-   off, which is a strange way to end an animation about arriving. */
+/* IT ACTUALLY TRAVELS. The first version dropped it forty pixels and called it
+   a throw, which is a die being placed rather than rolled.
+   It now comes in from the right-hand side of the page, crosses most of the
+   width losing height at each bounce, and stops at the heading — the shape of a
+   die thrown down a table, which is where the whole idea comes from.
+
+   RIGHT TO LEFT, and that is a constraint rather than a preference: the panel
+   sits at the left of a centred page, so there is real estate to the right of
+   the heading and none to its left. Starting off the left edge would push the
+   document wider and hand every phone a horizontal scrollbar for a second and a
+   half. 72vw always begins on screen and always ends at the heading.
+
+   Whole turns at the end, so the die lands in the orientation it was lit for. A
+   throw stopping on 430 degrees settles with its dark side out and looks
+   switched off, which is a strange way to end an animation about arriving. */
 @keyframes throw{
-  0%   {transform:translate3d(-52px,-165px,0) rotate3d(1,.7,.3,-900deg) scale(.55); opacity:0}
-  12%  {opacity:1}
-  /* first contact */
-  42%  {transform:translate3d(0,0,0) rotate3d(1,.7,.3,-430deg) scale(1.05)}
-  /* big bounce */
-  56%  {transform:translate3d(5px,-32px,0) rotate3d(1,.7,.3,-250deg) scale(.97)}
-  70%  {transform:translate3d(0,0,0) rotate3d(1,.7,.3,-110deg) scale(1.04)}
-  /* small bounce */
-  82%  {transform:translate3d(2px,-10px,0) rotate3d(1,.7,.3,-40deg) scale(.99)}
-  92%  {transform:translate3d(0,0,0) rotate3d(1,.7,.3,-8deg) scale(1.01)}
-  100% {transform:translate3d(0,0,0) rotate3d(1,.7,.3,0deg) scale(1)}
+  0%   {transform:translate3d(72vw,-180px,0) rotate3d(1,.7,.3,-1800deg) scale(.62); opacity:0}
+  8%   {opacity:1}
+  /* first bounce, still travelling fast */
+  26%  {transform:translate3d(47vw,0,0)     rotate3d(1,.7,.3,-1240deg) scale(1.06)}
+  38%  {transform:translate3d(33vw,-58px,0) rotate3d(1,.7,.3,-980deg)  scale(.96)}
+  /* second */
+  52%  {transform:translate3d(20vw,0,0)     rotate3d(1,.7,.3,-720deg)  scale(1.05)}
+  63%  {transform:translate3d(11vw,-30px,0)  rotate3d(1,.7,.3,-520deg)  scale(.97)}
+  /* third, almost home */
+  75%  {transform:translate3d(5vw,0,0)      rotate3d(1,.7,.3,-320deg)  scale(1.04)}
+  84%  {transform:translate3d(1.5vw,-11px,0)rotate3d(1,.7,.3,-170deg)  scale(.99)}
+  92%  {transform:translate3d(0,0,0)        rotate3d(1,.7,.3,-60deg)   scale(1.02)}
+  /* the last settle: a die that has stopped moving is still rocking */
+  96%  {transform:translate3d(0,-3px,0)     rotate3d(1,.7,.3,-18deg)   scale(1)}
+  100% {transform:translate3d(0,0,0)        rotate3d(1,.7,.3,0deg)     scale(1)}
 }
+/* The shadow travels with it, squashing wide on each impact and thinning while
+   the die is in the air. It is most of why the thing reads as having weight —
+   without it the die is a sprite sliding across a page. */
 @keyframes landshadow{
-  0%   {opacity:0;   transform:scale(.3)}
-  40%  {opacity:0;   transform:scale(.5)}
-  /* squashes wide on each impact, shrinks while the die is in the air */
-  44%  {opacity:.62; transform:scale(1.18)}
-  56%  {opacity:.24; transform:scale(.66)}
-  70%  {opacity:.55; transform:scale(1.08)}
-  82%  {opacity:.3;  transform:scale(.82)}
-  100% {opacity:.45; transform:scale(1)}
+  0%   {opacity:0;   transform:translate3d(72vw,0,0)  scale(.35)}
+  20%  {opacity:.15; transform:translate3d(56vw,0,0)  scale(.6)}
+  26%  {opacity:.6;  transform:translate3d(47vw,0,0)  scale(1.25)}
+  38%  {opacity:.16; transform:translate3d(33vw,0,0)  scale(.6)}
+  52%  {opacity:.58; transform:translate3d(20vw,0,0)  scale(1.16)}
+  63%  {opacity:.2;  transform:translate3d(11vw,0,0)   scale(.7)}
+  75%  {opacity:.55; transform:translate3d(5vw,0,0)   scale(1.1)}
+  84%  {opacity:.3;  transform:translate3d(1.5vw,0,0) scale(.85)}
+  100% {opacity:.45; transform:translate3d(0,0,0)     scale(1)}
 }
 /* The picks land after the die does, one after another, so it reads as a result
    rather than as a page that happened to contain a die. */
@@ -994,7 +1017,7 @@ ul.faqlist li::before{content:"";position:absolute;left:2px;top:.62em;width:6px;
 .bigico{width:96px;height:96px;border-radius:12px;flex:0 0 96px;background:var(--edge);
   object-fit:cover;box-shadow:0 6px 18px rgba(0,0,0,.4)}
 .gh{min-width:0}
-.gh h1{margin:0;font-size:clamp(21px,3.4vw,30px);letter-spacing:-.015em;line-height:1.2}
+.gh h1{margin:0;font-size:clamp(21px,3.5vw,30px);letter-spacing:-.015em;line-height:1.2}
 .gh h1 .plat-chip{vertical-align:middle;margin-right:9px}
 .gh .sub{margin:5px 0 0;color:var(--soft);font-size:14px;display:flex;align-items:center;
   gap:9px;flex-wrap:wrap}

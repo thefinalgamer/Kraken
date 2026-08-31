@@ -167,22 +167,35 @@ async function nameGame(psn, game) {
  * costs nothing. Knowing that group "004" is called "Expansion Pack 4" is a
  * second endpoint, one call per game.
  *
- * So this runs ONLY for games that actually have packs — a few dozen of the
- * five hundred here rather than all of them — and only once each, because a
- * pack name never changes. The base game is skipped: every game has a "default"
- * group and the page calls it "Base game" without asking anybody.
+ * So this runs ONLY for games that actually have packs, and only once each,
+ * because a pack name never changes. The base game is skipped: every game has a
+ * "default" group and the page calls it "Base game" without asking anybody.
+ *
+ * IT LOOKS FOR A NON-DEFAULT GROUP RATHER THAN COUNTING GROUPS, and that is the
+ * difference between a query that finishes and one that does not.
+ *
+ * The first version was `GROUP BY np_comm_id HAVING COUNT(DISTINCT group_id) >
+ * 1` over the whole join — around a million trophy rows aggregated on every
+ * call, with no index that could help, because counting distinct values means
+ * visiting all of them. On the 31 August run it returned nothing at all and the
+ * pass finished silently, which is exactly how an expensive query fails: not
+ * with an error, with an empty result and no clue why.
+ *
+ * "Has at least one trophy outside the default group" is the same question and
+ * `idx_trophies_group` from migration 012 answers it directly — that index
+ * covers ONLY non-default groups, so this walks a few thousand DLC rows instead
+ * of every trophy on the server.
  */
 const NEXT_GROUPS = `
-  SELECT g.np_comm_id, g.title, g.platform,
-         COUNT(DISTINCT t.group_id) AS groups
-    FROM games g
-    JOIN trophies t ON t.np_comm_id = g.np_comm_id
+  SELECT t.np_comm_id, g.title, g.platform
+    FROM trophies t
+    JOIN games g ON g.np_comm_id = t.np_comm_id
    WHERE t.group_id IS NOT NULL
+     AND t.group_id <> 'default'
      AND NOT EXISTS (
-           SELECT 1 FROM trophy_groups tg WHERE tg.np_comm_id = g.np_comm_id)
-   GROUP BY g.np_comm_id
-  HAVING COUNT(DISTINCT t.group_id) > 1
-   ORDER BY g.local_started DESC, g.np_comm_id ASC
+           SELECT 1 FROM trophy_groups tg WHERE tg.np_comm_id = t.np_comm_id)
+   GROUP BY t.np_comm_id
+   ORDER BY g.local_started DESC, t.np_comm_id ASC
    LIMIT ?`;
 
 /** One game's pack names, written straight in. */
@@ -267,8 +280,14 @@ const remaining = await db.one(PROGRESS);
 report(remaining, 'Before');
 const groupsBefore = Number((await db.one(GROUP_PROGRESS))?.c ?? 0);
 if (groupsBefore) {
+  // Nearly every row in `games` came from somebody's library, so "owned" is not
+  // the small subset it was assumed to be — this number starts in the tens of
+  // thousands and comes down a couple of thousand per run. The ordering is what
+  // makes that fine: most-owned first, so the games people actually open are
+  // done within the first run or two and the long tail fills in behind them.
   console.log(
-    `Before: ${groupsBefore.toLocaleString('en-GB')} games have no trophy group ids yet.`,
+    `Before: ${groupsBefore.toLocaleString('en-GB')} games have no trophy group ids yet ` +
+      '(most-owned first, so the pages people open are done first).',
   );
 }
 console.log(`Budget ${Math.round(BUDGET_MS / 60000)} minutes, ${env.PSN_RATE_LIMIT || 600} PSN calls per 15 min.\n`);

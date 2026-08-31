@@ -1163,12 +1163,18 @@ span.tic svg{width:26px;height:26px}
 .pack{margin:9px 0 0}
 .pack:first-of-type{margin-top:0}
 .pack[open]{margin-bottom:4px}
+/* THE PACK NAME IS A PROPER NOUN, SO IT IS NOT SHOUTED.
+   This row was styled as a section label — 12px, wide letter-spacing, all caps
+   — back when the only things it could say were "BASE GAME" and "DLC 1". Then
+   PSN's real names arrived and it started rendering GRAND THEFT AUTO ONLINE:
+   THE DOOMSDAY HEIST, which is a title in a shouting voice and eats the row.
+   Titles get sentence case at a readable size; only the count beside it keeps
+   the small-label treatment, because that IS a label. */
 .tgroup{
-  display:flex;align-items:center;gap:12px;padding:9px 14px 9px 12px;
+  display:flex;align-items:center;gap:12px;padding:10px 14px 10px 12px;
   border:1px solid var(--edge);border-radius:8px;background:var(--panel);
   cursor:pointer;list-style:none;user-select:none;
-  font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--soft);
-  font-weight:700;
+  font-size:14.5px;color:var(--soft);font-weight:700;letter-spacing:-.005em;
 }
 .tgroup::-webkit-details-marker{display:none}
 .tgroup:hover{border-color:var(--faint);color:var(--ink)}
@@ -1185,9 +1191,11 @@ span.tic svg{width:26px;height:26px}
   white-space:nowrap}
 /* The reason to open it. Points first, because "is this pack worth my evening"
    is the question, and a trophy count has never answered it. */
-.tgroup .gmeta{letter-spacing:0;text-transform:none;font-weight:500;
-  color:var(--faint);font-size:12.5px;white-space:nowrap}
-.tgroup .gmeta b{color:var(--soft);font-weight:700;font-variant-numeric:tabular-nums}
+.tgroup .gmeta{font-weight:500;color:var(--faint);font-size:11px;white-space:nowrap;
+  letter-spacing:.07em;text-transform:uppercase}
+.tgroup .gmeta b{letter-spacing:0}
+.tgroup .gmeta b{color:var(--soft);font-weight:700;font-variant-numeric:tabular-nums;
+  font-size:12.5px;letter-spacing:0}
 
 /* DONE. Only ever shown when somebody's trophies are lit up — with nobody
    selected there is no such thing as finished, and a green bar claiming there

@@ -431,6 +431,21 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 }
 .tab:hover{color:var(--ink);border-color:var(--faint)}
 .tab.on{color:var(--deep);background:var(--kraken);border-color:var(--kraken);font-weight:600}
+/* A TAB THAT IS NOT A LINK, because the board behind it does not exist yet.
+   Dimmed, dashed, no hover, no cursor — everything about it says "not now"
+   before anybody wastes a click on it. Same rule as the unbuilt entries in the
+   header: a dead handle is worse than a note saying the door is coming.
+   The word rides inside the tab rather than beside it so the row cannot wrap
+   into a label orphaned from the thing it labels. */
+.tab.soon{
+  color:var(--faint);border-style:dashed;cursor:default;opacity:.75;
+  display:inline-flex;align-items:center;gap:8px;
+}
+.tab.soon:hover{color:var(--faint);border-color:var(--edge)}
+.tab.soon i{
+  font-style:normal;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--brass);border:1px solid var(--edge);border-radius:99px;padding:1px 7px;
+}
 
 /* The accent strip, from the old site, on the right and full height.
 
@@ -1222,7 +1237,10 @@ footer b{color:var(--soft);font-weight:500}
  * turns up six months later when somebody adds a route in a hurry.
  */
 export const NAV = [
-  { href: '/leaderboard', label: 'Leaderboard', key: 'board' },
+  // Plural, because the page behind it is now three boards and not one — and
+  // the header and the front page read from this same array, so they cannot
+  // disagree with each other or with the <h1> on the page itself.
+  { href: '/leaderboard', label: 'Leaderboards', key: 'board' },
   { href: '/games', label: 'Games', key: 'games' },
   { label: 'Contested', key: 'contested' },
   // The door. Everything else on this site is a window.

@@ -123,3 +123,27 @@ test('the site says plainly that it is not Sony', async () => {
   const { out } = await render(members);
   assert.match(out, /not affiliated with,[\s\S]*endorsed by or connected to Sony or PlayStation/);
 });
+
+test('the page is headed Leaderboards and offers the boards as tabs', async () => {
+  const { out } = await render(members);
+  assert.match(out, /<h1>Leaderboards<\/h1>/, 'plural, because there will be three');
+  assert.match(out, /<a class="tab on" href="\/leaderboard">All-time<\/a>/, 'the built one');
+  assert.match(out, /<span class="tab soon">Streamers<i>soon<\/i><\/span>/, 'a tease, not a link');
+  assert.match(out, /<span class="tab soon">Seasonal<i>soon<\/i><\/span>/);
+});
+
+test('the unbuilt boards are never links', async () => {
+  // A dead handle on a door is worse than a note saying the door is coming.
+  const { out } = await render(members);
+  assert.ok(!out.includes('href="/leaderboard/streamer"'));
+  assert.ok(!out.includes('href="/leaderboard/season"'));
+});
+
+test('only the hunter count survives from the old stats line', async () => {
+  // The points total and the platinum total were sums nobody asked for; the
+  // headcount is the one that says how big this place is.
+  const { out } = await render(members);
+  assert.match(out, /<b>4<\/b> hunters/, 'the headcount stays');
+  assert.ok(!out.includes('platinums between them'), 'the rest is gone');
+  assert.ok(!out.includes('points ·'), 'including the points sum');
+});

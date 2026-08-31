@@ -76,7 +76,7 @@ test('the front page leads with what this is and where to go', async () => {
 
   // All four routes appear, built or not, so a page can never exist in one
   // navigation and be missing from the other.
-  for (const label of ['Leaderboard', 'Games', 'Contested', 'Discord']) {
+  for (const label of ['Leaderboards', 'Games', 'Contested', 'Discord']) {
     assert.ok(out.includes(`>${label}<`), `${label} missing from the door`);
   }
   // Games is a door now. Contested is still the one that is not, and it stays a

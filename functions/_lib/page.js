@@ -1047,13 +1047,53 @@ span.tic svg{width:26px;height:26px}
 .vchip:hover{color:var(--kraken);border-color:var(--kraken)}
 .vchip.on{color:var(--deep);background:var(--kraken);border-color:var(--kraken);font-weight:600}
 
-/* A DLC pack, exactly as the console groups them. */
-.tgroup{display:flex;align-items:center;gap:12px;margin:22px 0 9px;
-  font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
-  font-weight:700}
-.tgroup:first-of-type{margin-top:0}
+/* ---- packs, as folders ----
+   A <details>, so this is HTML doing the work and not a script. It opens on a
+   tap, on a click and from a keyboard, it survives JavaScript being off, and
+   the browser's own find-in-page can open a closed one to show a match — none
+   of which is true of a div with a click handler.
+
+   The base game is open and the DLC is closed. Minecraft is a hundred and
+   thirty-six trophies across nine groups: all-open is four screens of
+   scrolling, all-closed makes a game with one small DLC cost two clicks to see
+   anything, and this is the version that is right for both. */
+.pack{margin:18px 0 0}
+.pack[open]{margin-bottom:4px}
+.tgroup{
+  display:flex;align-items:center;gap:12px;padding:9px 14px 9px 12px;
+  border:1px solid var(--edge);border-radius:8px;background:var(--panel);
+  cursor:pointer;list-style:none;user-select:none;
+  font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--soft);
+  font-weight:700;
+}
+.tgroup::-webkit-details-marker{display:none}
+.tgroup:hover{border-color:var(--faint);color:var(--ink)}
+.pack[open] > .tgroup{border-bottom-left-radius:0;border-bottom-right-radius:0}
+/* Our own arrow, because the native one cannot be positioned and looks like a
+   different operating system on every browser. */
+.tgroup .caret{
+  flex:0 0 auto;color:var(--faint);font-size:10px;line-height:1;
+  transition:transform .16s ease;transform:rotate(0deg);
+}
+.pack[open] > .tgroup .caret{transform:rotate(90deg)}
 .tgroup img{width:26px;height:26px;border-radius:5px;flex:0 0 26px;object-fit:cover}
-.tgroup .gcount{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:500}
+.tgroup .gname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+/* The reason to open it. Points first, because "is this pack worth my evening"
+   is the question, and a trophy count has never answered it. */
+.tgroup .gmeta{letter-spacing:0;text-transform:none;font-weight:500;
+  color:var(--faint);font-size:12.5px;white-space:nowrap}
+.tgroup .gmeta b{color:var(--soft);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* DONE. Only ever shown when somebody's trophies are lit up — with nobody
+   selected there is no such thing as finished, and a green bar claiming there
+   is would be the site inventing a fact. */
+.pack.done > .tgroup{border-color:rgba(46,204,113,.45);color:var(--up)}
+.pack.done > .tgroup .gmeta,.pack.done > .tgroup .gmeta b{color:var(--up)}
+.pack.done > .tgroup .caret{color:var(--up)}
+.tick{font-size:13px;line-height:1}
+.pack .tlist{padding-top:9px}
+@media (prefers-reduced-motion:reduce){ .tgroup .caret{transition:none} }
 
 .crumb{margin:0 0 12px;font-size:13px}
 .crumb a{color:var(--faint);text-decoration:none}
@@ -1108,8 +1148,10 @@ span.tic svg{width:26px;height:26px}
 /* The row keeps its shape while blurred — the text is still there, just
    unreadable — so revealing does not reflow the table under the reader's
    thumb. */
+/* The sibling combinator reaches every later sibling, and the packs are siblings of the input, so
+   this unblurs a secret inside a folder whether the folder is open or shut. */
 .spoilbox:checked ~ .tlist .secret .spoil,
-.spoilbox:checked ~ .tgroup + .tlist .secret .spoil,
+.spoilbox:checked ~ .pack .secret .spoil,
 .spoilbox:checked ~ .tablewrap .secret .spoil{filter:none;opacity:1}
 .secretmark{display:inline-block;margin-top:5px;font-size:10px;letter-spacing:.08em;
   text-transform:uppercase;color:var(--brass);border:1px solid var(--edge);

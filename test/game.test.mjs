@@ -389,10 +389,48 @@ test('a game with DLC is split into named sections', async () => {
   assert.equal((out.match(/<ol class="tlist/g) || []).length, 3, 'three lists');
 });
 
-test('packs with no fetched name still get a heading', async () => {
+test('packs with no fetched name fall back to DLC, never Pack', async () => {
+  // Between two words that both mean "an add-on", DLC is the one every
+  // PlayStation owner already uses. The number is the group id with its zero
+  // padding stripped, so '002' reads as 2.
   const { out } = await render({ trophies: PACKED, groups: [] });
   assert.ok(out.includes('Base game'));
-  assert.ok(out.includes('Pack 1') && out.includes('Pack 2'), 'a heading beats one heap');
+  assert.ok(out.includes('DLC 1') && out.includes('DLC 2'), 'a heading beats one heap');
+  assert.ok(!bodyOf(out).includes('Pack 1'), 'and it is not called Pack');
+});
+
+test('a pack is a real folder, open for the base game and shut for DLC', async () => {
+  // A <details>, so find-in-page can open a shut one and none of it needs
+  // JavaScript. Assert on the ELEMENT and its open attribute, not the class.
+  const { out } = await render({
+    trophies: PACKED,
+    groups: [{ group_id: '001', name: 'Expansion Pack 1', icon_url: null }],
+  });
+  assert.match(out, /<details class="pack" open>[\s\S]{0,400}Base game/, 'base game opens');
+  assert.match(out, /<details class="pack">[\s\S]{0,400}Expansion Pack 1/, 'DLC starts shut');
+  assert.equal((out.match(/<summary class="tgroup">/g) || []).length, 3, 'three folders');
+});
+
+test('a shut folder says what is in it and what it pays', async () => {
+  const { out } = await render({ trophies: PACKED, groups: [] });
+  // "Is this pack worth an evening" is the question; a trophy count alone has
+  // never answered it.
+  assert.match(out, /1 trophy[\s\S]{0,80}420<\/b> points/, 'count and points, singular');
+});
+
+test('a finished pack goes green, but only when somebody is being viewed', async () => {
+  const all = PACKED.map((t) => t.trophy_id);
+  const viewer = { psn_online_id: 'JFL__Leon', avatar_url: null, progress: 100, points: 1,
+    earned_ids: JSON.stringify(all) };
+
+  const lit = await render({ trophies: PACKED, groups: [], viewer }, '?as=JFL__Leon');
+  assert.match(lit.out, /class="pack done" open/, 'the base game is marked done');
+  assert.ok(lit.out.includes('done'), 'and says so');
+
+  // With nobody selected there is no such thing as finished, and a green bar
+  // claiming otherwise would be the site inventing a fact.
+  const plain = await render({ trophies: PACKED, groups: [] });
+  assert.ok(!plain.out.includes('class="pack done"'), 'nothing is green');
 });
 
 test('a game with no DLC gets no headings at all', async () => {

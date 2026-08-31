@@ -494,23 +494,53 @@ export async function onRequestGet({ params, env, request }) {
       ? [...byGroup.entries()]
           .map(([key, rows], i) => {
             const meta = groupName.get(key);
-            const label =
-              key === 'default'
-                ? 'Base game'
-                : meta?.name || `Pack ${String(key).replace(/^0+/, '') || key}`;
+            const base = key === 'default';
+
+            /**
+             * "DLC 1", never "Pack 1".
+             *
+             * PSN's own name is what the console shows and what people call it
+             * in Discord — "Expansion Pack 4", "The Doomsday Heist" — so it
+             * wins whenever it has been fetched. The fallback only matters
+             * until the naming job reaches a game, and between two words that
+             * both mean "an add-on", DLC is the one every PlayStation owner
+             * already uses. The number is the group id with its zero padding
+             * removed, so '004' reads as 4.
+             */
+            const label = base
+              ? 'Base game'
+              : meta?.name || `DLC ${String(key).replace(/^0+/, '') || key}`;
+
             const done = earned ? rows.filter((t) => earned.has(Number(t.trophy_id))).length : 0;
-            return `<h3 class="tgroup">${
-              meta?.icon_url
-                ? `<img src="${esc(meta.icon_url)}" alt="" loading="lazy" width="26" height="26">`
-                : ''
-            }${esc(label)}<span class="gcount">${
-              earned ? `${n(done)} of ${n(rows.length)}` : `${n(rows.length)} trophies`
-            }</span></h3>${
-              // The column labels go UNDER the first pack heading, not above
-              // it. Floating them above "BASE GAME" left three words attached
-              // to nothing, a whole heading away from the numbers they name.
-              i === 0 ? HEAD : ''
-            }${list(rows)}`;
+            const complete = Boolean(earned) && done === rows.length && rows.length > 0;
+
+            // Points on the shut folder, because "is this pack worth an evening"
+            // is the question, and a trophy count has never answered it.
+            const worth = rows.reduce((sum, t) => sum + (Number(t.points) || 0), 0);
+
+            const meta2 = earned
+              ? `<b>${n(done)}</b> of ${n(rows.length)}${
+                  complete ? ' &middot; <span class="tick">&#10003;</span> done' : ''
+                }`
+              : `${n(rows.length)} ${rows.length === 1 ? 'trophy' : 'trophies'} &middot; <b>${n(
+                  worth,
+                )}</b> points`;
+
+            return `<details class="pack${complete ? ' done' : ''}"${base ? ' open' : ''}>
+              <summary class="tgroup">
+                <span class="caret" aria-hidden="true">&#9654;</span>${
+                  meta?.icon_url
+                    ? `<img src="${esc(meta.icon_url)}" alt="" loading="lazy" width="26" height="26">`
+                    : ''
+                }<span class="gname">${esc(label)}</span>
+                <span class="gmeta">${meta2}</span>
+              </summary>${
+                // The column labels ride under the first folder's heading, and
+                // only that one — three words repeated over eight packs is not
+                // a header, it is wallpaper.
+                i === 0 ? HEAD : ''
+              }${list(rows)}
+            </details>`;
           })
           .join('')
       : HEAD + list(trophies);

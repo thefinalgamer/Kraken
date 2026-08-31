@@ -99,15 +99,23 @@ const NEXT_GAMES = `
  *
  * A backfill has to select on the thing it is backfilling. This one does.
  *
- * It costs the same PSN call as naming did, on the same games — about sixteen
- * minutes for five hundred — and it is the same upsert, so running it twice is
- * harmless. Once every game has a group id this query returns nothing forever
- * and the pass is free.
+ * AND IT IS FILTERED TO local_started > 0, which the first version was not.
+ * That version asked for every game in the table — 26,042 of them — so a run
+ * spent its entire 110-minute budget fetching group ids for games nobody here
+ * owns and no page will ever draw, and never reached the pack-name pass at all.
+ * The website only draws a game page for a game one of us owns. Same reasoning
+ * as the "owned" split in the progress report below, and the same reasoning the
+ * original naming query was written with; this query simply did not inherit it.
+ *
+ * It costs the same PSN call as naming did, on the same ~514 games — about
+ * sixteen minutes — and it is the same upsert, so running it twice is harmless.
+ * Once every owned game has a group id this returns nothing forever.
  */
 const NEXT_UNGROUPED = `
   SELECT g.np_comm_id, g.title, g.platform, g.local_started, g.trophy_count
     FROM games g
-   WHERE EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)
+   WHERE g.local_started > 0
+     AND EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)
      AND NOT EXISTS (
            SELECT 1 FROM trophies t
             WHERE t.np_comm_id = g.np_comm_id AND t.group_id IS NOT NULL
@@ -232,7 +240,8 @@ const PROGRESS = `
  *  half the job is still outstanding — which is what happened on 31 August. */
 const GROUP_PROGRESS = `
   SELECT COUNT(*) AS c FROM games g
-   WHERE EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)
+   WHERE g.local_started > 0
+     AND EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)
      AND NOT EXISTS (
            SELECT 1 FROM trophies t
             WHERE t.np_comm_id = g.np_comm_id AND t.group_id IS NOT NULL)`;
@@ -322,6 +331,15 @@ while (!out) {
  * for years after leaving the first. Merging them would also mean re-fetching
  * every unnamed game a second time the moment either condition changed.
  */
+/**
+ * The group pass stops at four fifths of the budget, so the pack-name pass
+ * below always has room. Without the reserve, a slow or oversized second pass
+ * silently eats the third — which is exactly what happened on the 31 August
+ * run: it ran the clock out and the names were never fetched, so every DLC on
+ * the site read "Pack 1".
+ */
+const GROUP_BUDGET_MS = BUDGET_MS * 0.8;
+
 let regrouped = 0;
 let groupOut = false;
 while (!groupOut) {
@@ -329,7 +347,7 @@ while (!groupOut) {
   if (!games.length) break;
 
   for (const game of games) {
-    if (Date.now() - started > BUDGET_MS) {
+    if (Date.now() - started > GROUP_BUDGET_MS) {
       console.log('\nTime budget reached during the group pass. Run it again to carry on.');
       groupOut = true;
       break;

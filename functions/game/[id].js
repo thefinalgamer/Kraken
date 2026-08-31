@@ -14,11 +14,11 @@
  * behind a tab, and the sort tabs open on neither.
  *
  * COST. Reading one game is a primary-key lookup, its trophies is `trophy_count`
- * rows — forty on a normal game, a hundred and twenty on the worst — and its
- * owners is capped by the size of the server, so sixty-four. Under two hundred
- * rows for a page that then sits in the edge cache for five minutes, which
- * makes this cheaper than the board. No pagination, because there is nothing
- * here big enough to need it.
+ * rows — forty on a normal game, a hundred and thirty-six on Minecraft — and
+ * its owners is capped by the size of the server. Under two hundred rows for a
+ * page that then sits in the edge cache for five minutes, which makes this
+ * cheaper than the board. No pagination, because nothing here is big enough to
+ * need it. `?as=` adds exactly one more row.
  *
  * THE SITE COMPUTES NOTHING, same as everywhere else. `t.points` is what the
  * bot priced that trophy at, blended with local rarity; `g.max_points` is what
@@ -27,13 +27,18 @@
  */
 
 import {
-  page, html, esc, n, pct, cup, miniCups, trophyGlyph,
+  page, html, esc, n, pct, cup, miniCups, trophyGlyph, crumb, gameHref,
   closingState, closingLabel, isUrgent,
 } from '../_lib/page.js';
 
 /**
  * Sorts, as a whitelist. The key never reaches SQL — it picks a fragment.
  * Same rule as the hunter page: a user string in an ORDER BY is the database.
+ *
+ * Every one of them sorts by group FIRST, so the DLC sections stay intact
+ * whichever way the trophies inside them are ordered. Sorting rarest-first
+ * across the whole game would shuffle base-game and expansion trophies together
+ * and destroy the only structure the console shows.
  */
 const SORTS = {
   psn: { label: 'Trophy order', sql: 't.trophy_id ASC' },
@@ -54,13 +59,11 @@ const SORTS = {
  */
 const DEFAULT_SORT = 'psn';
 
-const GAME = `
-  SELECT np_comm_id, title, platform, icon_url, trophy_count, has_platinum,
+const GAME_COLS = `np_comm_id, title, platform, icon_url, trophy_count, has_platinum,
          max_points, estimated, unobtainable, unobtainable_note, flagged_at,
-         closes_at, local_started, refreshed_at
-    FROM games
-   WHERE np_comm_id = ?
-   LIMIT 1`;
+         closes_at, local_started, refreshed_at`;
+
+const GAME = `SELECT ${GAME_COLS} FROM games WHERE np_comm_id = ? LIMIT 1`;
 
 /**
  * The fallback, for URLs typed by hand.
@@ -72,20 +75,25 @@ const GAME = `
  * people here own is the only answer that is right more often than not.
  */
 const GAME_BY_TITLE = `
-  SELECT np_comm_id, title, platform, icon_url, trophy_count, has_platinum,
-         max_points, estimated, unobtainable, unobtainable_note, flagged_at,
-         closes_at, local_started, refreshed_at
-    FROM games
+  SELECT ${GAME_COLS} FROM games
    WHERE title = ? COLLATE NOCASE
    ORDER BY local_started DESC, trophy_count DESC
    LIMIT 1`;
 
-const trophiesSql = (order) => `
-  SELECT trophy_id, name, detail, type, icon_url, hidden,
-         earned_rate, points, local_earned
+const TROPHY_COLS = `trophy_id, name, detail, type, icon_url, hidden,
+         earned_rate, points, local_earned`;
+
+const trophiesSql = (order, grouped) => `
+  SELECT ${TROPHY_COLS}${grouped ? ', group_id' : ''}
     FROM trophies t
    WHERE t.np_comm_id = ?
-   ORDER BY ${order}`;
+   ORDER BY ${grouped ? "CASE WHEN t.group_id IS NULL OR t.group_id = 'default' THEN '' ELSE t.group_id END ASC, " : ''}${order}`;
+
+const GROUPS = `
+  SELECT group_id, name, icon_url
+    FROM trophy_groups
+   WHERE np_comm_id = ?
+   ORDER BY CASE WHEN group_id = 'default' THEN '' ELSE group_id END ASC`;
 
 /**
  * Everybody here who owns it, finished or not.
@@ -111,6 +119,26 @@ const OWNERS = `
    ORDER BY mg.progress DESC, mg.points DESC, m.rank ASC`;
 
 /**
+ * WHOSE trophies to light up.
+ *
+ * There is no login until Phase 4, so the page cannot know who is reading it —
+ * but it very often knows whose page you came from. A link out of a hunter's
+ * library carries `?as=<their id>`, and this one extra row turns the trophy
+ * list from a catalogue into somebody's actual progress through the game.
+ *
+ * `earned_ids` is already stored on every scanned row: a JSON array of trophy
+ * ids. Nothing new is fetched and nothing is computed — the bot decided what
+ * they earned, this reads it back.
+ */
+const VIEWER = `
+  SELECT m.psn_online_id, m.avatar_url, mg.earned_ids, mg.progress, mg.points
+    FROM member_games mg
+    JOIN members m ON m.psn_account_id = mg.psn_account_id
+   WHERE m.psn_online_id = ? COLLATE NOCASE
+     AND mg.np_comm_id = ?
+   LIMIT 1`;
+
+/**
  * Sony's own rarity bands, not ones we invented.
  *
  * Every PlayStation owner has seen these five words attached to these five
@@ -131,6 +159,8 @@ function band(rate) {
   return BANDS.find(([max]) => v <= max);
 }
 
+const METALS = { platinum: 'p', gold: 'g', silver: 's', bronze: 'b' };
+
 /** "12 Feb 2026". */
 const on = (ms) =>
   Number(ms)
@@ -138,6 +168,24 @@ const on = (ms) =>
         day: 'numeric', month: 'short', year: 'numeric',
       })
     : '';
+
+/**
+ * Their earned trophy ids, as a Set.
+ *
+ * Defensive because `earned_ids` is a text column holding JSON written by a
+ * different process. A row that predates the field, or one truncated by a
+ * failed write, must render the page WITHOUT the highlight rather than fail —
+ * a decoration is never worth a 500.
+ */
+function earnedSet(raw) {
+  if (!raw) return null;
+  try {
+    const ids = JSON.parse(raw);
+    return Array.isArray(ids) ? new Set(ids.map(Number)) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The clock, matching the hunter page exactly.
@@ -169,7 +217,12 @@ function clockBlock(g) {
 }
 
 /**
- * One trophy.
+ * One trophy, as a card.
+ *
+ * A TABLE BECAME CARDS, and that is not decoration. The console draws a trophy
+ * as a wide card with a slight lean and a hairline of dark between each one,
+ * and everybody on this server has scrolled thousands of them on a DualSense.
+ * The same information in a table is correct and reads like a spreadsheet.
  *
  * SECRET TROPHIES ARE BLURRED, NOT WITHHELD. The name and the description are
  * in the HTML — same as PSNProfiles, and the same as any page with a reveal
@@ -177,53 +230,54 @@ function clockBlock(g) {
  * What the blur buys is that you cannot be spoiled BY ACCIDENT while scrolling
  * a game you have not played, which is the entire risk. Somebody determined to
  * read it through the blur has, by definition, decided to.
- *
- * The toggle is a checkbox and a sibling selector — no JavaScript, works on a
- * phone, and it is one control for the whole page rather than a button per row.
  */
-function trophyRow(t, { localTotal }) {
+function trophyCard(t, { localTotal, earned }) {
   const b = band(t.earned_rate);
-  const metal = ['platinum', 'gold', 'silver', 'bronze'].includes(String(t.type))
-    ? String(t.type)[0]
-    : 'b';
+  const metal = METALS[String(t.type)] || 'b';
   const secret = Number(t.hidden) === 1;
   const here = Number(t.local_earned) || 0;
-  const share = localTotal > 0 ? Math.round((here / localTotal) * 100) : 0;
+  const got = earned ? earned.has(Number(t.trophy_id)) : false;
 
-  return `<tr class="tr-${metal}${secret ? ' secret' : ''}">
-    <td class="gi">${
-      t.icon_url
-        ? `<img class="ico sm" src="${esc(t.icon_url)}" alt="" loading="lazy" width="44" height="44">`
-        : `<span class="ico sm cup ${metal}">${trophyGlyph()}</span>`
-    }</td>
-    <td class="tn">
-      <span class="spoil">
-        <span class="tname">${esc(t.name || 'Unnamed trophy')}</span>
-        ${t.detail ? `<span class="tdet">${esc(t.detail)}</span>` : ''}
+  return `<li class="tc m-${metal}${secret ? ' secret' : ''}${got ? ' got' : ''}">
+    <span class="tcin">
+      ${
+        t.icon_url
+          ? `<img class="tic" src="${esc(t.icon_url)}" alt="" loading="lazy" width="52" height="52">`
+          : `<span class="tic cup ${metal}">${trophyGlyph()}</span>`
+      }
+      <span class="tcb">
+        <span class="spoil">
+          <span class="tname">${esc(t.name || 'Unnamed trophy')}</span>
+          ${t.detail ? `<span class="tdet">${esc(t.detail)}</span>` : ''}
+        </span>
+        ${secret ? '<span class="secretmark">Secret</span>' : ''}
       </span>
-      ${secret ? '<span class="secretmark">Secret</span>' : ''}
-    </td>
-    <td class="num rare">${
-      b
-        ? `<span class="rb ${b[2]}">${pct(t.earned_rate)}</span><span class="rl">${esc(b[1])}</span>`
-        : '<span class="rb none">&mdash;</span><span class="rl">Not published</span>'
-    }</td>
-    <td class="num local" data-v="${here}">
-      <span class="${here === 0 ? 'nobody' : ''}">${n(here)} <span class="of-max">/ ${n(
-        localTotal,
-      )}</span></span>
-      <span class="track sm"><span class="fill here" style="width:${share}%"></span></span>
-      <span class="tcount">${
-        here === 0 ? 'nobody here' : here === 1 ? 'one of us' : `${share}% of us`
-      }</span>
-    </td>
-    <td class="num pts" data-v="${Number(t.points) || 0}">${n(t.points)}</td>
-    <td class="bar"></td>
-  </tr>`;
+      <span class="tcr">
+        <span class="rare">${
+          b
+            ? `<span class="rb ${b[2]}">${pct(t.earned_rate)}</span><span class="rl">${esc(
+                b[1],
+              )}</span>`
+            : '<span class="rb none">&mdash;</span><span class="rl">Not published</span>'
+        }</span>
+        <span class="local">${n(here)} <span class="of-max">/ ${n(localTotal)}</span>${
+          // The word only earns its line at the two ends. "93% of us" was noise
+          // beside a fraction that already said it; "nobody here" is a fact
+          // about people you know and is the reason to open the game.
+          here === 0
+            ? '<span class="lcap">nobody here</span>'
+            : here === 1
+              ? '<span class="lcap">one of us</span>'
+              : ''
+        }</span>
+        <span class="tpts">${n(t.points)}</span>
+      </span>
+    </span>
+  </li>`;
 }
 
 /** One member who owns it. */
-function ownerRow(o) {
+function ownerRow(o, id, viewing) {
   const width = Math.max(0, Math.min(100, Number(o.progress) || 0));
   const done = width === 100;
   const shade = done
@@ -237,6 +291,7 @@ function ownerRow(o) {
           : Number(o.earned_total) > 0
             ? 'b'
             : 'none';
+  const isViewing = viewing && viewing.toLowerCase() === String(o.psn_online_id).toLowerCase();
 
   return `<tr class="sh-${shade}">
     <td class="gi">${
@@ -252,7 +307,7 @@ function ownerRow(o) {
       )}${
         // The date only means something once they have stopped: mid-grind it is
         // "when they last got one", which is already the trophy count's job.
-        done && o.last_earned_at ? ` · finished ${esc(on(o.last_earned_at))}` : ''
+        done && o.last_earned_at ? ` &middot; finished ${esc(on(o.last_earned_at))}` : ''
       }</span>
     </td>
     <td class="num prog" data-v="${width}">
@@ -260,6 +315,9 @@ function ownerRow(o) {
       <span class="track"><span class="fill ${shade}" style="width:${width}%"></span></span>
     </td>
     <td class="num pts" data-v="${Number(o.points) || 0}">${n(o.points)}</td>
+    <td class="num"><a class="vchip${isViewing ? ' on' : ''}" href="${esc(
+      isViewing ? gameHref(id) : gameHref(id, o.psn_online_id),
+    )}">${isViewing ? 'Viewing' : 'View'}</a></td>
     <td class="bar"></td>
   </tr>`;
 }
@@ -268,6 +326,7 @@ export async function onRequestGet({ params, env, request }) {
   const id = decodeURIComponent(params.id || '');
   const url = new URL(request.url);
   const sort = SORTS[url.searchParams.get('sort')] ? url.searchParams.get('sort') : DEFAULT_SORT;
+  const as = String(url.searchParams.get('as') || '').trim().slice(0, 40);
 
   const g =
     (await env.DB.prepare(GAME).bind(id).first()) ||
@@ -278,7 +337,8 @@ export async function onRequestGet({ params, env, request }) {
       page({
         title: 'Not found',
         here: 'games',
-        body: `<div class="tablewrap"><p class="empty">
+        body: `${crumb('/games', 'All games')}
+               <div class="tablewrap"><p class="empty">
                  No game called <b>${esc(id)}</b> is in the index.<br>
                  Games arrive here when somebody who owns one runs an update.<br>
                  <a href="/games">Browse the index</a>
@@ -288,10 +348,40 @@ export async function onRequestGet({ params, env, request }) {
     );
   }
 
-  const [{ results: trophies = [] }, { results: owners = [] }] = await Promise.all([
-    env.DB.prepare(trophiesSql(SORTS[sort].sql)).bind(g.np_comm_id).all(),
+  /**
+   * A SEATBELT, and it is here because this exact failure took the site down
+   * once already.
+   *
+   * `group_id` and `trophy_groups` arrive in migrations/012. If the code ships
+   * before the migration runs, SQLite rejects the WHOLE query for the unknown
+   * column and every game page 500s — which is what happened with `closes_at`.
+   * Falling back to the ungrouped query turns "site down" into "DLC sections
+   * missing until the migration runs", which is a difference worth five lines.
+   *
+   * Delete this once 012 is applied everywhere it needs to be.
+   */
+  let trophies = [];
+  let groups = [];
+  let grouped = true;
+  try {
+    const [t, gr] = await Promise.all([
+      env.DB.prepare(trophiesSql(SORTS[sort].sql, true)).bind(g.np_comm_id).all(),
+      env.DB.prepare(GROUPS).bind(g.np_comm_id).all(),
+    ]);
+    trophies = t.results ?? [];
+    groups = gr.results ?? [];
+  } catch {
+    grouped = false;
+    const t = await env.DB.prepare(trophiesSql(SORTS[sort].sql, false)).bind(g.np_comm_id).all();
+    trophies = t.results ?? [];
+  }
+
+  const [{ results: owners = [] }, viewer] = await Promise.all([
     env.DB.prepare(OWNERS).bind(g.np_comm_id).all(),
+    as ? env.DB.prepare(VIEWER).bind(as, g.np_comm_id).first() : Promise.resolve(null),
   ]);
+
+  const earned = viewer ? earnedSet(viewer.earned_ids) : null;
 
   // The cabinet, counted from the rows already in hand rather than by asking
   // the database for four more numbers it would have to scan for anyway.
@@ -314,16 +404,93 @@ export async function onRequestGet({ params, env, request }) {
   const finished = owners.filter((o) => Number(o.progress) === 100).length;
   const started = owners.filter((o) => Number(o.earned_total) > 0).length;
 
+  /**
+   * The DLC split.
+   *
+   * Only when there is genuinely more than one group. A game with everything in
+   * "default" must render exactly as it did before — a heading saying "Base
+   * game" above the only list on the page is a label for a distinction that
+   * does not exist.
+   */
+  const byGroup = new Map();
+  if (grouped) {
+    for (const t of trophies) {
+      const key = t.group_id || 'default';
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key).push(t);
+    }
+  }
+  const hasPacks = grouped && byGroup.size > 1;
+  const groupName = new Map(groups.map((r) => [r.group_id, r]));
+
+  const href = (extra = {}) => {
+    const q = new URLSearchParams();
+    if ((extra.sort ?? sort) !== DEFAULT_SORT) q.set('sort', extra.sort ?? sort);
+    if (extra.as ?? as) q.set('as', extra.as ?? as);
+    const s = q.toString();
+    return `/game/${encodeURIComponent(g.np_comm_id)}${s ? `?${s}` : ''}`;
+  };
+
   const tabs = Object.entries(SORTS)
     .map(
       ([key, s]) =>
-        `<a class="tab${key === sort ? ' on' : ''}" href="/game/${encodeURIComponent(
-          g.np_comm_id,
-        )}?sort=${key}">${esc(s.label)}</a>`,
+        `<a class="tab${key === sort ? ' on' : ''}" href="${esc(
+          href({ sort: key }),
+        )}">${esc(s.label)}</a>`,
     )
     .join('');
 
+  /**
+   * A header, because the table had one and the cards do not. "28 / 30" with
+   * nothing above it is a riddle; three words once, at the top, answer it for
+   * the whole page. It sits above the FIRST list only — repeating it over every
+   * DLC pack would be labelling the same three columns eight times.
+   */
+  const HEAD =
+    '<div class="tlhead"><span class="h-rare">PSN</span>' +
+    '<span class="h-local">Here</span><span class="h-pts">Points</span></div>';
+
+  const list = (rows) =>
+    `<ol class="tlist${earned ? ' viewing' : ''}">${rows
+      .map((t) => trophyCard(t, { localTotal: here, earned }))
+      .join('')}</ol>`;
+
+  const trophyBlock = !trophies.length
+    ? `<div class="tablewrap"><p class="empty">
+         No trophy list for this game yet. It arrives the next time somebody
+         who owns it runs a deep scan.
+       </p></div>`
+    : HEAD +
+      (hasPacks
+      ? [...byGroup.entries()]
+          .map(([key, rows]) => {
+            const meta = groupName.get(key);
+            const label =
+              key === 'default'
+                ? 'Base game'
+                : meta?.name || `Pack ${String(key).replace(/^0+/, '') || key}`;
+            const done = earned ? rows.filter((t) => earned.has(Number(t.trophy_id))).length : 0;
+            return `<h3 class="tgroup">${
+              meta?.icon_url
+                ? `<img src="${esc(meta.icon_url)}" alt="" loading="lazy" width="26" height="26">`
+                : ''
+            }${esc(label)}<span class="gcount">${
+              earned ? `${n(done)} of ${n(rows.length)}` : `${n(rows.length)} trophies`
+            }</span></h3>${list(rows)}`;
+          })
+          .join('')
+      : list(trophies));
+
   const body = `
+    ${
+      // Back to where you came from, at the TOP. If a hunter's view is being
+      // shown then their page is where you came from and saying so is better
+      // than a generic link to the index.
+      as && viewer
+        ? crumb(`/hunter/${encodeURIComponent(viewer.psn_online_id)}`, `${viewer.psn_online_id}'s games`)
+        : crumb('/games', 'All games')
+    }
+
     <section class="ghero">
       ${
         g.icon_url
@@ -363,19 +530,36 @@ export async function onRequestGet({ params, env, request }) {
       </dl>
     </div>
 
+    ${
+      viewer
+        ? `<div class="viewbar">${
+            viewer.avatar_url
+              ? `<img class="av" src="${esc(viewer.avatar_url)}" alt="" width="22" height="22">`
+              : ''
+          }<span>Showing <b>${esc(viewer.psn_online_id)}</b>'s trophies &middot; ${
+            Number(viewer.progress) || 0
+          }% done</span><a href="${esc(href({ as: null }))}">Show the plain list</a></div>`
+        : as
+          ? `<div class="viewbar"><span><b>${esc(
+              as,
+            )}</b> does not own this one, so there is nothing to light up.</span>
+             <a href="${esc(href({ as: null }))}">Dismiss</a></div>`
+          : ''
+    }
+
     <div class="tabs">${tabs}</div>
 
     ${
       /*
        * THE CHECKBOX SITS OUTSIDE THE TOOLROW, and that is not tidiness.
        *
-       * The reveal is a sibling selector — `:checked ~ .tablewrap` — and a
-       * sibling combinator only reaches elements with the same parent. Wrapped
-       * in the toolrow div with its label, the input could style the label
-       * beside it and nothing else on the page; the blur would never lift and
-       * every test asserting on the CSS would still pass. So the input is a
-       * direct child of the page body, immediately before the row that carries
-       * its label, and the table it unblurs is a later sibling of the input.
+       * The reveal is a sibling selector — `:checked ~ .tlist` — and a sibling
+       * combinator only reaches elements with the same parent. Wrapped in the
+       * toolrow div with its label, the input could style the label beside it
+       * and nothing else on the page; the blur would never lift and every test
+       * asserting on the CSS would still pass. So the input is a direct child
+       * of the page body, immediately before the row that carries its label,
+       * and every list it unblurs is a later sibling of the input.
        */
       secrets
         ? `<input type="checkbox" id="spoilers" class="spoilbox">
@@ -386,26 +570,7 @@ export async function onRequestGet({ params, env, request }) {
         : ''
     }
 
-    ${
-      trophies.length
-        ? `<div class="tablewrap">
-             <table class="games trophies">
-               <thead><tr>
-                 <th class="gi"></th>
-                 <th>Trophy</th>
-                 <th class="num" title="How many PlayStation owners worldwide have earned it">PSN</th>
-                 <th class="num" title="How many people on this server have earned it">Here</th>
-                 <th class="num">Points</th>
-                 <th class="bar"></th>
-               </tr></thead>
-               <tbody>${trophies.map((t) => trophyRow(t, { localTotal: here })).join('')}</tbody>
-             </table>
-           </div>`
-        : `<div class="tablewrap"><p class="empty">
-             No trophy list for this game yet. It arrives the next time somebody
-             who owns it runs a deep scan.
-           </p></div>`
-    }
+    ${trophyBlock}
 
     <section class="panel">
       <h2>Who here has it</h2>
@@ -418,26 +583,25 @@ export async function onRequestGet({ params, env, request }) {
                    <th>Hunter</th>
                    <th class="num">Progress</th>
                    <th class="num">Points</th>
+                   <th class="num"></th>
                    <th class="bar"></th>
                  </tr></thead>
-                 <tbody>${owners.map(ownerRow).join('')}</tbody>
+                 <tbody>${owners
+                   .map((o) => ownerRow(o, g.np_comm_id, viewer?.psn_online_id || ''))
+                   .join('')}</tbody>
                </table>
              </div>
              <p class="note">${
                finished === here
-                 ? `Everybody here who owns it has finished it.`
+                 ? 'Everybody here who owns it has finished it.'
                  : `${n(finished)} of ${n(here)} finished it${
                      started > finished ? `, ${n(started - finished)} more have started` : ''
                    }.`
-             }</p>`
+             } <b>View</b> lights up that hunter's trophies in the list above.</p>`
           : `<p class="note">Nobody on the board owns this one yet. It is in the
                index because the dice can reach it.</p>`
       }
-    </section>
-
-    <footer>
-      <a href="/games">Back to the index</a>
-    </footer>`;
+    </section>`;
 
   return html(
     page({

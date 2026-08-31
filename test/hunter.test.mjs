@@ -569,8 +569,10 @@ test('every game title is a link to that game', async () => {
   // exists; the hunter page is the main way anybody reaches it.
   const { out } = await render();
   for (const g of GAMES) {
+    // ?as= carries whose page you came from, so the game page can light up
+    // THEIR earned trophies before there is any such thing as being signed in.
     assert.ok(
-      out.includes(`href="/game/${g.np_comm_id}"`),
+      out.includes(`href="/game/${g.np_comm_id}?as=JFL__Leon"`),
       `${g.title} is not a link to its page`,
     );
   }

@@ -93,23 +93,28 @@ async function nameGame(psn, game) {
   const named = defs.filter((t) => t.trophyName);
   if (!named.length) return 0;
 
-  const cols = ['np_comm_id', 'trophy_id', 'name', 'detail', 'icon_url'];
+  // group_id rides along on the SAME call. It was being thrown away, which is
+  // why Minecraft arrived as 136 trophies in one heap while the console shows a
+  // base game and eight expansion packs. See migrations/012.
+  const cols = ['np_comm_id', 'trophy_id', 'name', 'detail', 'icon_url', 'group_id'];
   const perChunk = D1.chunkSize(cols.length);
   for (let i = 0; i < named.length; i += perChunk) {
     const slice = named.slice(i, i + perChunk);
     await db.run(
       `INSERT INTO trophies (${cols.join(',')})
-       VALUES ${slice.map(() => '(?,?,?,?,?)').join(',')}
+       VALUES ${slice.map(() => '(?,?,?,?,?,?)').join(',')}
        ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
          name = excluded.name,
          detail = excluded.detail,
-         icon_url = excluded.icon_url`,
+         icon_url = excluded.icon_url,
+         group_id = excluded.group_id`,
       slice.flatMap((t) => [
         game.np_comm_id,
         t.trophyId,
         t.trophyName ?? null,
         t.trophyDetail ?? null,
         t.trophyIconUrl ?? null,
+        t.trophyGroupId ?? 'default',
       ]),
     );
   }
@@ -117,6 +122,61 @@ async function nameGame(psn, game) {
 }
 
 // ------------------------------------------------------------------ run ----
+
+/**
+ * Games whose trophies span more than one group, and whose packs are not named.
+ *
+ * THE SPLIT IS FREE; THE NAMES ARE NOT. `trophyGroupId` arrives on the same
+ * call that fetches names and rarity, so knowing that Minecraft has nine groups
+ * costs nothing. Knowing that group "004" is called "Expansion Pack 4" is a
+ * second endpoint, one call per game.
+ *
+ * So this runs ONLY for games that actually have packs — a few dozen of the
+ * five hundred here rather than all of them — and only once each, because a
+ * pack name never changes. The base game is skipped: every game has a "default"
+ * group and the page calls it "Base game" without asking anybody.
+ */
+const NEXT_GROUPS = `
+  SELECT g.np_comm_id, g.title, g.platform,
+         COUNT(DISTINCT t.group_id) AS groups
+    FROM games g
+    JOIN trophies t ON t.np_comm_id = g.np_comm_id
+   WHERE t.group_id IS NOT NULL
+     AND NOT EXISTS (
+           SELECT 1 FROM trophy_groups tg WHERE tg.np_comm_id = g.np_comm_id)
+   GROUP BY g.np_comm_id
+  HAVING COUNT(DISTINCT t.group_id) > 1
+   ORDER BY g.local_started DESC, g.np_comm_id ASC
+   LIMIT ?`;
+
+/** One game's pack names, written straight in. */
+async function nameGroups(psn, game) {
+  const groups = await psn.titleTrophyGroups(game.np_comm_id, game.platform);
+  if (!groups.length) return 0;
+
+  const cols = ['np_comm_id', 'group_id', 'name', 'icon_url', 'fetched_at'];
+  const perChunk = D1.chunkSize(cols.length);
+  const now = Date.now();
+  for (let i = 0; i < groups.length; i += perChunk) {
+    const slice = groups.slice(i, i + perChunk);
+    await db.run(
+      `INSERT INTO trophy_groups (${cols.join(',')})
+       VALUES ${slice.map(() => '(?,?,?,?,?)').join(',')}
+       ON CONFLICT(np_comm_id, group_id) DO UPDATE SET
+         name = excluded.name,
+         icon_url = excluded.icon_url,
+         fetched_at = excluded.fetched_at`,
+      slice.flatMap((gr) => [
+        game.np_comm_id,
+        gr.trophyGroupId ?? 'default',
+        gr.trophyGroupName ?? null,
+        gr.trophyGroupIconUrl ?? null,
+        now,
+      ]),
+    );
+  }
+  return groups.length;
+}
 
 /**
  * How much is left, split two ways.
@@ -208,6 +268,46 @@ while (!out) {
       );
     }
   }
+}
+
+/**
+ * Second pass: what the DLC packs are called.
+ *
+ * AFTER the names, deliberately. Trophy names are what a game page cannot be
+ * built without; pack headings are what makes it match the console. If the
+ * budget runs out here, the site still works and the next run picks these up —
+ * the query selects games with no rows in trophy_groups, so it is resumable by
+ * construction exactly like the pass above.
+ */
+let packs = 0;
+let packGames = 0;
+while (Date.now() - started <= BUDGET_MS) {
+  const games = await db.query(NEXT_GROUPS, [PAGE]);
+  if (!games.length) break;
+
+  for (const game of games) {
+    if (Date.now() - started > BUDGET_MS) break;
+    try {
+      const n = await nameGroups(psn, game);
+      if (n) {
+        packGames++;
+        packs += n;
+      } else {
+        // The endpoint is missing from this version of psn-api, so no game will
+        // ever return groups and the loop would spin through every one of them
+        // spending a PSN call each. Stop at the first empty answer.
+        console.log('  PSN trophy groups unavailable — packs will show as "Pack 1".');
+        packGames = -1;
+        break;
+      }
+    } catch (err) {
+      console.error(`  x groups for ${game.title}: ${err.message}`);
+    }
+  }
+  if (packGames < 0) break;
+}
+if (packGames > 0) {
+  console.log(`\nNamed ${packs} DLC packs across ${packGames} games.`);
 }
 
 const mins = Math.round((Date.now() - started) / 60000);

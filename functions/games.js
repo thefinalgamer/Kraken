@@ -19,7 +19,7 @@
  */
 
 import {
-  page, html, esc, n, closingState, closingLabel, isUrgent,
+  page, html, esc, n, crumb, closingState, closingLabel, isUrgent,
 } from './_lib/page.js';
 
 const PER_PAGE = 50;
@@ -184,6 +184,8 @@ export async function onRequestGet({ env, request }) {
     .join('');
 
   const body = `
+    ${crumb('/', 'Home')}
+
     <section class="hero plain">
       <h1>The index</h1>
       <p class="sub">Every game somebody here owns, and what finishing it pays.</p>

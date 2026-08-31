@@ -21,7 +21,7 @@
 
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
-  closingState, closingLabel, isUrgent, d20, gameHref,
+  closingState, closingLabel, isUrgent, d20, gameHref, crumb,
 } from '../_lib/page.js';
 
 const PER_PAGE = 50;
@@ -299,7 +299,7 @@ async function wildcards(env, accountId, count) {
   return picked;
 }
 
-function rollCard(g, { mine }) {
+function rollCard(g, { mine, who }) {
   const max = Number(g.max_points) || 0;
   const got = Number(g.points) || 0;
   const left = Math.max(0, max - got);
@@ -312,7 +312,7 @@ function rollCard(g, { mine }) {
         : '<span class="ico"></span>'
     }
     <div class="rb">
-      <a class="t" href="${esc(gameHref(g.np_comm_id))}">${
+      <a class="t" href="${esc(gameHref(g.np_comm_id, who))}">${
         g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''
       }${esc(g.title)}</a>
       <span class="s">${
@@ -361,7 +361,7 @@ function clock(g) {
   return '';
 }
 
-function gameRow(g) {
+function gameRow(g, who) {
   const done = Number(g.progress) === 100;
   const max = Number(g.max_points) || 0;
   const got = Number(g.points) || 0;
@@ -403,7 +403,7 @@ function gameRow(g) {
     }</td>
     <td class="gt">
       ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<a
-        class="tname" href="${esc(gameHref(g.np_comm_id))}">${esc(g.title)}</a>${
+        class="tname" href="${esc(gameHref(g.np_comm_id, who))}">${esc(g.title)}</a>${
         /*
          * A <details>, not a title attribute.
          *
@@ -641,7 +641,7 @@ export async function onRequestGet({ params, env, request }) {
            backlogPicks.length
              ? `<p class="rlabel">From ${whose}'s backlog</p>
                 <ul class="rolls">${backlogPicks
-                  .map((g) => rollCard(g, { mine: true }))
+                  .map((g) => rollCard(g, { mine: true, who: m.psn_online_id }))
                   .join('')}</ul>`
              : `<p class="note">Nothing unfinished worth points — which is its own kind of answer.</p>`
          }
@@ -664,6 +664,8 @@ export async function onRequestGet({ params, env, request }) {
   }</a>`;
 
   const body = `
+    ${crumb('/leaderboard', 'Leaderboard')}
+
     <section class="hero">
       ${
         m.avatar_url
@@ -723,7 +725,7 @@ export async function onRequestGet({ params, env, request }) {
                  <th class="num" title="Earned out of what a full completion pays">Points</th>
                  <th class="bar"></th>
                </tr></thead>
-               <tbody>${games.map(gameRow).join('')}</tbody>
+               <tbody>${games.map((g) => gameRow(g, m.psn_online_id)).join('')}</tbody>
              </table>
            </div>
            ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext)}`

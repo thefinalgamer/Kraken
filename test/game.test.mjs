@@ -26,15 +26,15 @@ const GAME = {
 };
 
 const TROPHIES = [
-  { trophy_id: 0, name: 'Bloodborne', detail: 'Collect all trophies.', type: 'platinum',
+  { group_id: 'default', trophy_id: 0, name: 'Bloodborne', detail: 'Collect all trophies.', type: 'platinum',
     icon_url: 'https://x.test/p.png', hidden: 0, earned_rate: 4.21, points: 900, local_earned: 1 },
-  { trophy_id: 1, name: 'Blood Rapture', detail: 'Kill Mergo\'s Wet Nurse.', type: 'gold',
+  { group_id: 'default', trophy_id: 1, name: 'Blood Rapture', detail: 'Kill Mergo\'s Wet Nurse.', type: 'gold',
     icon_url: null, hidden: 0, earned_rate: 31.2, points: 300, local_earned: 2 },
   // The secret one. Its name is a plot point, which is the entire feature.
-  { trophy_id: 2, name: 'Childhood\'s Beginning', detail: 'Became an infant Great One.',
+  { group_id: 'default', trophy_id: 2, name: 'Childhood\'s Beginning', detail: 'Became an infant Great One.',
     type: 'gold', icon_url: null, hidden: 1, earned_rate: 12.5, points: 420, local_earned: 0 },
   // No rarity published by PSN.
-  { trophy_id: 3, name: 'Ill-Omened Nightmare', detail: null, type: 'bronze',
+  { group_id: 'default', trophy_id: 3, name: 'Ill-Omened Nightmare', detail: null, type: 'bronze',
     icon_url: null, hidden: 0, earned_rate: null, points: 15, local_earned: 3 },
 ];
 
@@ -54,19 +54,30 @@ const OWNERS = [
 
 let lastTrophySql = '';
 
-const fakeEnv = ({ game = GAME, byTitle = null, trophies = TROPHIES, owners = OWNERS } = {}) => ({
+const fakeEnv = ({
+  game = GAME, byTitle = null, trophies = TROPHIES, owners = OWNERS,
+  groups = [], viewer = null, noGroupColumn = false,
+} = {}) => ({
   DB: {
     prepare(sql) {
       if (sql.includes('FROM trophies')) {
         lastTrophySql = sql;
-        return {
-          bind: () => ({ all: async () => ({ results: trophies }), first: async () => trophies[0] }),
-        };
+        // Stands in for D1 rejecting an unknown column before migration 012.
+        if (noGroupColumn && sql.includes('group_id')) {
+          return { bind: () => ({ all: async () => { throw new Error('no such column: group_id'); } }) };
+        }
+        return { bind: () => ({ all: async () => ({ results: trophies }) }) };
       }
+      if (sql.includes('FROM trophy_groups')) {
+        return { bind: () => ({ all: async () => ({ results: groups }) }) };
+      }
+      // The viewer lookup and the owners list both read member_games; only the
+      // viewer one is filtered by online id.
       if (sql.includes('FROM member_games')) {
-        return { bind: () => ({ all: async () => ({ results: owners }) }) };
+        return sql.includes('psn_online_id = ?')
+          ? { bind: () => ({ first: async () => viewer }) }
+          : { bind: () => ({ all: async () => ({ results: owners }) }) };
       }
-      // games, by id or by title
       const row = sql.includes('COLLATE NOCASE') ? byTitle : game;
       return { bind: () => ({ first: async () => row, all: async () => ({ results: [] }) }) };
     },
@@ -144,7 +155,7 @@ test('a secret trophy is blurred behind a real checkbox', async () => {
 
   // The blurred row must carry the class the stylesheet blurs, AND the text
   // must be inside the element that gets blurred.
-  assert.match(out, /class="tr-g secret"/, 'the secret row is marked');
+  assert.match(out, /class="tc m-g secret"/, 'the secret card is marked');
   assert.match(
     out,
     /<span class="spoil">[\s\S]{0,200}Childhood/,
@@ -159,7 +170,7 @@ test('the checkbox is a sibling of the table, or the reveal does nothing', async
   const { out } = await render();
   const input = out.indexOf('class="spoilbox"');
   const toolrow = out.indexOf('class="toolrow"');
-  const table = out.indexOf('class="tablewrap"', input);
+  const table = out.indexOf('class="tlist', input);
   assert.ok(input > -1 && toolrow > input, 'the input comes before the toolrow');
   assert.ok(
     !out.slice(toolrow, table).includes('class="spoilbox"'),
@@ -187,7 +198,7 @@ test('a game with a deadline says so above the trophy list', async () => {
     game: { ...GAME, closes_at: Date.now() + 12 * DAY, unobtainable_note: 'Servers close in May' },
   });
   const warn = out.indexOf('class="warn');
-  const table = out.indexOf('<table');
+  const table = out.indexOf('<ol class="tlist');
   assert.ok(warn > -1 && warn < table, 'the deadline is above the list, not below it');
   assert.ok(out.includes('Servers close in May'), 'the note a mod typed is shown');
 });
@@ -239,4 +250,126 @@ test('a hostile trophy name cannot inject markup', async () => {
 test('a hostile game title cannot break out of the description meta tag', async () => {
   const { out } = await render({ game: { ...GAME, title: '" onload="alert(1)' } });
   assert.ok(!out.includes('onload="alert'));
+});
+
+// ------------------------------------------------------ the earned view ----
+
+const VIEWER = {
+  psn_online_id: 'JFL__Leon', avatar_url: null, progress: 64, points: 1710,
+  // Trophy 1 and 3 only. Trophy 0 (the platinum) and 2 are NOT earned.
+  earned_ids: '[1,3]',
+};
+
+test('?as= lights up that hunter\'s trophies and nobody else\'s', async () => {
+  const { out } = await render({ viewer: VIEWER }, '?as=JFL__Leon');
+
+  assert.ok(out.includes('Showing <b>JFL__Leon</b>'), 'the page says whose list it is');
+  assert.match(out, /<ol class="tlist viewing"/, 'the list is in viewing mode');
+
+  // Assert on the CARD, not the class name — the stylesheet is inlined, so
+  // out.includes('got') is true on every page ever rendered. The inline trophy
+  // SVG sits between the class and the name, so it is stripped first rather
+  // than guessed around with a wider window.
+  const bare = out.replace(/<svg[\s\S]*?<\/svg>/g, '');
+  assert.match(bare, /class="tc m-g got"[\s\S]{0,300}Blood Rapture/, 'earned gold is lit');
+  assert.match(bare, /class="tc m-b got"[\s\S]{0,300}Ill-Omened/, 'earned bronze is lit');
+  assert.ok(
+    !/class="tc m-p got"/.test(out),
+    'the platinum is NOT lit — they have not earned it',
+  );
+});
+
+test('no ?as= means nothing is dimmed', async () => {
+  // With nobody signed in there is no such thing as "not done", and fading
+  // half the list would be a claim the page cannot support.
+  const { out } = await render();
+  assert.ok(!out.includes('tlist viewing'), 'no viewing mode');
+  assert.ok(!/class="tc [^"]*got"/.test(out), 'nothing is marked earned');
+});
+
+test('?as= for somebody who does not own it says so instead of lying', async () => {
+  const { out } = await render({ viewer: null }, '?as=Nobody');
+  assert.ok(out.includes('does not own this one'), 'says why nothing is lit');
+  assert.ok(!out.includes('tlist viewing'), 'and does not dim the list');
+});
+
+test('a corrupt earned_ids renders the page without the highlight', async () => {
+  // The column is text written by another process. A decoration is never worth
+  // a 500.
+  const { res, out } = await render({ viewer: { ...VIEWER, earned_ids: '{not json' } }, '?as=JFL__Leon');
+  assert.equal(res.status, 200);
+  assert.ok(!/class="tc [^"]*got"/.test(out), 'nothing lit');
+  assert.ok(out.includes('Blood Rapture'), 'the list is still there');
+});
+
+test('the local count has no bar, and no percentage caption', async () => {
+  // The bar filled with how many OTHER people had the trophy, so your own
+  // finished trophy sat under a half-empty bar. The fraction says it better.
+  const { out } = await render();
+  assert.ok(out.includes('2 <span class="of-max">/ 3</span>'), 'the fraction stays');
+  assert.ok(!out.includes('fill here'), 'the bar is gone');
+  assert.ok(!out.includes('% of us'), 'and so is the percentage caption');
+  assert.ok(out.includes('nobody here'), 'but the two end cases keep their words');
+  assert.ok(out.includes('one of us'));
+});
+
+test('there is a way back at the top of the page, not just the bottom', async () => {
+  const { out } = await render();
+  const crumbAt = out.indexOf('class="crumb"');
+  const hero = out.indexOf('class="ghero"');
+  assert.ok(crumbAt > -1 && crumbAt < hero, 'the crumb is above the title');
+  assert.ok(out.includes('All games'));
+});
+
+test('the crumb goes back to the hunter you came from', async () => {
+  const { out } = await render({ viewer: VIEWER }, '?as=JFL__Leon');
+  assert.match(out, /class="crumb"><a href="\/hunter\/JFL__Leon">[^<]*JFL__Leon/);
+});
+
+// ------------------------------------------------------------ DLC packs ----
+
+const PACKED = [
+  { ...TROPHIES[0], group_id: 'default' },
+  { ...TROPHIES[1], group_id: 'default' },
+  { ...TROPHIES[2], group_id: '001' },
+  { ...TROPHIES[3], group_id: '002' },
+];
+
+test('a game with DLC is split into named sections', async () => {
+  const { out } = await render({
+    trophies: PACKED,
+    groups: [
+      { group_id: 'default', name: 'Minecraft', icon_url: null },
+      { group_id: '001', name: 'Expansion Pack 1', icon_url: null },
+      { group_id: '002', name: 'Expansion Pack 4', icon_url: null },
+    ],
+  });
+  assert.ok(out.includes('Base game'), 'the default group is never called "default"');
+  assert.ok(out.includes('Expansion Pack 1'), 'PSN\'s own pack name');
+  assert.ok(out.includes('Expansion Pack 4'), 'including a non-sequential one');
+  assert.equal((out.match(/<ol class="tlist/g) || []).length, 3, 'three lists');
+});
+
+test('packs with no fetched name still get a heading', async () => {
+  const { out } = await render({ trophies: PACKED, groups: [] });
+  assert.ok(out.includes('Base game'));
+  assert.ok(out.includes('Pack 1') && out.includes('Pack 2'), 'a heading beats one heap');
+});
+
+test('a game with no DLC gets no headings at all', async () => {
+  // Every game has a "default" group. A heading above the only list on the page
+  // is a label for a distinction that does not exist.
+  const { out } = await render();
+  assert.ok(!out.includes('Base game'), 'no heading');
+  assert.equal((out.match(/<ol class="tlist/g) || []).length, 1, 'one list');
+});
+
+test('the page survives the migration not having been run', async () => {
+  // This exact failure took the whole site down once, with closes_at: SQLite
+  // rejects the entire query for one unknown column. Missing DLC headings is
+  // an acceptable degradation; a 500 on every game page is not.
+  const { res, out } = await render({ noGroupColumn: true });
+  assert.equal(res.status, 200);
+  assert.ok(out.includes('Blood Rapture'), 'the trophy list renders');
+  assert.ok(!out.includes('Base game'), 'just without the pack headings');
 });

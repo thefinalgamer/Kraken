@@ -266,7 +266,21 @@ export const d20 = () =>
  * encoded, because "safe today" is how a URL builder becomes an injection in
  * eighteen months when Sony changes a format.
  */
-export const gameHref = (id) => `/game/${encodeURIComponent(String(id ?? ''))}`;
+export const gameHref = (id, as = '') =>
+  `/game/${encodeURIComponent(String(id ?? ''))}` +
+  (as ? `?as=${encodeURIComponent(String(as))}` : '');
+
+/**
+ * The way back, at the TOP of the page.
+ *
+ * There was one at the bottom, under the trophy list, which on a game with a
+ * hundred and thirty-six trophies is four screens of scrolling away — so the
+ * only usable way back was the browser's own button, and a site whose
+ * navigation is the browser chrome has no navigation. It is a link and not a
+ * history.back() because it must say WHERE it goes before it is clicked.
+ */
+export const crumb = (href, label) =>
+  `<nav class="crumb"><a href="${esc(href)}">&lsaquo; ${esc(label)}</a></nav>`;
 
 export const ordinal = (v) => {
   const num = Number(v);
@@ -842,47 +856,157 @@ p.warn.dead{border-color:rgba(216,171,62,.4)}
 p.warn.clock{border-color:rgba(32,184,153,.4)}
 p.warn.clock.soon{border-color:rgba(240,196,25,.45)}
 
-/* ---- the trophy list ---- */
-.trophies td.tn{white-space:normal;min-width:220px}
-.trophies .tname{font-weight:600;font-size:15px;display:block}
-.trophies .tdet{display:block;color:var(--faint);font-size:12.5px;margin-top:2px;
-  line-height:1.5;max-width:62ch}
-.trophies .ico.sm{width:44px;height:44px;flex:0 0 44px;border-radius:9px}
-/* No icon from PSN: the cup, in the metal, on the track colour. Better than an
-   empty grey square, which reads as a broken image. */
-.trophies span.ico.sm{display:flex;align-items:center;justify-content:center}
-.trophies span.ico.sm svg{width:22px;height:22px}
+/* ---- the trophy list ----
+   PS5 CARDS, NOT A TABLE. The console draws a trophy as a wide card with a
+   slight lean and a hairline of dark between each one, and everybody on this
+   server has scrolled thousands of them on a DualSense. A table of the same
+   information is correct and reads like a spreadsheet; the cards read like the
+   thing people already know, and the lean is most of why.
 
-/* The type stripe, same column the game tables use for progress. Here it is the
-   metal, because a trophy has no progress — you have it or you do not. */
-tr.tr-p td.bar{background:#4a9eff}
-tr.tr-g td.bar{background:#f0c419}
-tr.tr-s td.bar{background:#c9ccd1}
-tr.tr-b td.bar{background:#e08a4a}
-@media (max-width:640px){
-  .games tr.tr-p td.gi{border-left-color:#4a9eff}
-  .games tr.tr-g td.gi{border-left-color:#f0c419}
-  .games tr.tr-s td.gi{border-left-color:#c9ccd1}
-  .games tr.tr-b td.gi{border-left-color:#e08a4a}
+   The skew is on the CARD and unskewed on its contents, which is the only way
+   to get a parallelogram without italicising every word inside it. Three
+   degrees — enough to see, not enough to make the icons look broken. */
+.tlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.tc{
+  position:relative;transform:skewX(-3deg);border-radius:5px;overflow:hidden;
+  background:var(--panel);border:1px solid var(--edge);
 }
+.tcin{
+  transform:skewX(3deg);display:flex;align-items:center;gap:14px;
+  padding:11px 20px 11px 16px;
+}
+/* The metal, as the left edge of the card. Same vocabulary as the accent strip
+   on every table: colour means which trophy, never how far along. */
+.tc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--rule)}
+.tc.m-p::before{background:#4a9eff}
+.tc.m-g::before{background:#f0c419}
+.tc.m-s::before{background:#c9ccd1}
+.tc.m-b::before{background:#e08a4a}
 
-/* Sony's five bands, Sony's five words. The colour ramps with the rarity so the
-   column can be read down without reading any of the numbers in it. */
-td.rare{min-width:104px}
-.rb{font-weight:700;font-variant-numeric:tabular-nums}
-.rb.ur{color:#e86a9a} .rb.vr{color:#c98af0} .rb.r{color:#7fd6f5}
-.rb.u{color:var(--soft)} .rb.c{color:var(--faint)} .rb.none{color:var(--faint)}
-.rl{display:block;font-size:11px;color:var(--faint);margin-top:4px;letter-spacing:.02em}
+.tic{width:52px;height:52px;flex:0 0 52px;border-radius:8px;display:block;
+  background:var(--edge);object-fit:cover}
+span.tic{display:flex;align-items:center;justify-content:center}
+span.tic svg{width:26px;height:26px}
+.tcb{min-width:0;flex:1 1 auto}
+.tcb .tname{display:block;font-weight:700;font-size:15px;color:var(--soft)}
+.tcb .tdet{display:block;font-size:12.5px;color:var(--faint);margin-top:2px;
+  line-height:1.45;max-width:70ch}
 
-/* THE COLUMN THAT DOES NOT EXIST ANYWHERE ELSE. Global rarity is on every
-   trophy site there has ever been; "one of us" is on none of them. The bar is
-   the same four pixels as a progress bar so the eye reads the two columns the
-   same way, and the caption underneath says it in words because "2 / 31" is a
-   fraction and "one of us" is a fact about people you know. */
-td.local{min-width:118px}
-.local .nobody{color:var(--faint)}
-.track.sm{height:4px;margin-top:5px}
-.fill.here{background:var(--kraken)}
+/* A HEADER, because the table had one and the cards do not.
+   "28 / 30" with nothing above it is a riddle. Three words once, at the top,
+   answer it for the whole page — and the widths and gaps are the same numbers
+   as .tcr below, so the labels sit over their own columns. */
+.tlhead{display:flex;justify-content:flex-end;gap:22px;padding:0 20px 7px 0;
+  font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  font-weight:700}
+.tlhead span{text-align:right}
+.tlhead .h-rare{min-width:82px}
+.tlhead .h-local{min-width:64px}
+.tlhead .h-pts{min-width:52px}
+@media (max-width:720px){ .tlhead{display:none} }
+
+/* BRIGHTNESS, NOT HUE, and this replaces a pink.
+   The first version ramped through pink, purple and blue. Nobody could say what
+   pink meant, because it meant nothing — PlayStation has no colour language for
+   rarity, so the ramp was inventing one and then not printing the legend. The
+   word beside the number IS the legend, and it was already there.
+   Now the only encoding is weight and brightness: the rarer it is, the more it
+   stands out, on the same three-step text hierarchy as the rest of the site.
+   Nothing to look up, and it still scans down the column. */
+.rb{display:block;font-weight:600;font-variant-numeric:tabular-nums;color:var(--soft)}
+.rb.ur{color:#fff;font-weight:800}
+.rb.vr{color:var(--ink);font-weight:700}
+.rb.r{color:var(--ink)}
+.rb.u{color:var(--soft)}
+.rb.c{color:var(--faint);font-weight:500}
+.rb.none{color:var(--faint);font-weight:500}
+.rl{display:block;font-size:11px;color:var(--faint);margin-top:3px;letter-spacing:.02em}
+.tc.got .rb.c,.tc.got .rb.none{color:var(--soft)}
+
+/* The rarity, the local count and the points, right-aligned in fixed columns so
+   the eye can run straight down them the way it could in the table. */
+.tcr{display:flex;align-items:center;gap:22px;flex:0 0 auto;text-align:right}
+.tcr .rare{min-width:82px}
+/* NO BAR HERE ANY MORE. There was a progress bar under this count and it was
+   answering a question nobody asked: it filled with how many OTHER people had
+   the trophy, so your own finished trophy sat under a half-empty bar. The
+   fraction says the same thing and cannot be misread as your progress. */
+.tcr .local{min-width:64px;font-variant-numeric:tabular-nums;font-weight:600;
+  color:var(--soft)}
+.tcr .local .of-max{font-weight:400}
+.tcr .lcap{display:block;font-size:11px;color:var(--faint);margin-top:3px}
+.tcr .tpts{min-width:52px;font-weight:700;font-variant-numeric:tabular-nums;
+  font-size:16px;color:var(--soft)}
+
+/* EARNED. On the console an earned trophy is lit and an unearned one is not,
+   and that difference does more work than any label. The wash is the metal,
+   fading out to the right so the text stays readable over it. */
+.tc.got{border-color:rgba(255,255,255,.14);background:#16252a}
+.tc.got .tcb .tname{color:#fff}
+.tc.got .tcb .tdet{color:var(--soft)}
+.tc.got .tpts,.tc.got .local{color:var(--ink)}
+/* The four are NOT the same strength, because the four colours are not equally
+   loud on a dark ground. Silver at the same opacity as bronze reads brighter
+   than gold, which would make the cheapest trophies the most eye-catching thing
+   on the page — so silver is pulled well down and the rest are trimmed until a
+   screen full of earned bronzes stops looking like one brown block. */
+.tc.got.m-p{background:linear-gradient(100deg,rgba(74,158,255,.26),rgba(74,158,255,.04) 55%,transparent)}
+.tc.got.m-g{background:linear-gradient(100deg,rgba(240,196,25,.24),rgba(240,196,25,.04) 55%,transparent)}
+.tc.got.m-s{background:linear-gradient(100deg,rgba(201,204,209,.14),rgba(201,204,209,.03) 55%,transparent)}
+.tc.got.m-b{background:linear-gradient(100deg,rgba(224,138,74,.22),rgba(224,138,74,.04) 55%,transparent)}
+/* A green tick on the right edge, because on a phone the wash is the first
+   thing a dim screen loses. */
+.tc.got::after{content:"";position:absolute;right:0;top:0;bottom:0;width:4px;background:var(--up)}
+
+/* Only dim the unearned ones when somebody's trophies are actually being shown.
+   With no viewer set, nothing here is "not done" — it is just a trophy list,
+   and half-fading all of it would be a lie about a page nobody is signed in to. */
+.tlist.viewing .tc:not(.got){opacity:.62}
+
+/* Whose list this is. */
+.viewbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
+  padding:8px 14px;border:1px solid var(--edge);border-radius:99px;background:var(--panel);
+  font-size:13px;color:var(--soft);width:fit-content;max-width:100%}
+.viewbar b{color:var(--ink)}
+.viewbar .av{width:22px;height:22px;flex:0 0 22px}
+.viewbar a{color:var(--kraken);text-decoration:none}
+.viewbar a:hover{text-decoration:underline}
+.vchip{font-size:11.5px;color:var(--faint);border:1px solid var(--edge);border-radius:99px;
+  padding:2px 10px;text-decoration:none;white-space:nowrap}
+.vchip:hover{color:var(--kraken);border-color:var(--kraken)}
+.vchip.on{color:var(--deep);background:var(--kraken);border-color:var(--kraken);font-weight:600}
+
+/* A DLC pack, exactly as the console groups them. */
+.tgroup{display:flex;align-items:center;gap:12px;margin:22px 0 9px;
+  font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  font-weight:700}
+.tgroup:first-of-type{margin-top:0}
+.tgroup img{width:26px;height:26px;border-radius:5px;flex:0 0 26px;object-fit:cover}
+.tgroup .gcount{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:500}
+
+.crumb{margin:0 0 12px;font-size:13px}
+.crumb a{color:var(--faint);text-decoration:none}
+.crumb a:hover{color:var(--kraken)}
+
+@media (max-width:720px){
+  /* The skew goes on a phone. A parallelogram costs horizontal room on both
+     sides, and there is none — the flourish is not worth clipping a name.
+
+     A GRID, NOT A WRAPPED FLEX ROW. Letting the flex line wrap put the icon
+     alone on the first line with forty pixels of nothing beside it, because a
+     flex item that is told to take the full width takes it. Two columns with
+     the icon spanning both rows keeps the name next to its own trophy — the
+     same shape the feed lists on the front page already use. */
+  .tc{transform:none}
+  .tcin{transform:none;display:grid;grid-template-columns:auto 1fr;
+    column-gap:12px;row-gap:9px;align-items:start;padding:11px 13px}
+  .tic{grid-row:1 / span 2;width:42px;height:42px;flex:0 0 42px}
+  .tcb{min-width:0;grid-column:2}
+  .tcr{grid-column:2;justify-content:space-between;gap:10px;text-align:left;
+    align-items:flex-end}
+  .tcr .rare,.tcr .local,.tcr .tpts{min-width:0}
+  .tcr .tpts{text-align:right}
+}
 
 /* ---- secret trophies ----
    BLURRED, NOT WITHHELD. The text is in the HTML, exactly as it is on every
@@ -905,15 +1029,17 @@ td.local{min-width:118px}
 .spoilbox:checked + .toolrow .spoillabel{color:var(--kraken);border-color:var(--kraken)}
 .spoilbox:checked + .toolrow .spoillabel::before{content:"\\25C9";color:var(--kraken)}
 
-tr.secret .spoil{filter:blur(5px);opacity:.75;transition:filter .18s ease,opacity .18s ease}
+.secret .spoil{filter:blur(5px);opacity:.75;transition:filter .18s ease,opacity .18s ease}
 /* The row keeps its shape while blurred — the text is still there, just
    unreadable — so revealing does not reflow the table under the reader's
    thumb. */
-.spoilbox:checked ~ .tablewrap tr.secret .spoil{filter:none;opacity:1}
-.secretmark{display:inline-block;margin-top:6px;font-size:10px;letter-spacing:.08em;
+.spoilbox:checked ~ .tlist .secret .spoil,
+.spoilbox:checked ~ .tgroup + .tlist .secret .spoil,
+.spoilbox:checked ~ .tablewrap .secret .spoil{filter:none;opacity:1}
+.secretmark{display:inline-block;margin-top:5px;font-size:10px;letter-spacing:.08em;
   text-transform:uppercase;color:var(--brass);border:1px solid var(--edge);
   border-radius:99px;padding:2px 8px}
-@media (prefers-reduced-motion:reduce){ tr.secret .spoil{transition:none} }
+@media (prefers-reduced-motion:reduce){ .secret .spoil{transition:none} }
 
 /* The index stripe. A game on its own has no progress — only a clock. */
 tr.st-dead  td.bar{background:var(--brass)}

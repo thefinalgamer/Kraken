@@ -25,6 +25,16 @@ import {
   getProfileFromUserName,
   makeUniversalSearch,
 } from 'psn-api';
+/**
+ * The trophy-group endpoint, imported by NAMESPACE rather than by name.
+ *
+ * A named import of something the installed version of psn-api does not export
+ * is a MODULE-LOAD failure: not "groups do not work", but every job that
+ * imports this file refusing to start, including the scan. Group names are a
+ * heading on a web page. They do not get to take the bot down, so the export is
+ * looked up at call time and its absence is an empty answer.
+ */
+import * as psnApi from 'psn-api';
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -238,6 +248,29 @@ export class PsnClient {
       { npServiceName: serviceNameFor(platform) },
     );
     return res?.trophies ?? [];
+  }
+
+  /**
+   * A game's trophy GROUPS — the base game and each DLC pack, with the names
+   * the console shows: "Expansion Pack 4", not "Pack 4".
+   *
+   * The group ID of every trophy already rides along on titleTrophies(), so
+   * SPLITTING a game into packs costs nothing. This call exists only to learn
+   * what the packs are CALLED, which is why it is worth running solely for
+   * games whose trophies span more than one group — a few dozen out of five
+   * hundred here, not five hundred out of five hundred.
+   *
+   * Returns [] rather than throwing when the endpoint is missing from this
+   * version of psn-api. A game then shows "Pack 1" instead of its real name,
+   * which is the difference between a slightly worse heading and no headings.
+   */
+  async titleTrophyGroups(npCommunicationId, platform) {
+    const fn = psnApi.getTitleTrophyGroups;
+    if (typeof fn !== 'function') return [];
+    const res = await this.#call(fn, npCommunicationId, {
+      npServiceName: serviceNameFor(platform),
+    });
+    return res?.trophyGroups ?? [];
   }
 
   /** Which trophies in a game this specific member has earned. */

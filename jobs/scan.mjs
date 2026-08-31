@@ -628,23 +628,28 @@ async function backfillNames(psn, title, stats = null) {
 
     // name/detail/icon only. Rarity and points are owned by the earned-trophies
     // path and the rescore job respectively, and must not be touched here.
-    const cols = ['np_comm_id', 'trophy_id', 'name', 'detail', 'icon_url'];
+    // group_id rides along on the SAME call. It was being thrown away, which
+    // is why Minecraft arrived as 136 trophies in one heap while the console
+    // shows a base game and eight expansion packs. See migrations/012.
+    const cols = ['np_comm_id', 'trophy_id', 'name', 'detail', 'icon_url', 'group_id'];
     const perChunk = D1.chunkSize(cols.length);
     for (let i = 0; i < named.length; i += perChunk) {
       const slice = named.slice(i, i + perChunk);
       await db.run(
         `INSERT INTO trophies (${cols.join(',')})
-         VALUES ${slice.map(() => '(?,?,?,?,?)').join(',')}
+         VALUES ${slice.map(() => '(?,?,?,?,?,?)').join(',')}
          ON CONFLICT(np_comm_id, trophy_id) DO UPDATE SET
            name = excluded.name,
            detail = excluded.detail,
-           icon_url = excluded.icon_url`,
+           icon_url = excluded.icon_url,
+           group_id = excluded.group_id`,
         slice.flatMap((t) => [
           title.npCommunicationId,
           t.trophyId,
           t.trophyName ?? null,
           t.trophyDetail ?? null,
           t.trophyIconUrl ?? null,
+          t.trophyGroupId ?? 'default',
         ]),
       );
     }

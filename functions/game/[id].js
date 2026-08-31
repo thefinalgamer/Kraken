@@ -43,7 +43,16 @@ import {
 const SORTS = {
   psn: { label: 'Trophy order', sql: 't.trophy_id ASC' },
   here: { label: 'Rarest here', sql: 't.local_earned ASC, t.earned_rate ASC, t.trophy_id ASC' },
-  world: { label: 'Rarest on PSN', sql: 't.earned_rate ASC, t.trophy_id ASC' },
+  /*
+   * "Rarest on PSN" IS GONE, and losing it costs nothing.
+   *
+   * It sorted by the world figure, which every trophy site already sorts by,
+   * and on a sixty-four member server it produced almost the same order as
+   * "Rarest here" — because a trophy hardly anybody on Earth has is a trophy
+   * hardly anybody in the Discord has. Two tabs that mostly agree is one tab
+   * and a decision to make for no reason. The world percentage is still on
+   * every card; it just no longer gets its own way of arranging them.
+   */
   points: { label: 'Most points', sql: 't.points DESC, t.trophy_id ASC' },
 };
 
@@ -441,6 +450,27 @@ export async function onRequestGet({ params, env, request }) {
     .join('');
 
   /**
+   * The sort tabs and the reveal, on ONE line.
+   *
+   * They were two rows, and the second row held a single control — which read
+   * as a second, unrelated toolbar and pushed the trophy list further down the
+   * page for no gain. The reveal is not a sort, so it keeps a filled background
+   * the tabs do not have and sits at the far end of the row rather than
+   * pretending to be a fourth option.
+   *
+   * THE CHECKBOX STAYS OUTSIDE, immediately before this row. The reveal is a
+   * sibling selector — `:checked ~ .tlist` — and a sibling combinator only
+   * reaches elements with the same parent. Inside the row it could style the
+   * label beside it and nothing else: the blur would never lift, and every test
+   * that asserted on the CSS would still pass.
+   */
+  const toolRow = secrets
+    ? `<input type="checkbox" id="spoilers" class="spoilbox">
+       <div class="tabs">${tabs}<label for="spoilers" class="spoillabel"
+         >Reveal ${n(secrets)} secret ${secrets === 1 ? 'trophy' : 'trophies'}</label></div>`
+    : `<div class="tabs">${tabs}</div>`;
+
+  /**
    * A header, because the table had one and the cards do not. "28 / 30" with
    * nothing above it is a riddle; three words once, at the top, answer it for
    * the whole page. It sits above the FIRST list only — repeating it over every
@@ -460,10 +490,9 @@ export async function onRequestGet({ params, env, request }) {
          No trophy list for this game yet. It arrives the next time somebody
          who owns it runs a deep scan.
        </p></div>`
-    : HEAD +
-      (hasPacks
+    : hasPacks
       ? [...byGroup.entries()]
-          .map(([key, rows]) => {
+          .map(([key, rows], i) => {
             const meta = groupName.get(key);
             const label =
               key === 'default'
@@ -476,10 +505,15 @@ export async function onRequestGet({ params, env, request }) {
                 : ''
             }${esc(label)}<span class="gcount">${
               earned ? `${n(done)} of ${n(rows.length)}` : `${n(rows.length)} trophies`
-            }</span></h3>${list(rows)}`;
+            }</span></h3>${
+              // The column labels go UNDER the first pack heading, not above
+              // it. Floating them above "BASE GAME" left three words attached
+              // to nothing, a whole heading away from the numbers they name.
+              i === 0 ? HEAD : ''
+            }${list(rows)}`;
           })
           .join('')
-      : list(trophies));
+      : HEAD + list(trophies);
 
   const body = `
     ${
@@ -536,39 +570,18 @@ export async function onRequestGet({ params, env, request }) {
             viewer.avatar_url
               ? `<img class="av" src="${esc(viewer.avatar_url)}" alt="" width="22" height="22">`
               : ''
-          }<span>Showing <b>${esc(viewer.psn_online_id)}</b>'s trophies &middot; ${
+          }<span><b>${esc(viewer.psn_online_id)}</b>'s trophies are lit up &middot; ${
             Number(viewer.progress) || 0
-          }% done</span><a href="${esc(href({ as: null }))}">Show the plain list</a></div>`
+          }% done</span><a href="${esc(href({ as: null }))}">Turn off</a></div>`
         : as
           ? `<div class="viewbar"><span><b>${esc(
               as,
             )}</b> does not own this one, so there is nothing to light up.</span>
-             <a href="${esc(href({ as: null }))}">Dismiss</a></div>`
+             <a href="${esc(href({ as: null }))}">Turn off</a></div>`
           : ''
     }
 
-    <div class="tabs">${tabs}</div>
-
-    ${
-      /*
-       * THE CHECKBOX SITS OUTSIDE THE TOOLROW, and that is not tidiness.
-       *
-       * The reveal is a sibling selector — `:checked ~ .tlist` — and a sibling
-       * combinator only reaches elements with the same parent. Wrapped in the
-       * toolrow div with its label, the input could style the label beside it
-       * and nothing else on the page; the blur would never lift and every test
-       * asserting on the CSS would still pass. So the input is a direct child
-       * of the page body, immediately before the row that carries its label,
-       * and every list it unblurs is a later sibling of the input.
-       */
-      secrets
-        ? `<input type="checkbox" id="spoilers" class="spoilbox">
-           <div class="toolrow"><label for="spoilers" class="spoillabel"
-             >Reveal ${n(secrets)} secret ${
-               secrets === 1 ? 'trophy' : 'trophies'
-             }</label></div>`
-        : ''
-    }
+    ${toolRow}
 
     ${trophyBlock}
 

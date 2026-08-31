@@ -310,7 +310,11 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 a{color:inherit}
-.wrap{max-width:1080px;margin:0 auto;padding:0 clamp(12px,3vw,24px) 72px}
+.wrap{max-width:1280px;margin:0 auto;padding:0 clamp(12px,3vw,24px) 72px}
+/* 1080 was a reading measure, and most of this site is not prose — it is
+   tables and trophy cards with four numbers on the right, which had a
+   hand's width of nothing down both sides on any real monitor. Long game
+   titles and descriptions stop wrapping at 1280 and nothing else changes. */
 
 /* THE HEADER IS FULL-BLEED, and that is why it now reads as a header.
    Sitting it inside .wrap made it a row of links floating in the content
@@ -420,7 +424,7 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .found{color:var(--faint);font-size:13px;margin:0 0 12px}
 .found a{color:var(--kraken)}
 
-.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;align-items:center}
 .tab{
   font-size:12.5px;padding:5px 11px;border-radius:99px;text-decoration:none;
   color:var(--soft);border:1px solid var(--edge);white-space:nowrap;
@@ -866,22 +870,36 @@ p.warn.clock.soon{border-color:rgba(240,196,25,.45)}
    The skew is on the CARD and unskewed on its contents, which is the only way
    to get a parallelogram without italicising every word inside it. Three
    degrees — enough to see, not enough to make the icons look broken. */
-.tlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
-.tc{
-  position:relative;transform:skewX(-3deg);border-radius:5px;overflow:hidden;
-  background:var(--panel);border:1px solid var(--edge);
+.tlist{list-style:none;margin:0;padding:0 5px;display:flex;flex-direction:column;gap:5px}
+
+/* THE LEAN IS ON A BACKGROUND LAYER, AND THE TEXT NEVER MOVES.
+   The first version skewed the card and un-skewed its contents, which cancels
+   out geometrically and does NOT cancel out for the rasteriser: any transform
+   drops the text into a composited layer at fractional coordinates and turns
+   off subpixel antialiasing, so every description came out soft. It was most
+   visible on the small grey line, which is exactly the text that could least
+   afford it.
+   So the card itself is untransformed and paints nothing. A pseudo-element
+   behind it carries the whole shape — background, border, radius, the metal
+   edge, the earned wash — and only THAT is skewed. Pixels have no glyphs in
+   them, so a skewed rectangle costs nothing. The 5px padding on the list is for
+   the corners the lean pushes outward. */
+.tc{position:relative;isolation:isolate}
+.tc::before{
+  content:"";position:absolute;inset:0;z-index:-1;
+  transform:skewX(-3deg);border-radius:5px;
+  background:var(--panel);
+  border:1px solid var(--edge);
+  border-left:4px solid var(--rule);
 }
-.tcin{
-  transform:skewX(3deg);display:flex;align-items:center;gap:14px;
-  padding:11px 20px 11px 16px;
-}
-/* The metal, as the left edge of the card. Same vocabulary as the accent strip
-   on every table: colour means which trophy, never how far along. */
-.tc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--rule)}
-.tc.m-p::before{background:#4a9eff}
-.tc.m-g::before{background:#f0c419}
-.tc.m-s::before{background:#c9ccd1}
-.tc.m-b::before{background:#e08a4a}
+.tcin{display:flex;align-items:center;gap:14px;padding:11px 20px 11px 16px}
+
+/* The metal. Same vocabulary as the accent strip on every table: colour means
+   which trophy, never how far along. */
+.tc.m-p::before{border-left-color:#4a9eff}
+.tc.m-g::before{border-left-color:#f0c419}
+.tc.m-s::before{border-left-color:#c9ccd1}
+.tc.m-b::before{border-left-color:#e08a4a}
 
 .tic{width:52px;height:52px;flex:0 0 52px;border-radius:8px;display:block;
   background:var(--edge);object-fit:cover}
@@ -941,7 +959,7 @@ span.tic svg{width:26px;height:26px}
 /* EARNED. On the console an earned trophy is lit and an unearned one is not,
    and that difference does more work than any label. The wash is the metal,
    fading out to the right so the text stays readable over it. */
-.tc.got{border-color:rgba(255,255,255,.14);background:#16252a}
+.tc.got::before{border-color:rgba(255,255,255,.14);background:#16252a}
 .tc.got .tcb .tname{color:#fff}
 .tc.got .tcb .tdet{color:var(--soft)}
 .tc.got .tpts,.tc.got .local{color:var(--ink)}
@@ -950,13 +968,13 @@ span.tic svg{width:26px;height:26px}
    than gold, which would make the cheapest trophies the most eye-catching thing
    on the page — so silver is pulled well down and the rest are trimmed until a
    screen full of earned bronzes stops looking like one brown block. */
-.tc.got.m-p{background:linear-gradient(100deg,rgba(74,158,255,.26),rgba(74,158,255,.04) 55%,transparent)}
-.tc.got.m-g{background:linear-gradient(100deg,rgba(240,196,25,.24),rgba(240,196,25,.04) 55%,transparent)}
-.tc.got.m-s{background:linear-gradient(100deg,rgba(201,204,209,.14),rgba(201,204,209,.03) 55%,transparent)}
-.tc.got.m-b{background:linear-gradient(100deg,rgba(224,138,74,.22),rgba(224,138,74,.04) 55%,transparent)}
-/* A green tick on the right edge, because on a phone the wash is the first
-   thing a dim screen loses. */
-.tc.got::after{content:"";position:absolute;right:0;top:0;bottom:0;width:4px;background:var(--up)}
+.tc.got.m-p::before{background:linear-gradient(100deg,rgba(74,158,255,.26),rgba(74,158,255,.04) 55%,transparent)}
+.tc.got.m-g::before{background:linear-gradient(100deg,rgba(240,196,25,.24),rgba(240,196,25,.04) 55%,transparent)}
+.tc.got.m-s::before{background:linear-gradient(100deg,rgba(201,204,209,.14),rgba(201,204,209,.03) 55%,transparent)}
+.tc.got.m-b::before{background:linear-gradient(100deg,rgba(224,138,74,.22),rgba(224,138,74,.04) 55%,transparent)}
+/* A green edge on the right, because on a phone the wash is the first thing a
+   dim screen loses. On the same skewed layer, so it leans with the card. */
+.tc.got::before{border-right:4px solid var(--up)}
 
 /* Only dim the unearned ones when somebody's trophies are actually being shown.
    With no viewer set, nothing here is "not done" — it is just a trophy list,
@@ -964,12 +982,14 @@ span.tic svg{width:26px;height:26px}
 .tlist.viewing .tc:not(.got){opacity:.62}
 
 /* Whose list this is. */
-.viewbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
+.viewbar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin:0 0 12px;
   padding:8px 14px;border:1px solid var(--edge);border-radius:99px;background:var(--panel);
   font-size:13px;color:var(--soft);width:fit-content;max-width:100%}
 .viewbar b{color:var(--ink)}
 .viewbar .av{width:22px;height:22px;flex:0 0 22px}
-.viewbar a{color:var(--kraken);text-decoration:none}
+.viewbar a{color:var(--kraken);text-decoration:none;border:1px solid var(--edge);
+  border-radius:99px;padding:3px 11px;font-size:12px}
+.viewbar a:hover{border-color:var(--kraken)}
 .viewbar a:hover{text-decoration:underline}
 .vchip{font-size:11.5px;color:var(--faint);border:1px solid var(--edge);border-radius:99px;
   padding:2px 10px;text-decoration:none;white-space:nowrap}
@@ -997,8 +1017,8 @@ span.tic svg{width:26px;height:26px}
      flex item that is told to take the full width takes it. Two columns with
      the icon spanning both rows keeps the name next to its own trophy — the
      same shape the feed lists on the front page already use. */
-  .tc{transform:none}
-  .tcin{transform:none;display:grid;grid-template-columns:auto 1fr;
+  .tc::before{transform:none}
+  .tcin{display:grid;grid-template-columns:auto 1fr;
     column-gap:12px;row-gap:9px;align-items:start;padding:11px 13px}
   .tic{grid-row:1 / span 2;width:42px;height:42px;flex:0 0 42px}
   .tcb{min-width:0;grid-column:2}
@@ -1020,14 +1040,18 @@ span.tic svg{width:26px;height:26px}
    off-screen rather than display:none, because a hidden input cannot be
    focused and the label would stop working from a keyboard. */
 .spoilbox{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+/* Sized to sit in the tab row without being mistaken for a sort — it is the odd
+   one out in that row and it should look it, so it keeps the panel background
+   the tabs do not have. */
 .spoillabel{display:inline-flex;align-items:center;gap:8px;cursor:pointer;
   color:var(--soft);font-size:13px;border:1px solid var(--edge);border-radius:99px;
-  padding:5px 13px;background:var(--panel);user-select:none}
+  padding:6px 14px;background:var(--panel);user-select:none;margin-left:auto}
+@media (max-width:640px){ .spoillabel{margin-left:0} }
 .spoillabel::before{content:"\\2609";font-size:14px;line-height:1;color:var(--faint)}
 .spoillabel:hover{color:var(--ink);border-color:var(--faint)}
-.spoilbox:focus-visible + .toolrow .spoillabel{outline:2px solid var(--kraken);outline-offset:2px}
-.spoilbox:checked + .toolrow .spoillabel{color:var(--kraken);border-color:var(--kraken)}
-.spoilbox:checked + .toolrow .spoillabel::before{content:"\\25C9";color:var(--kraken)}
+.spoilbox:focus-visible + .tabs .spoillabel{outline:2px solid var(--kraken);outline-offset:2px}
+.spoilbox:checked + .tabs .spoillabel{color:var(--kraken);border-color:var(--kraken)}
+.spoilbox:checked + .tabs .spoillabel::before{content:"\\25C9";color:var(--kraken)}
 
 .secret .spoil{filter:blur(5px);opacity:.75;transition:filter .18s ease,opacity .18s ease}
 /* The row keeps its shape while blurred — the text is still there, just

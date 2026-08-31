@@ -163,19 +163,34 @@ test('a secret trophy is blurred behind a real checkbox', async () => {
   );
 });
 
-test('the checkbox is a sibling of the table, or the reveal does nothing', async () => {
-  // `:checked ~ .tablewrap` only reaches siblings. If the input is ever wrapped
-  // in the toolrow div with its label, the blur never lifts and every other
-  // assertion in this file still passes.
+test('the checkbox is a sibling of the list, or the reveal does nothing', async () => {
+  // `:checked ~ .tlist` only reaches siblings. The label now lives INSIDE the
+  // tab row, so the input must stay outside it — nested, it could style the
+  // label beside it and nothing else, the blur would never lift, and every
+  // other assertion in this file would still pass.
   const { out } = await render();
   const input = out.indexOf('class="spoilbox"');
-  const toolrow = out.indexOf('class="toolrow"');
-  const table = out.indexOf('class="tlist', input);
-  assert.ok(input > -1 && toolrow > input, 'the input comes before the toolrow');
+  const tabs = out.indexOf('class="tabs"');
+  const list = out.indexOf('class="tlist', input);
+
+  assert.ok(input > -1, 'the input is rendered');
+  assert.ok(tabs > input, 'the input comes before the tab row');
+  assert.ok(list > input, 'and before the list it unblurs');
   assert.ok(
-    !out.slice(toolrow, table).includes('class="spoilbox"'),
-    'the input is not inside the toolrow',
+    !out.slice(tabs, list).includes('class="spoilbox"'),
+    'the input is not nested inside the tab row',
   );
+  // The label is in the tab row with the sorts, not on a second line of its own.
+  assert.match(out.slice(tabs, list), /class="spoillabel"/, 'the label rides with the tabs');
+});
+
+test('there is no Rarest-on-PSN sort any more', async () => {
+  // It agreed with "Rarest here" nearly always on a 64-member server, so it was
+  // a decision to make for no reason. The world percentage is still on the card.
+  const { out } = await render();
+  assert.ok(!out.includes('Rarest on PSN'), 'the tab is gone');
+  assert.ok(out.includes('Rarest here') && out.includes('Most points'), 'the useful two stay');
+  assert.ok(out.includes('Ultra rare'), 'and the world rarity is still shown');
 });
 
 test('no secrets means no toggle', async () => {
@@ -186,6 +201,10 @@ test('no secrets means no toggle', async () => {
 test('the sort whitelist is a whitelist', async () => {
   await render({}, '?sort=here');
   assert.match(lastTrophySql, /t\.local_earned ASC/);
+
+  // A sort that was REMOVED must fall back, not resurrect itself.
+  await render({}, '?sort=world');
+  assert.ok(!lastTrophySql.includes('t.earned_rate ASC, t.trophy_id ASC'));
 
   // Anything not in the list falls back to PSN order rather than reaching SQL.
   await render({}, '?sort=; DROP TABLE trophies--');
@@ -263,7 +282,7 @@ const VIEWER = {
 test('?as= lights up that hunter\'s trophies and nobody else\'s', async () => {
   const { out } = await render({ viewer: VIEWER }, '?as=JFL__Leon');
 
-  assert.ok(out.includes('Showing <b>JFL__Leon</b>'), 'the page says whose list it is');
+  assert.ok(out.includes("<b>JFL__Leon</b>'s trophies are lit up"), 'the page says whose list it is');
   assert.match(out, /<ol class="tlist viewing"/, 'the list is in viewing mode');
 
   // Assert on the CARD, not the class name — the stylesheet is inlined, so

@@ -87,6 +87,34 @@ const NEXT_GAMES = `
    ORDER BY g.local_started DESC, g.trophy_count DESC, g.np_comm_id ASC
    LIMIT ?`;
 
+/**
+ * Games that already have names but no group id.
+ *
+ * WHY THIS EXISTS, and it is a mistake worth writing down. `group_id` was added
+ * to the writer at the same time as migration 012, on the assumption that the
+ * next backfill run would fill it in. It would not have: the query above
+ * selects games with NO NAMED TROPHY, and after the 28 August run every game
+ * had names. So the job looked at the backlog, correctly found it empty, and
+ * stopped — writing nothing, for exactly the right reason.
+ *
+ * A backfill has to select on the thing it is backfilling. This one does.
+ *
+ * It costs the same PSN call as naming did, on the same games — about sixteen
+ * minutes for five hundred — and it is the same upsert, so running it twice is
+ * harmless. Once every game has a group id this query returns nothing forever
+ * and the pass is free.
+ */
+const NEXT_UNGROUPED = `
+  SELECT g.np_comm_id, g.title, g.platform, g.local_started, g.trophy_count
+    FROM games g
+   WHERE EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)
+     AND NOT EXISTS (
+           SELECT 1 FROM trophies t
+            WHERE t.np_comm_id = g.np_comm_id AND t.group_id IS NOT NULL
+         )
+   ORDER BY g.local_started DESC, g.trophy_count DESC, g.np_comm_id ASC
+   LIMIT ?`;
+
 /** One game's names, written straight in. Mirrors backfillNames() in scan.mjs. */
 async function nameGame(psn, game) {
   const defs = await psn.titleTrophies(game.np_comm_id, game.platform);
@@ -200,6 +228,15 @@ const PROGRESS = `
             WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL)
      AND EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)`;
 
+/** The same question for group ids, so a run cannot report "nothing left" while
+ *  half the job is still outstanding — which is what happened on 31 August. */
+const GROUP_PROGRESS = `
+  SELECT COUNT(*) AS c FROM games g
+   WHERE EXISTS (SELECT 1 FROM trophies t WHERE t.np_comm_id = g.np_comm_id)
+     AND NOT EXISTS (
+           SELECT 1 FROM trophies t
+            WHERE t.np_comm_id = g.np_comm_id AND t.group_id IS NOT NULL)`;
+
 const report = (row, label) => {
   const total = Number(row?.total ?? 0);
   const owned = Number(row?.owned ?? 0);
@@ -219,6 +256,12 @@ const report = (row, label) => {
 
 const remaining = await db.one(PROGRESS);
 report(remaining, 'Before');
+const groupsBefore = Number((await db.one(GROUP_PROGRESS))?.c ?? 0);
+if (groupsBefore) {
+  console.log(
+    `Before: ${groupsBefore.toLocaleString('en-GB')} games have no trophy group ids yet.`,
+  );
+}
 console.log(`Budget ${Math.round(BUDGET_MS / 60000)} minutes, ${env.PSN_RATE_LIMIT || 600} PSN calls per 15 min.\n`);
 
 const psn = await connect();
@@ -271,7 +314,43 @@ while (!out) {
 }
 
 /**
- * Second pass: what the DLC packs are called.
+ * Second pass: which group every trophy belongs to.
+ *
+ * Separate from the loop above rather than merged into its query, because the
+ * two answer different questions — "this game has no trophy list" and "this
+ * game's trophy list predates group ids" — and a game can be in the second set
+ * for years after leaving the first. Merging them would also mean re-fetching
+ * every unnamed game a second time the moment either condition changed.
+ */
+let regrouped = 0;
+let groupOut = false;
+while (!groupOut) {
+  const games = await db.query(NEXT_UNGROUPED, [PAGE]);
+  if (!games.length) break;
+
+  for (const game of games) {
+    if (Date.now() - started > BUDGET_MS) {
+      console.log('\nTime budget reached during the group pass. Run it again to carry on.');
+      groupOut = true;
+      break;
+    }
+    try {
+      await nameGame(psn, game);
+      regrouped++;
+    } catch (err) {
+      failed++;
+      console.error(`  x groups for ${game.title}: ${err.message}`);
+    }
+    if (regrouped % 50 === 0) {
+      const mins = Math.round((Date.now() - started) / 60000);
+      console.log(`  ${regrouped} games grouped · ${mins} min`);
+    }
+  }
+}
+if (regrouped) console.log(`\nFilled in trophy groups for ${regrouped} games.`);
+
+/**
+ * Third pass: what the DLC packs are called.
  *
  * AFTER the names, deliberately. Trophy names are what a game page cannot be
  * built without; pack headings are what makes it match the console. If the
@@ -318,6 +397,12 @@ console.log(
 
 const left = await db.one(PROGRESS);
 report(left, 'After');
+const groupsLeft = Number((await db.one(GROUP_PROGRESS))?.c ?? 0);
+console.log(
+  groupsLeft
+    ? `After: ${groupsLeft.toLocaleString('en-GB')} games still have no group ids.`
+    : 'After: every game with trophies has group ids. DLC packs are split.',
+);
 
 // How many more runs. Measured from THIS run's actual rate rather than a
 // guess, so it gets more honest the longer the job goes on, and it counts

@@ -847,7 +847,7 @@ details.numbers summary:hover{color:var(--kraken)}
 
 /* Two columns, so four panels land as a tidy 2x2 rather than three across with
    one stranded underneath. auto-fit did that: it fitted three at 1100px and
-   left "Newest hunters" alone in a half-empty row. */
+   left the fourth alone in a half-empty row. */
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 @media (max-width:860px){ .cols{grid-template-columns:1fr} }
 .panel{border:1px solid var(--edge);border-radius:10px;background:var(--panel);padding:14px 16px 16px}

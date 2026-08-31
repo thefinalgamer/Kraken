@@ -69,28 +69,64 @@ const CONTESTED = `
             (g.local_started + 0.5) / (t.local_earned + 0.5) DESC,
             g.local_started DESC,
             g.max_points DESC
-   LIMIT 5`;
+   LIMIT 6`;
+/* Six, matching the two feed panels beside it rather than the ten Discord's
+   /contested shows. The ORDERING is what must stay byte-identical with
+   shared/contested.mjs — how many of the same list you print is a layout
+   choice, and four rows left a visible hole under a ten-row leaderboard. */
 
 /**
  * Ordered by update_id rather than by a timestamp, so SQLite walks the
  * changelog's primary key backwards and stops after five matches instead of
  * scanning the table to sort it.
  */
-const FINISHED = `
-  SELECT c.title, c.np_comm_id, m.psn_online_id, u.finished_at
+/**
+ * The two activity feeds, from one shape.
+ *
+ * `kind` RATHER THAN progress_to = 100, so the site and Discord agree on what
+ * counts. The scan writes 'new' when a game appears in somebody's library for
+ * the first time, 'completed' on the scan where progress crosses to 100, and
+ * 'progress' for everything else — and Discord's cards are built from the same
+ * column. Testing `progress_to = 100` instead would have quietly included a
+ * game that was already finished before we ever saw it.
+ *
+ * SIXTY ROWS FETCHED TO SHOW SIX, and that is not waste, it is the fix for a
+ * real problem. A member's FIRST scan writes a 'new' row for every game they
+ * own — fifteen hundred of them for MRTheChez — so a naive "six newest" would
+ * be one person's library six times over on the day they joined, and again for
+ * the next person to register. Keeping one row per UPDATE means a scan
+ * contributes one line no matter how big it was, which is also how Discord
+ * posts it. The rows walk the changelog's primary key backwards, so sixty costs
+ * essentially what six did.
+ */
+const feedSql = (kind) => `
+  SELECT c.title, c.np_comm_id, c.points_gained, c.update_id,
+         m.psn_online_id, u.finished_at
     FROM update_changelog c
     JOIN updates u ON u.id = c.update_id
     JOIN members m ON m.psn_account_id = u.psn_account_id
-   WHERE c.progress_to = 100
+   WHERE c.kind = ?
    ORDER BY c.update_id DESC
-   LIMIT 6`;
+   LIMIT 60`;
 
-const NEWEST = `
-  SELECT psn_online_id, country, avatar_url, rank, registered_at
-    FROM members
-   WHERE rank IS NOT NULL AND last_update_at IS NOT NULL
-   ORDER BY registered_at DESC
-   LIMIT 5`;
+/**
+ * One row per update: the most valuable game in it.
+ *
+ * A scan where somebody starts six games is one event and gets one line. Which
+ * of the six is a real choice — the biggest is the one worth reading, because
+ * "started Elden Ring" says more than "started a shovelware quiz game they also
+ * happened to install".
+ */
+function perUpdate(rows, limit = 6) {
+  const best = new Map();
+  for (const r of rows ?? []) {
+    const seen = best.get(r.update_id);
+    if (!seen || (Number(r.points_gained) || 0) > (Number(seen.points_gained) || 0)) {
+      best.set(r.update_id, r);
+    }
+  }
+  return [...best.values()].slice(0, limit);
+}
 
 const when = (ms) => {
   const t = Number(ms);
@@ -130,13 +166,16 @@ function topRow(m) {
 }
 
 export async function onRequestGet({ env }) {
-  const [totals, top, contested, finished, newest] = await Promise.all([
+  const [totals, top, contested, finishedRows, startedRows] = await Promise.all([
     env.DB.prepare(TOTALS).first(),
     env.DB.prepare(TOP).all(),
     env.DB.prepare(CONTESTED).all(),
-    env.DB.prepare(FINISHED).all(),
-    env.DB.prepare(NEWEST).all(),
+    env.DB.prepare(feedSql('completed')).bind('completed').all(),
+    env.DB.prepare(feedSql('new')).bind('new').all(),
   ]);
+
+  const finished = perUpdate(finishedRows?.results);
+  const started = perUpdate(startedRows?.results);
 
   const hunters = Number(totals?.hunters) || 0;
   const rows = top?.results ?? [];
@@ -216,10 +255,10 @@ export async function onRequestGet({ env }) {
       </section>
 
       <section class="panel">
-        <h2>Just finished</h2>
+        <h2>Completed</h2>
         ${
-          finished?.results?.length
-            ? `<ul class="feed">${finished.results
+          finished.length
+            ? `<ul class="feed">${finished
                 .map(
                   (f) => `<li>
                     <a class="t" href="${esc(gameHref(f.np_comm_id))}">${esc(f.title)}</a>
@@ -229,26 +268,35 @@ export async function onRequestGet({ env }) {
                   </li>`,
                 )
                 .join('')}</ul>`
-            : '<p class="empty">Nothing finished yet.</p>'
+            : '<p class="empty">Nothing completed yet.</p>'
         }
       </section>
 
       <section class="panel">
-        <h2>Newest hunters</h2>
+        <h2>New projects</h2>
         ${
-          newest?.results?.length
-            ? `<ul class="feed people">${newest.results
+          /*
+           * WHAT PEOPLE HAVE JUST PICKED UP, which "Newest hunters" was not.
+           * That panel answered a question nobody on a 70-member server asks
+           * twice — you meet new members in Discord, not on a web page — and it
+           * went stale the moment registrations slowed. What somebody started
+           * this week changes every day and is the thing that makes another
+           * member think "oh, I have that one too".
+           */
+          started.length
+            ? `<ul class="feed">${started
                 .map(
-                  (m) => `<li>
-                    ${avatar(m.avatar_url, 30)}
-                    <span class="t"><a href="${esc(hunterLink(m.psn_online_id))}">${
-                      flag(m.country) ? `${flag(m.country)} ` : ''
-                    }${esc(m.psn_online_id)}</a></span>
-                    <span class="s">${esc(when(m.registered_at))} &middot; ${ordinal(m.rank)}</span>
+                  (g) => `<li>
+                    <a class="t" href="${esc(gameHref(g.np_comm_id))}">${esc(g.title)}</a>
+                    <span class="s"><a href="${esc(
+                      hunterLink(g.psn_online_id),
+                    )}">${esc(g.psn_online_id)}</a> &middot; ${esc(when(g.finished_at))}</span>
                   </li>`,
                 )
-                .join('')}</ul>`
-            : '<p class="empty">Nobody yet.</p>'
+                .join('')}</ul>
+               <p class="note">Games somebody here has just started. One per update, so a
+                 first scan does not fill the panel with one library.</p>`
+            : '<p class="empty">Nobody has started anything new yet.</p>'
         }
       </section>
     </div>`;

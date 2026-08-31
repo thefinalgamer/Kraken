@@ -30,29 +30,67 @@ const CONTESTED = [
 ];
 
 const FINISHED = [
-  { title: 'Bloodborne', np_comm_id: 'N3', psn_online_id: 'JFL__Leon', finished_at: Date.now() - 86400000 },
-  { title: 'Sekiro', np_comm_id: 'N4', psn_online_id: 'Ziune', finished_at: Date.now() - 5 * 86400000 },
+  { title: 'Bloodborne', np_comm_id: 'N3', psn_online_id: 'JFL__Leon', update_id: 90,
+    points_gained: 4200, finished_at: Date.now() - 86400000 },
+  { title: 'Sekiro', np_comm_id: 'N4', psn_online_id: 'Ziune', update_id: 88,
+    points_gained: 3100, finished_at: Date.now() - 5 * 86400000 },
 ];
 
-const NEWEST = [
-  { psn_online_id: 'ThoseGooberPlats', country: 'US', avatar_url: null, rank: 44,
-    registered_at: Date.now() - 2 * 86400000 },
+/**
+ * A FIRST SCAN, deliberately: one update, three games, all 'new'.
+ *
+ * This is the shape that breaks a naive feed — a member joining writes a row
+ * for every game they own, so "the six newest" becomes one person's library six
+ * times. The panel keeps one row per update, and these three exist to prove it.
+ */
+const STARTED = [
+  { title: 'Elden Ring', np_comm_id: 'N5', psn_online_id: 'MRTheChez', update_id: 91,
+    points_gained: 26500, finished_at: Date.now() - 3600000 },
+  { title: 'Bunny Mahjo', np_comm_id: 'N6', psn_online_id: 'MRTheChez', update_id: 91,
+    points_gained: 0, finished_at: Date.now() - 3600000 },
+  { title: 'Hollow Knight', np_comm_id: 'N7', psn_online_id: 'MRTheChez', update_id: 91,
+    points_gained: 7100, finished_at: Date.now() - 3600000 },
+  { title: 'Sifu', np_comm_id: 'N8', psn_online_id: 'Wilko', update_id: 87,
+    points_gained: 5400, finished_at: Date.now() - 4 * 86400000 },
 ];
 
+/**
+ * The two feeds share one SQL string and differ only by the bound `kind`, so
+ * the stub has to read what was BOUND rather than what was prepared. A stub
+ * that only looked at the SQL would hand both panels the same rows and every
+ * assertion below would pass over a page showing completions twice.
+ */
 const fakeEnv = (o = {}) => ({
   DB: {
     prepare(sql) {
-      const pick = () => {
-        if (sql.includes('COUNT(*)')) return { first: async () => o.totals ?? TOTALS };
-        if (sql.includes('FROM update_changelog')) return { all: async () => ({ results: o.finished ?? FINISHED }) };
-        if (sql.includes('JOIN trophies')) return { all: async () => ({ results: o.contested ?? CONTESTED }) };
-        if (sql.includes('ORDER BY registered_at')) return { all: async () => ({ results: o.newest ?? NEWEST }) };
-        return { all: async () => ({ results: o.top ?? TOP }) };
+      const rows = (kind) => {
+        if (sql.includes('COUNT(*)')) return null;
+        if (sql.includes('FROM update_changelog')) {
+          return kind === 'new' ? (o.started ?? STARTED) : (o.finished ?? FINISHED);
+        }
+        if (sql.includes('JOIN trophies')) return o.contested ?? CONTESTED;
+        return o.top ?? TOP;
       };
-      return { ...pick(), bind: () => pick() };
+      const answer = (kind) => ({
+        first: async () => o.totals ?? TOTALS,
+        all: async () => ({ results: rows(kind) ?? [] }),
+      });
+      return { ...answer(), bind: (kind) => answer(kind) };
     },
   },
 });
+
+/**
+ * The markup, without the stylesheet.
+ *
+ * THE INLINED-STYLESHEET TRAP, for the third time in this repo and the first
+ * time from this direction. Positive assertions on `out` pass over an empty
+ * page because the CSS is in it; NEGATIVE ones fail over a comment. This test
+ * file caught "Newest hunters" surviving in a CSS note explaining why the panel
+ * grid has four cells. Anything asserting about what the page SAYS goes
+ * through here.
+ */
+const bodyOf = (out) => out.slice(out.indexOf('</style>'));
 
 const render = async (o) => {
   const res = await mod.onRequestGet({ env: fakeEnv(o) });
@@ -90,9 +128,35 @@ test('the panels are still under the door', async () => {
   // back to the front page rather than straight past it.
   const { out } = await render();
   assert.ok(out.includes('Most contested'));
-  assert.ok(out.includes('Just finished'));
-  assert.ok(out.includes('Newest hunters'));
+  assert.ok(out.includes('Completed'), 'named as Discord names it, not "Just finished"');
+  assert.ok(out.includes('New projects'));
   assert.ok(out.includes('Leading the board'));
+  assert.ok(!bodyOf(out).includes('Newest hunters'), 'that panel is gone');
+});
+
+test('a first scan cannot fill the New projects panel', async () => {
+  // A member joining writes a "new" row for every game they own — fifteen
+  // hundred for the biggest library here. One row per UPDATE means that scan
+  // contributes one line, exactly as it does in Discord.
+  const { out } = await render();
+  const panel = out.slice(out.indexOf('New projects'));
+  assert.equal(
+    (panel.match(/MRTheChez/g) || []).length,
+    2,
+    'one line for their whole first scan — the name appears once in it, twice in the row',
+  );
+  assert.ok(panel.includes('Elden Ring'), 'and it is the most valuable game in that scan');
+  assert.ok(!panel.includes('Bunny Mahjo'), 'not the shovelware they also installed');
+  assert.ok(panel.includes('Sifu'), 'a different update still gets its own line');
+});
+
+test('the two feeds ask for different kinds of event', async () => {
+  // Both panels share one SQL string and differ only by the bound value. If the
+  // binding is ever dropped they silently become the same list.
+  const { out } = await render();
+  const done = out.slice(out.indexOf('Completed'), out.indexOf('New projects'));
+  assert.ok(done.includes('Bloodborne'), 'completions in the completed panel');
+  assert.ok(!done.includes('Elden Ring'), 'and nothing that was merely started');
 });
 
 test('the totals are the stored ones, grouped', async () => {

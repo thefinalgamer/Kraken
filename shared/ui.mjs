@@ -15,7 +15,7 @@
  * Ten member cards per page sits comfortably inside all of these.
  */
 
-import { nextCompletionStep } from './scoring.mjs';
+import { nextCompletionStep, applyCompletion } from './scoring.mjs';
 import { closingState, closingLabel, isUrgent, DEAD, CLOSING } from './closing.mjs';
 import { supporterTier, supporterLabel } from './supporter.mjs';
 
@@ -302,16 +302,46 @@ export const pct = (value) => `${(Math.floor(Number(value ?? 0) * 100) / 100).to
  * progress; with it, the gap between the two numbers is a target. See
  * COMPLETION_STEP in scoring.mjs for why the step exists.
  */
-export const nextPayout = (completion) => {
-  const c = Number(completion ?? 0);
+/**
+ * @param m the member row, for `completion`, `raw_points` and `points`
+ *
+ * IT NAMES THE PRIZE, NOT JUST THE FINISH LINE. This said "88% is the next
+ * payout" and stopped there, which tells somebody where the line is and nothing
+ * about whether stepping over it is worth their evening. A member on Discord
+ * put it exactly right: nobody wants to know what they get at 100%, they want
+ * to know what they get NEXT.
+ *
+ * The gain is measured against `m.points` — the number printed directly above
+ * it on the same card — so the two can be added up by eye and cannot disagree.
+ * Computing the baseline instead would be a second opinion about a figure the
+ * card has already stated.
+ *
+ * NOTHING NEW IS STORED OR FETCHED. `raw_points` is the rarity-weighted total
+ * the bot already keeps, and applyCompletion() is the same function that priced
+ * the score in the first place, so this is a projection made by the scorer
+ * rather than an estimate made by a card.
+ */
+export const nextPayout = (m) => {
+  const c = Number(m?.completion ?? 0);
   const next = nextCompletionStep(c);
   if (next == null) return '';
   // Already exactly on a step: the number they can see IS what they are paid,
   // and pointing at the next one would just nag.
   if (Math.abs(c - Math.floor(c)) < 0.005) return '';
+
+  const raw = Number(m?.raw_points) || 0;
+  const now = Number(m?.points) || 0;
+  const gain = raw > 0 ? applyCompletion(raw, next) - now : 0;
+
   // Its own line. Discord only renders "-#" as small text at the START of a
   // line — inline it prints the two characters literally.
-  return `\n-# ${next}% is the next payout`;
+  //
+  // A gain of zero or less means raw_points has not been written yet, or the
+  // stored score already reflects the higher step. Either way the honest thing
+  // is the old line: point at the milestone and promise nothing.
+  return gain > 0
+    ? `\n-# ${next}% is the next payout - **+${n(gain)}** points`
+    : `\n-# ${next}% is the next payout`;
 };
 
 export const ordinal = (v) => {
@@ -453,7 +483,7 @@ export function memberCard(m, { total = 0, highlight = false, above = null, show
           )}`,
           trophyLine(m),
           `**Completion** ${pct(m.completion)}\n**Points** ${n(m.points)}` +
-            nextPayout(m.completion) +
+            nextPayout(m) +
             (footer ? `\n${footer}` : ''),
         ],
         thumbnail(m.avatar_url || FALLBACK_AVATAR, m.psn_online_id),

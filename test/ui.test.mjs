@@ -299,3 +299,59 @@ test('the highlighted row survives a name with underscores', () => {
   assert.ok(out.includes('__JFL\\\\_\\\\_Leon__'), out);
   assert.ok(!out.includes('__JFL__Leon__'), 'the unescaped form must not appear');
 });
+
+// ------------------------------------------------- the next payout line ----
+
+test('the next payout names what you get, not just where the line is', async () => {
+  // A member on Discord: "nobody wants to see what they get at 100% but what
+  // they will get at the next milestone." The line said 88% and stopped, which
+  // is a finish line with no prize attached to it.
+  const { nextPayout } = await import('../shared/ui.mjs');
+
+  // 87.45% completion, 213,157 rarity points. Paid at 87 → 185,446.
+  // At 88 → 187,578. The member gains 2,132 by crossing one point.
+  const out = nextPayout({ completion: 87.45, raw_points: 213157, points: 185446 });
+  assert.match(out, /88% is the next payout/, 'still says where the line is');
+  assert.match(out, /\+2,132/, 'and what stepping over it pays');
+});
+
+test('the gain is measured against the number printed above it', async () => {
+  // The card shows **Points** on the line above. If the gain were measured off
+  // a recomputed baseline the two would not add up by eye, and a card that
+  // argues with itself is worse than one that says less.
+  const { nextPayout, n } = await import('../shared/ui.mjs');
+  const { applyCompletion } = await import('../shared/scoring.mjs');
+
+  const m = { completion: 49.2, raw_points: 900000, points: 441000 };
+  const expected = applyCompletion(m.raw_points, 50) - m.points;
+  assert.ok(nextPayout(m).includes(`+${n(expected)}`));
+});
+
+test('no raw points means no promise', async () => {
+  // raw_points is written by the scan and the rescore. Before either has run it
+  // is zero, and inventing a figure from nothing is exactly the thing this
+  // board must never do.
+  const { nextPayout } = await import('../shared/ui.mjs');
+  const out = nextPayout({ completion: 87.45, raw_points: 0, points: 0 });
+  assert.match(out, /88% is the next payout/, 'the milestone still shows');
+  assert.ok(!out.includes('+'), 'but nothing is promised');
+});
+
+test('sitting exactly on a step says nothing at all', async () => {
+  // The number they can see IS what they are paid. Pointing at the next one
+  // would just nag.
+  const { nextPayout } = await import('../shared/ui.mjs');
+  assert.equal(nextPayout({ completion: 87, raw_points: 213157, points: 185446 }), '');
+});
+
+test('100% has nothing left to reach', async () => {
+  const { nextPayout } = await import('../shared/ui.mjs');
+  assert.equal(nextPayout({ completion: 100, raw_points: 213157, points: 213157 }), '');
+});
+
+test('a missing member cannot break a card', async () => {
+  const { nextPayout } = await import('../shared/ui.mjs');
+  for (const bad of [null, undefined, {}, { completion: 'lots' }]) {
+    assert.doesNotThrow(() => nextPayout(bad));
+  }
+});

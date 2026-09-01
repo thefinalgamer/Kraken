@@ -538,6 +538,25 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
   });
 
   if (!clean && !closesAt) {
+    /**
+     * A BARE CLEAR CLEARS THE TROPHIES TOO.
+     *
+     * It did not, and said it had. `/flag <game>` with nothing else printed
+     * "Flag cleared - completable again" in green while every flagged trophy in
+     * the game kept its warning on every page, because this branch only ever
+     * touched the games row. That is a false success, which is worse than an
+     * error: nobody goes looking for a bug they have been told is fixed.
+     *
+     * "This game is fine now" can only mean everything in it is fine — and the
+     * rollup agrees, since a game holding a flagged trophy is one the trophy
+     * path would immediately re-flag anyway. Leaving the two out of step just
+     * meant the next /flag on that game undid this one.
+     */
+    const lifted = await db.clearTrophyFlags(env, {
+      title: match.title,
+      npCommId: edition?.np_comm_id ?? null,
+    });
+
     return reply(
       [
         container(
@@ -547,7 +566,11 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
                 (edition
                   ? ` on **${edition.platform ?? 'PlayStation'}**.`
                   : editions > 1 ? ` - all ${editions} editions.` : '.') +
-                `\n\n-# Run \`/flag\` with a note to put it back.`,
+                (lifted
+                  ? `\n\n${lifted} flagged troph${lifted === 1 ? 'y' : 'ies'} cleared with it.`
+                  : '') +
+                `\n\n-# Run \`/flag\` with a note to put it back.` +
+                `\n-# Pages cache for five minutes, so give the site a moment.`,
             ),
           ],
           COLOR.green,

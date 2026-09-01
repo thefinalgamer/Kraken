@@ -362,6 +362,35 @@ export const searchTrophies = (env, npCommId, query, limit = 25) => {
   );
 };
 
+/**
+ * Clear every trophy flag on a title, or on one edition of it.
+ *
+ * WHY THIS EXISTS. `/flag <game>` with nothing else says "Flag cleared" and
+ * turns the game green — and it only ever touched the games row. A mod who
+ * flagged a trophy, then ran the obvious undo, was told the game was completable
+ * again while the trophy kept its warning on every page. A false success is
+ * worse than an error: nobody goes looking for a bug they have been told is
+ * fixed.
+ *
+ * Returns how many flags were actually lifted, so the reply can say so rather
+ * than claiming a clean-up that did nothing.
+ */
+export async function clearTrophyFlags(env, { title, npCommId = null }) {
+  const res = await env.DB.prepare(
+    npCommId
+      ? `UPDATE trophies SET unobtainable = 0, unobtainable_note = NULL,
+                flagged_by = NULL, flagged_at = NULL
+          WHERE np_comm_id = ? AND unobtainable = 1`
+      : `UPDATE trophies SET unobtainable = 0, unobtainable_note = NULL,
+                flagged_by = NULL, flagged_at = NULL
+          WHERE unobtainable = 1
+            AND np_comm_id IN (SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE)`,
+  )
+    .bind(npCommId ?? title)
+    .run();
+  return res?.meta?.changes ?? 0;
+}
+
 /** One trophy, by game and id. Needed to name a trophy after clearing its flag. */
 export const trophyRow = (env, npCommId, trophyId) =>
   first(

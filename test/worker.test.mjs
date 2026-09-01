@@ -366,3 +366,30 @@ test('a closing date is scoped to one edition when a version is given', () => {
   assert.match(call, /closesAt,/, 'the date goes through');
   assert.match(call, /npCommId: edition\?\.np_comm_id \?\? null/, 'with the edition beside it');
 });
+
+test('clearing a game clears its flagged trophies too, and counts them', () => {
+  /**
+   * The bug: `/flag <game>` with nothing else printed "Flag cleared -
+   * completable again" in green and only ever touched the games row. Every
+   * flagged trophy in the game kept its warning on every page while the mod had
+   * been told it was fixed.
+   *
+   * A FALSE SUCCESS IS WORSE THAN AN ERROR. Nobody goes looking for a bug they
+   * have been told is already solved — Martin only found this because the
+   * warning was still visibly sitting on the trophy.
+   */
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  const branch = fn.slice(fn.indexOf('if (!clean && !closesAt)'), fn.indexOf('const spread'));
+  assert.match(branch, /db\.clearTrophyFlags\(env, \{/, 'the bare clear reaches the trophies');
+  assert.match(branch, /npCommId: edition\?\.np_comm_id \?\? null/, 'scoped like everything else');
+  assert.match(branch, /flagged troph\$\{lifted === 1 \? 'y' : 'ies'\} cleared with it/,
+    'and the reply says how many, rather than claiming a cleanup that did nothing');
+});
+
+test('the clear reply warns about the five-minute page cache', () => {
+  // Game pages are cached at the edge for 300s. A mod who clears a flag,
+  // refreshes, and still sees it will report the clear as broken — which is
+  // exactly the report that found the bug above.
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  assert.match(fn.slice(0, 9000), /Pages cache for five minutes/);
+});

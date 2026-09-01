@@ -737,24 +737,29 @@ td.prog{min-width:112px}
   animation:landshadow 2s linear both;
 }
 
-/* Travel. Linear inside a flight because that is what constant speed means, and
-   the step down happens at the impact keyframes.
-   The die also turns slowly on a SECOND axis here, one whole revolution against
-   the primary five. One axis alone is a wheel; two make it tumble. It is on
-   this element rather than mixed into the roll because interpolating between
-   two different rotate3d axes goes through matrix decomposition and the die
-   visibly flattens on the way. Nesting them multiplies instead, which is what
-   compound rotation actually is. */
+/* Travel, and NOTHING ELSE ON THIS ELEMENT.
+   A second slow rotation was added here to make the die tumble rather than
+   wheel, and it was a bad idea for a reason worth writing down: the perspective
+   lives on .d20, so a child translated most of a screen away from the
+   perspective origin is being viewed further and further off-axis. Rotating
+   THAT on a mostly-X axis pitches it through the skewed frustum, and the die
+   stops reading as something rolling on a surface and starts reading as
+   something banking through the air. Martin's word for it was "a flying ship",
+   and he was right.
+   The roll only ever wanted one axis. Travel here, turn on .dspin, and the two
+   compose without either distorting the other.
+   Linear inside a flight, because that is what constant horizontal speed means;
+   the step down happens at the impact keyframes. */
 @keyframes throwx{
-  0%   {transform:translate3d(72vw,0,0)    scale(1) rotate3d(1,.3,0,0deg)}
-  26%  {transform:translate3d(45.82vw,0,0) scale(1) rotate3d(1,.3,0,-94deg)}
-  38%  {transform:translate3d(36.4vw,0,0)  scale(1) rotate3d(1,.3,0,-128deg)}
-  52%  {transform:translate3d(25.4vw,0,0)  scale(1) rotate3d(1,.3,0,-167deg)}
-  63%  {transform:translate3d(18.67vw,0,0) scale(1) rotate3d(1,.3,0,-191deg)}
-  75%  {transform:translate3d(11.31vw,0,0) scale(1) rotate3d(1,.3,0,-217deg)}
-  84%  {transform:translate3d(7.01vw,0,0)  scale(1) rotate3d(1,.3,0,-233deg)}
-  94%  {transform:translate3d(2.24vw,0,0)  scale(1) rotate3d(1,.3,0,-250deg)}
-  100% {transform:translate3d(0,0,0)       scale(1) rotate3d(1,.3,0,-360deg)}
+  0%   {transform:translate3d(72vw,0,0)    scale(1)}
+  26%  {transform:translate3d(45.82vw,0,0) scale(1)}
+  38%  {transform:translate3d(36.4vw,0,0)  scale(1)}
+  52%  {transform:translate3d(25.4vw,0,0)  scale(1)}
+  63%  {transform:translate3d(18.67vw,0,0) scale(1)}
+  75%  {transform:translate3d(11.31vw,0,0) scale(1)}
+  84%  {transform:translate3d(7.01vw,0,0)  scale(1)}
+  94%  {transform:translate3d(2.24vw,0,0)  scale(1)}
+  100% {transform:translate3d(0,0,0)       scale(1)}
 }
 
 /* The bounce and the roll. Per-keyframe easing, because a bounce is two
@@ -783,9 +788,10 @@ td.prog{min-width:112px}
   94%  {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1744deg);
         animation-timing-function:ease-out}
   /* THE SETTLE. It used to stop dead on the last frame, which is the one thing
-     a physical object never does. It now rocks six degrees past and rolls back
-     onto the face, which is how a die actually comes to rest. */
-  97.5%{transform:translate3d(0,-2px,0)   rotate3d(.25,.14,1,-1806deg);
+     a physical object never does. It rocks a few degrees past and rolls back
+     onto the face. NO HOP: a 2px lift on a 52px die is a twitch, not a bounce,
+     and the rotation is doing all the work anyway. */
+  97.5%{transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1804deg);
         animation-timing-function:ease-in}
   100% {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1800deg)}
 }

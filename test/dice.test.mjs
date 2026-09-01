@@ -117,7 +117,7 @@ test('it settles rather than stopping dead', () => {
   // few degrees past and rolls back onto the face.
   const body = frames('throwy');
   assert.match(body, /97\.5%/, 'there is a keyframe after the last bounce');
-  assert.match(body, /-1806deg/, 'which overshoots');
+  assert.match(body, /-1804deg/, 'which overshoots');
   assert.ok(body.trimEnd().endsWith('-1800deg)}'), 'and comes back to rest');
 });
 
@@ -132,6 +132,17 @@ test('the shadow is under the die at every shared keyframe', () => {
     if (byTime[t] === undefined) continue;
     assert.ok(Math.abs(byTime[t] - v) < 0.01, `shadow is adrift at ${t}%: ${v} vs ${byTime[t]}`);
   }
+});
+
+test('the travel track carries no rotation of its own', () => {
+  /**
+   * A second rotation axis was added here to make the die tumble. It made it
+   * fly: the perspective lives on .d20, so a child translated most of a screen
+   * from the perspective origin is viewed increasingly off-axis, and pitching it
+   * through that skewed frustum reads as banking rather than rolling.
+   * One axis, on one element. This is the assertion that stops it coming back.
+   */
+  assert.ok(!/rotate/.test(frames('throwx')), 'travel is translation only');
 });
 
 test('travel and bounce live on different elements', () => {

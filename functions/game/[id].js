@@ -93,8 +93,10 @@ const GAME_BY_TITLE = `
 const TROPHY_COLS = `trophy_id, name, detail, type, icon_url, hidden,
          earned_rate, points, local_earned`;
 
-const trophiesSql = (order, grouped) => `
-  SELECT ${TROPHY_COLS}${grouped ? ', group_id' : ''}
+const trophiesSql = (order, grouped, flags = true) => `
+  SELECT ${TROPHY_COLS}${grouped ? ', group_id' : ''}${
+    flags ? ', unobtainable, unobtainable_note' : ''
+  }
     FROM trophies t
    WHERE t.np_comm_id = ?
    ORDER BY ${grouped ? "CASE WHEN t.group_id IS NULL OR t.group_id = 'default' THEN '' ELSE t.group_id END ASC, " : ''}${order}`;
@@ -248,7 +250,20 @@ function trophyCard(t, { localTotal, earned }) {
   const here = Number(t.local_earned) || 0;
   const got = earned ? earned.has(Number(t.trophy_id)) : false;
 
-  return `<li class="tc m-${metal}${secret ? ' secret' : ''}${got ? ' got' : ''}">
+  /**
+   * A DEAD TROPHY IS MARKED, AND ITS POINTS ARE LEFT ALONE.
+   *
+   * The card keeps showing what it pays, because people who earned it before it
+   * broke still hold those points and always will — "we cant take points away
+   * from people for earning something that no longer achievable". The warning
+   * is for whoever comes next, and it is on the trophy rather than buried in a
+   * note on the game, because the game note cannot tell you WHICH one to skip.
+   */
+  const dead = Number(t.unobtainable) === 1;
+
+  return `<li class="tc m-${metal}${secret ? ' secret' : ''}${got ? ' got' : ''}${
+    dead ? ' dead' : ''
+  }">
     <span class="tcin">
       ${
         t.icon_url
@@ -261,6 +276,13 @@ function trophyCard(t, { localTotal, earned }) {
           ${t.detail ? `<span class="tdet">${esc(t.detail)}</span>` : ''}
         </span>
         ${secret ? '<span class="secretmark">Secret</span>' : ''}
+        ${
+          dead
+            ? `<span class="deadmark" title="${esc(
+                t.unobtainable_note || 'This trophy can no longer be earned.',
+              )}">&#9888; ${esc(t.unobtainable_note || 'No longer earnable')}</span>`
+            : ''
+        }
       </span>
       <span class="tcr">
         <span class="rare">${
@@ -401,17 +423,37 @@ export async function onRequestGet({ params, env, request }) {
   let trophies = [];
   let groups = [];
   let grouped = true;
-  try {
-    const [t, gr] = await Promise.all([
-      env.DB.prepare(trophiesSql(SORTS[sort].sql, true)).bind(g.np_comm_id).all(),
-      env.DB.prepare(GROUPS).bind(g.np_comm_id).all(),
-    ]);
-    trophies = t.results ?? [];
-    groups = gr.results ?? [];
-  } catch {
-    grouped = false;
-    const t = await env.DB.prepare(trophiesSql(SORTS[sort].sql, false)).bind(g.np_comm_id).all();
-    trophies = t.results ?? [];
+
+  /**
+   * THREE TIERS, NOT TWO, and the reason is migration 015.
+   *
+   * The original seatbelt was try-grouped / catch-plain. Adding the trophy flag
+   * columns to the same query would have meant that a database missing 015 fell
+   * all the way back to the plain query and silently lost DLC folders too —
+   * punishing one un-run migration by turning off a feature that had nothing to
+   * do with it. So each optional migration gets its own rung.
+   */
+  const attempts = [
+    [true, true],   // 012 and 015 both applied
+    [true, false],  // 012 only
+    [false, false], // neither
+  ];
+  for (const [wantGroups, wantFlags] of attempts) {
+    try {
+      const [t, gr] = await Promise.all([
+        env.DB.prepare(trophiesSql(SORTS[sort].sql, wantGroups, wantFlags)).bind(g.np_comm_id).all(),
+        wantGroups
+          ? env.DB.prepare(GROUPS).bind(g.np_comm_id).all()
+          : Promise.resolve({ results: [] }),
+      ]);
+      trophies = t.results ?? [];
+      groups = gr.results ?? [];
+      grouped = wantGroups;
+      break;
+    } catch {
+      grouped = false;
+      groups = [];
+    }
   }
 
   const [{ results: owners = [] }, viewer] = await Promise.all([

@@ -101,7 +101,10 @@ async function handleCommand(interaction, env, ctx) {
     case 'verify':     return verify(interaction, env, ctx, userId);
     case 'unlink':     return unlink(interaction, env, opt('member'));
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
-    case 'flag':       return flagGame(interaction, env, userId, opt('game'), opt('note'), opt('closes'));
+    case 'flag':       return flagGame(interaction, env, userId, {
+      title: opt('game'), note: opt('note'), closes: opt('closes'),
+      version: opt('version'), trophy: opt('trophy'),
+    });
     case 'supporter':  return setSupporterStar(interaction, env, opt('member'), opt('months'));
     case 'faq':        return faq(env);
     case 'update':     return runUpdate(interaction, env, ctx, userId);
@@ -314,7 +317,119 @@ async function unlink(interaction, env, targetId) {
  * An empty note clears the flag, so the same command undoes itself — there is
  * no /unflag to remember, and a mod who over-flagged can fix it in seconds.
  */
-async function flagGame(interaction, env, userId, title, note, closes) {
+/**
+ * Flag or clear ONE trophy, and roll the result up onto its game.
+ *
+ * WHY THE ROLLUP. A mod who marks "Fireworks Fanatic" broken has said the game
+ * cannot be completed; making them run /flag a second time to say the same
+ * thing again is how a game ends up with a dead trophy and no warning on it.
+ * So the game's flag is DERIVED: on while it has at least one flagged trophy,
+ * off the moment the last one is cleared. A trophy that gets fixed takes the
+ * warning down with it, which hand-managed flags never would.
+ *
+ * NO POINTS MOVE. Martin's rule and it is settled: "we cant take points away
+ * from people for earning something that no longer achievable." Nothing in
+ * jobs/rescore.mjs reads trophies.unobtainable, and nothing should.
+ *
+ * NO CLOSING DATE HERE. A countdown is a property of a shutdown, which kills a
+ * whole game rather than one trophy. Accepting a date and quietly ignoring it
+ * would be the same class of bug parseClosingDate exists to prevent, so it is
+ * refused out loud.
+ */
+async function flagTrophy(env, userId, { match, edition, trophyId, note, closesAt }) {
+  if (closesAt) {
+    return errorReply(
+      'A closing date belongs to a whole game, not one trophy. ' +
+        'Run `/flag` again with the date and no trophy.',
+    );
+  }
+
+  // One edition, or none. A title with a single edition needs no version — but
+  // with several, a trophy id is ambiguous and guessing would flag the wrong
+  // game's trophy without anybody noticing.
+  let target = edition;
+  if (!target) {
+    const editions = await db.gameVersions(env, match.title);
+    if (editions.length > 1) {
+      return errorReply(
+        `**${match.title}** has ${editions.length} editions and a trophy only exists in one of ` +
+          'them. Pick a `version` as well.',
+      );
+    }
+    target = editions[0] ?? match;
+  }
+
+  const moved = await db.setTrophyUnobtainable(env, target.np_comm_id, trophyId, {
+    on: Boolean(note),
+    note: note || null,
+    by: note ? userId : null,
+  });
+  if (!moved) {
+    return errorReply(
+      'I could not find that trophy in that edition. Pick it from the dropdown rather than typing it.',
+    );
+  }
+
+  // The rollup, read back from the table rather than assumed. The count is the
+  // truth; inferring it from what we just wrote would drift the first time two
+  // mods flag the same game at once.
+  const dead = await db.deadTrophies(env, target.np_comm_id);
+  // Read the row rather than searching `dead` for it: after a CLEAR the trophy
+  // is no longer in that list, and the reply still has to be able to name it.
+  const row = await db.trophyRow(env, target.np_comm_id, trophyId);
+  const name = row?.name || `Trophy #${trophyId}`;
+  const where = `**${target.title}** on **${target.platform ?? 'PlayStation'}**`;
+
+  await db.setUnobtainable(env, target.title, {
+    on: dead.length > 0,
+    note: dead.length
+      ? dead.length === 1
+        ? `${dead[0].name || 'One trophy'} can no longer be earned.`
+        : `${dead.length} trophies can no longer be earned.`
+      : null,
+    by: dead.length ? userId : null,
+    closesAt: null,
+    npCommId: target.np_comm_id,
+  });
+
+  if (!note) {
+    const rest = dead.length
+      ? `\n\n-# ${dead.length} other trophy${dead.length === 1 ? '' : 'ies'} here ${dead.length === 1 ? 'is' : 'are'} still flagged, so the game keeps its warning.`
+      : '\n\n-# That was the last one, so the game is completable again.';
+    return reply(
+      [
+        container(
+          [text(`### Trophy cleared\n**${name}** is earnable again in ${where}.${rest}`)],
+          COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `### ⚠️ ${name}\n` +
+              `No longer earnable in ${where}.\n\n` +
+              `-# ${note}\n\n` +
+              `The game now shows the warning everywhere it appears, and ` +
+              `${dead.length} trophy${dead.length === 1 ? '' : 'ies'} in it ` +
+              `${dead.length === 1 ? 'is' : 'are'} flagged.\n` +
+              '-# Nobody loses points for having earned it. Run `/flag` with the same trophy and ' +
+              'no note to clear this.',
+          ),
+        ],
+        COLOR.red,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+async function flagGame(interaction, env, userId, { title, note, closes, version, trophy }) {
   // MANAGE_MESSAGES, not MANAGE_GUILD.
   //
   // Martin made JFL__Leon a mod and he still could not run this. The gate was
@@ -342,6 +457,35 @@ async function flagGame(interaction, env, userId, title, note, closes) {
   const clean = String(note ?? '').trim().slice(0, 300);
 
   /**
+   * WHICH EDITION.
+   *
+   * Empty means every edition, which is what this command has always done and
+   * is right for a server shutdown. A chosen version is a mod saying "only this
+   * list", which they could not say before — Sea of Thieves on PS4 can die
+   * while the PS5 list carries on.
+   *
+   * The value is an np_comm_id straight out of the dropdown, so it is checked
+   * against the database rather than trusted: a mod can type into an
+   * autocomplete box instead of picking from it, and a typo must not silently
+   * flag nothing.
+   */
+  let edition = null;
+  const wanted = String(version ?? '').trim();
+  if (wanted) {
+    edition = await db.gameById(env, wanted);
+    if (!edition) {
+      return errorReply(
+        `**${wanted}** is not an edition I know. Pick one from the dropdown rather than typing it.`,
+      );
+    }
+    if (String(edition.title).toLowerCase() !== String(match.title).toLowerCase()) {
+      return errorReply(
+        `That version is **${edition.title}**, not **${match.title}**. Pick the game again.`,
+      );
+    }
+  }
+
+  /**
    * A bad date STOPS the whole command.
    *
    * The alternative — store the note and quietly drop the date — is the worst
@@ -352,6 +496,13 @@ async function flagGame(interaction, env, userId, title, note, closes) {
   if (!parsed.ok) return errorReply(`That closing date did not work. ${parsed.reason}`);
 
   const closesAt = parsed.at;
+
+  // A single trophy takes a different path entirely — different table, no
+  // closing date, and a rollup onto the game afterwards.
+  const wantsTrophy = String(trophy ?? '').trim();
+  if (wantsTrophy) {
+    return flagTrophy(env, userId, { match, edition, trophyId: wantsTrophy, note: clean, closesAt });
+  }
 
   /**
    * A DATE ALONE DOES NOT KILL THE GAME. `/flag <game> closes:2027-03-15` means
@@ -364,6 +515,7 @@ async function flagGame(interaction, env, userId, title, note, closes) {
     note: clean || null,
     by: clean || closesAt ? userId : null,
     closesAt,
+    npCommId: edition?.np_comm_id ?? null,
   });
 
   if (!clean && !closesAt) {
@@ -373,7 +525,9 @@ async function flagGame(interaction, env, userId, title, note, closes) {
           [
             text(
               `### Flag cleared\n**${match.title}** is completable again` +
-                (editions > 1 ? ` - all ${editions} editions.` : '.') +
+                (edition
+                  ? ` on **${edition.platform ?? 'PlayStation'}**.`
+                  : editions > 1 ? ` - all ${editions} editions.` : '.') +
                 `\n\n-# Run \`/flag\` with a note to put it back.`,
             ),
           ],
@@ -386,7 +540,11 @@ async function flagGame(interaction, env, userId, title, note, closes) {
 
   // Two different messages, because they are two different situations and a mod
   // who set a countdown should not be told the game is dead.
-  const spread = editions > 1 ? ` - applied to all **${editions}** editions of the title.` : '.';
+  const spread = edition
+    ? ` on **${edition.platform ?? 'PlayStation'}** only - other editions are untouched.`
+    : editions > 1
+      ? ` - applied to all **${editions}** editions of the title.`
+      : '.';
 
   if (!clean && closesAt) {
     return reply(
@@ -1266,6 +1424,9 @@ const GAME_FIELDS = new Set(['game', 'title']);
  */
 const MEMBER_FIELDS = new Set(['add', 'remove']);
 
+/** /flag's dependent dropdowns: both read the options already chosen. */
+const FLAG_FIELDS = new Set(['version', 'trophy']);
+
 /**
  * TWO LETTERS BEFORE WE ASK THE DATABASE.
  *
@@ -1426,11 +1587,77 @@ async function handleAutocomplete(interaction, env) {
   // autocomplete switched on and no handler should return an empty list, not
   // silently get a list of game titles.
   const isMember = interaction.data.name === 'rivals' && MEMBER_FIELDS.has(option?.name);
-  if (!option || !(isMember || GAME_FIELDS.has(option.name))) {
+  const isFlagField = interaction.data.name === 'flag' && FLAG_FIELDS.has(option?.name);
+  if (!option || !(isMember || isFlagField || GAME_FIELDS.has(option.name))) {
     return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
   }
 
   const focused = String(option.value ?? '').trim();
+
+  /**
+   * The version and trophy pickers read the options already filled in.
+   *
+   * Discord sends every option's current value on an autocomplete interaction,
+   * not just the focused one, which is the whole reason a dependent dropdown is
+   * possible without storing anything between keystrokes.
+   */
+  if (isFlagField) {
+    const valueOf = (name) =>
+      String(interaction.data.options?.find((o) => o.name === name)?.value ?? '').trim();
+    const title = valueOf('game');
+
+    // Nothing to scope to. An empty list with no game chosen is the honest
+    // answer — the alternative is offering every edition of every game.
+    if (!title) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+
+    if (option.name === 'version') {
+      const editions = await db.gameVersions(env, title);
+      return {
+        type: REPLY.AUTOCOMPLETE,
+        data: {
+          choices: editions
+            .filter((e) => !focused || `${e.platform} ${e.title}`.toLowerCase()
+              .includes(focused.toLowerCase()))
+            .slice(0, 25)
+            .map((e) => ({
+              // The owner count is the thing that tells a mod which edition the
+              // server actually plays, which is usually the one being reported.
+              name: `${e.platform ?? 'PlayStation'} · ${n(e.trophy_count)} trophies · ` +
+                `${n(e.owners)} here`.slice(0, 100),
+              value: e.np_comm_id.slice(0, 100),
+            })),
+        },
+      };
+    }
+
+    // The trophy picker. Needs ONE edition resolved, because a trophy id only
+    // means something inside one np_comm_id.
+    const chosen = valueOf('version');
+    const editions = chosen ? null : await db.gameVersions(env, title);
+    const npCommId = chosen || (editions?.length === 1 ? editions[0].np_comm_id : null);
+    if (!npCommId) {
+      return {
+        type: REPLY.AUTOCOMPLETE,
+        data: {
+          // A dropdown cannot show an error, so it shows the instruction. The
+          // value is deliberately empty so picking it fills in nothing.
+          choices: [{ name: 'Pick a version first - this title has several editions', value: '' }],
+        },
+      };
+    }
+
+    const rows = await db.searchTrophies(env, npCommId, focused, 25);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows.map((t) => ({
+          name: `${t.unobtainable ? '⚠️ ' : ''}${t.name || `Trophy #${t.trophy_id}`} · ${t.type}`
+            .slice(0, 100),
+          value: String(t.trophy_id).slice(0, 100),
+        })),
+      },
+    };
+  }
 
   if (isMember) {
     const userId = interaction.member?.user?.id ?? interaction.user?.id;

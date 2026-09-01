@@ -807,6 +807,17 @@ details.numbers summary:hover{color:var(--kraken)}
   opacity:.7;
 }
 
+/* ---- a trophy nobody can earn any more ----
+   Amber, not red, and NOT struck through. The points still count for everybody
+   who got there in time, so a style that reads as "this is worthless" would be
+   lying about the one thing people care about. It is a warning to whoever comes
+   next, sitting on the trophy rather than in a note on the game, because a game
+   note cannot tell you which one to skip. */
+.tc.dead .tcin{box-shadow:inset 3px 0 0 var(--brass)}
+.deadmark{
+  display:block;margin-top:4px;font-size:11.5px;line-height:1.35;color:var(--brass);
+}
+
 /* ---- rivals ----
    Four columns and no <thead>. Rank, who, points, gap reads without a header
    the way a scoreboard does, and a header row on a five-row table is a third

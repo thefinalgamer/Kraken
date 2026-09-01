@@ -62,7 +62,7 @@ const commands = [
   },
   {
     name: 'flag',
-    description: 'Mods only. Mark a game as having trophies nobody can earn any more',
+    description: 'Mods only. Mark a game, one edition, or one trophy as no longer earnable',
     // MANAGE_MESSAGES (8192), NOT Manage Server like /unlink and /addmember.
     // Those two rewrite who somebody is on the board; this moderates content,
     // which is the same authority as deleting a message. Leon was made a mod
@@ -75,6 +75,32 @@ const commands = [
         description: 'The game to flag',
         type: 3,
         required: true,
+        autocomplete: true,
+      },
+      {
+        /**
+         * PSN gives every edition its own trophy list, so GTA V on PS3, PS4 and
+         * PS5 are three different games that happen to share a name. Leaving
+         * this empty flags all of them, which is what a server shutdown usually
+         * means and is what /flag has always done. Picking one is how a mod says
+         * "only the PS3 list is broken", which they could not say before.
+         */
+        name: 'version',
+        description: 'Which edition. Leave empty to flag every version of the title',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+      {
+        /**
+         * Requires a version on any title with more than one edition. Trophy ids
+         * are only unique inside one np_comm_id, so guessing which edition a
+         * trophy belongs to would silently flag the wrong game's trophy.
+         */
+        name: 'trophy',
+        description: 'One trophy rather than the whole game. Needs a version if the title has several',
+        type: 3,
+        required: false,
         autocomplete: true,
       },
       {

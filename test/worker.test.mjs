@@ -124,6 +124,20 @@ test('the game search offers the most-owned match first, not the shortest', asyn
   );
 });
 
+/**
+ * The body of handleAutocomplete, bounded by the divider that follows it.
+ *
+ * This used to be `.slice(0, 4000)`, which is a guess about how long the
+ * function is, and adding /flag's version and trophy branches pushed the game
+ * branch past it. A test that fails because unrelated code grew is a test that
+ * gets deleted.
+ */
+const autocompleteBody = () => {
+  const start = SRC.indexOf('async function handleAutocomplete');
+  const end = SRC.indexOf('// ------', start);
+  return SRC.slice(start, end === -1 ? undefined : end);
+};
+
 test('game autocomplete asks the database nothing until two characters are typed', () => {
   // Discord fires the moment the field is focused. A bare focus and a single
   // letter both have better answers than a search, and a search for "a" is a
@@ -132,9 +146,8 @@ test('game autocomplete asks the database nothing until two characters are typed
   // The MEMBER branch has no such floor and does not need one: the members
   // table is seventy rows, so a one-letter search there is a scan of nothing.
   assert.match(SRC, /const MIN_QUERY = 2/, 'the floor exists');
-  const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
   assert.match(
-    fn.slice(0, 4000),
+    autocompleteBody(),
     /focused\.length < MIN_QUERY/,
     'and the handler checks it before searching games',
   );
@@ -145,8 +158,7 @@ test('autocomplete answers only for fields it populates', () => {
   // empty list, not silently get a list of game titles.
   assert.match(SRC, /GAME_FIELDS = new Set\(\['game', 'title'\]\)/);
   assert.match(SRC, /MEMBER_FIELDS = new Set\(\['add', 'remove'\]\)/);
-  const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
-  assert.match(fn.slice(0, 4000), /GAME_FIELDS\.has\(option\.name\)/);
+  assert.match(autocompleteBody(), /GAME_FIELDS\.has\(option\.name\)/);
 });
 
 test('the member picker is scoped to /rivals, not to any option called add', () => {
@@ -193,4 +205,120 @@ test('per-trophy values are never multiplied', async () => {
   const top = src.slice(src.indexOf('const top = ['), src.indexOf('const owners = await db.gameOwners'));
   assert.ok(top.includes('n(t.points)'), 'the trophy list prints the stored value');
   assert.ok(!top.includes('applyCompletion'), 'and does not scale it');
+});
+
+/* ---------------------------------------------------------------------------
+ * /flag gained a version and a trophy.
+ *
+ * The gap mods hit: /flag could only say "this whole title is broken", and it
+ * said it about every edition at once. Sea of Thieves on PS4 can die while the
+ * PS5 list carries on, and there was no way to say so.
+ * ------------------------------------------------------------------------ */
+
+test('/flag takes a version and a trophy, both optional', () => {
+  const reg = readFileSync(
+    fileURLToPath(new URL('../jobs/register-commands.mjs', import.meta.url)), 'utf8',
+  );
+  const start = reg.indexOf("name: 'flag'");
+  // From `options:`, not from the command name — otherwise the command's own
+  // `name: 'flag'` pairs with the game option's `required: true`.
+  const flag = reg.slice(reg.indexOf('options: [', start), reg.indexOf("name: 'supporter'"));
+
+  for (const field of ['version', 'trophy']) {
+    assert.ok(flag.includes(`name: '${field}'`), `${field} option exists`);
+  }
+  // Optional, so every /flag a mod runs today keeps working unchanged — all
+  // editions remains the default because a shutdown usually does kill them all.
+  const opts = [...flag.matchAll(/name: '(\w+)',[\s\S]*?required: (\w+)/g)]
+    .map((m) => [m[1], m[2]]);
+  assert.deepEqual(
+    opts.filter(([, req]) => req === 'true').map(([nm]) => nm),
+    ['game'],
+    'only the game is required',
+  );
+  assert.match(flag, /name: 'version'[\s\S]*?autocomplete: true/, 'version autocompletes');
+  assert.match(flag, /name: 'trophy'[\s\S]*?autocomplete: true/, 'so does trophy');
+});
+
+test('the version and trophy pickers read the options already filled in', () => {
+  // Discord sends every option value on an autocomplete interaction, not just
+  // the focused one. That is the only reason a dependent dropdown works without
+  // storing anything between keystrokes.
+  const body = autocompleteBody();
+  assert.match(body, /FLAG_FIELDS\.has\(option\?\.name\)/, 'scoped to /flag');
+  assert.match(body, /interaction\.data\.options\?\.find\(\(o\) => o\.name === name\)/,
+    'reads sibling options');
+  assert.match(body, /db\.gameVersions\(env, title\)/, 'versions come from the chosen game');
+  assert.match(body, /db\.searchTrophies\(env, npCommId, focused/, 'trophies from the chosen edition');
+});
+
+test('a trophy on a multi-edition title refuses to guess which edition', () => {
+  // Trophy ids are only unique inside one np_comm_id. Guessing would flag the
+  // wrong game's trophy and nobody would find out.
+  const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
+  assert.match(fn, /editions\.length > 1/, 'it counts the editions');
+  assert.match(fn, /Pick a `version` as well/, 'and says so rather than picking one');
+});
+
+test('flagging a trophy never touches points', () => {
+  /**
+   * Martin's rule, and it is settled: "we cant take points away from people for
+   * earning something that no longer achievable." The flag is a warning to
+   * whoever comes next, not a repricing.
+   */
+  const rescore = readFileSync(
+    fileURLToPath(new URL('../jobs/rescore.mjs', import.meta.url)), 'utf8',
+  );
+
+  /**
+   * The rescore DOES touch `games.unobtainable` — that is the nightly rollover
+   * flipping a game dead once its announced closing date passes, and it moves
+   * no points. What must never appear is the TROPHY flag reaching the scoring,
+   * because that is the version of this feature Martin ruled out.
+   */
+  assert.ok(!/FROM trophies[\s\S]{0,400}unobtainable/.test(rescore),
+    'the rescore never selects the trophy flag');
+  assert.ok(!/unobtainable[\s\S]{0,120}points/.test(rescore),
+    'and no flag column sits near a points calculation');
+
+  /**
+   * Asserting the WORD "points" is absent was the first attempt and it was
+   * wrong — the reply says "Nobody loses points for having earned it", which is
+   * the sentence most worth keeping. Assert on the db calls instead: the only
+   * two writes this handler makes are the two flags.
+   */
+  const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
+  const calls = [...fn.matchAll(/db\.(\w+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual(
+    [...new Set(calls)],
+    ['deadTrophies', 'gameVersions', 'setTrophyUnobtainable', 'setUnobtainable', 'trophyRow'],
+    'two flag writes and three reads — nothing that can move a score',
+  );
+  assert.match(fn, /Nobody loses points for having earned it/,
+    'and the mod is told so in the reply');
+});
+
+test('the game flag is rolled up from its trophies, and cleared with the last one', () => {
+  // A mod who marks a trophy broken has said the game cannot be completed.
+  // Making them run /flag twice is how a game ends up with a dead trophy and no
+  // warning on it — and a hand-set flag would never come off when it was fixed.
+  const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
+  assert.match(fn, /db\.deadTrophies\(env, target\.np_comm_id\)/, 'counts what is actually flagged');
+  assert.match(fn, /on: dead\.length > 0/, 'game flag follows the count, in both directions');
+  assert.match(fn, /npCommId: target\.np_comm_id/, 'and only on the edition that owns the trophy');
+});
+
+test('a closing date on a single trophy is refused, not ignored', () => {
+  // Same class of bug parseClosingDate exists to prevent: a mod believes they
+  // set a countdown, it never appears, nobody finds out until the servers go.
+  const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
+  assert.match(fn, /if \(closesAt\) \{[\s\S]{0,200}errorReply/, 'it errors');
+});
+
+test('a typed-in version is checked against the database, not trusted', () => {
+  // A mod can type into an autocomplete box instead of picking from it.
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  assert.match(fn.slice(0, 6000), /db\.gameById\(env, wanted\)/, 'the id is looked up');
+  assert.match(fn.slice(0, 6000), /is not an edition I know/, 'and rejected if it is not real');
+  assert.match(fn.slice(0, 6000), /Pick the game again/, 'and if it belongs to another title');
 });

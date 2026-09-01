@@ -57,7 +57,7 @@ let lastTrophySql = '';
 
 const fakeEnv = ({
   game = GAME, byTitle = null, trophies = TROPHIES, owners = OWNERS,
-  groups = [], viewer = null, noGroupColumn = false,
+  groups = [], viewer = null, noGroupColumn = false, noFlagColumn = false,
 } = {}) => ({
   DB: {
     prepare(sql) {
@@ -66,6 +66,13 @@ const fakeEnv = ({
         // Stands in for D1 rejecting an unknown column before migration 012.
         if (noGroupColumn && sql.includes('group_id')) {
           return { bind: () => ({ all: async () => { throw new Error('no such column: group_id'); } }) };
+        }
+        // Stands in for D1 rejecting the trophy flag columns before 015. The
+        // page must drop to the middle rung of the seatbelt, not the bottom.
+        if (noFlagColumn && sql.includes('unobtainable')) {
+          return {
+            bind: () => ({ all: async () => { throw new Error('no such column: unobtainable'); } }),
+          };
         }
         return { bind: () => ({ all: async () => ({ results: trophies }) }) };
       }
@@ -501,4 +508,48 @@ test('an owner with no completion yet shows the raw figure, never zero', async (
   const { out } = await render({ owners });
   assert.ok(out.includes('1,234'), 'raw, rather than a wiped-out zero');
   assert.ok(!out.includes('0.00% completion'), 'and no note claiming it was scaled');
+});
+
+test('a trophy nobody can earn any more is marked, and keeps its points', async () => {
+  /**
+   * The points stay on the card deliberately. Everybody who earned it before it
+   * broke still holds them — "we cant take points away from people for earning
+   * something that no longer achievable" — so a struck-through or zeroed card
+   * would be lying about the thing people care about most.
+   */
+  const trophies = [
+    { ...TROPHIES[0], trophy_id: 1, name: 'Fireworks Fanatic', points: 279,
+      unobtainable: 1, unobtainable_note: 'Server event ended in 2024' },
+    { ...TROPHIES[0], trophy_id: 2, name: 'Still Fine', points: 12, unobtainable: 0,
+      unobtainable_note: null },
+  ];
+  const { out } = await render({ trophies });
+
+  // bodyOf, because `.deadmark{...}` is in the inlined stylesheet on every
+  // page — counting matches against `out` counts the CSS rule as a trophy.
+  const body = bodyOf(out);
+  assert.match(body, /class="tc [^"]*dead"/, 'the card carries the flag');
+  assert.ok(body.includes('Server event ended in 2024'), 'and says what happened');
+  assert.ok(body.includes('279'), 'the points are still shown');
+  // The healthy trophy must not pick up the mark.
+  assert.equal((body.match(/deadmark/g) || []).length, 1, 'exactly one trophy is marked');
+});
+
+test('the page survives migration 015 not having run, without losing DLC folders', async () => {
+  /**
+   * The seatbelt is three-tiered for this reason. A two-tier try/catch would
+   * have made a database missing 015 fall all the way back to the ungrouped
+   * query, turning off DLC folders as a punishment for an unrelated migration.
+   */
+  const { res, out } = await render({
+    noFlagColumn: true,
+    trophies: PACKED,
+    groups: [
+      { group_id: 'default', name: 'Bloodborne', icon_url: null },
+      { group_id: '001', name: 'The Old Hunters', icon_url: null },
+    ],
+  });
+  assert.equal(res.status, 200, 'the page renders');
+  assert.ok(!bodyOf(out).includes('deadmark'), 'no flags, because the column is not there');
+  assert.ok(out.includes('The Old Hunters'), 'but the DLC folders survive');
 });

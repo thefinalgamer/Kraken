@@ -275,14 +275,29 @@ export async function setSupporter(env, discordId, months) {
   return res?.meta?.changes ?? 0;
 }
 
-export async function setUnobtainable(env, title, { on, note, by, closesAt = null }) {
-  const rows = await all(env, 'SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE', [title]);
+export async function setUnobtainable(env, title, { on, note, by, closesAt = null, npCommId = null }) {
+  /**
+   * ONE EDITION, OR ALL OF THEM.
+   *
+   * Every edition remains the default, because a server shutdown does kill the
+   * PS4 and PS5 lists together and making mods flag each one would guarantee
+   * they miss the version nobody here owns yet.
+   *
+   * But `npCommId` had to become possible. Sea of Thieves on PS4 can die while
+   * the PS5 list carries on, and until now the only way to say that was to flag
+   * both and be wrong about one. A mod who picks a version means that version.
+   */
+  const scoped = Boolean(npCommId);
+  const rows = scoped
+    ? await all(env, 'SELECT np_comm_id FROM games WHERE np_comm_id = ?', [npCommId])
+    : await all(env, 'SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE', [title]);
+
   const touched = on || closesAt !== null;
   await env.DB.prepare(
     `UPDATE games
         SET unobtainable = ?, unobtainable_note = ?, closes_at = ?,
             flagged_by = ?, flagged_at = ?
-      WHERE title = ? COLLATE NOCASE`,
+      WHERE ${scoped ? 'np_comm_id = ?' : 'title = ? COLLATE NOCASE'}`,
   )
     .bind(
       on ? 1 : 0,
@@ -290,11 +305,70 @@ export async function setUnobtainable(env, title, { on, note, by, closesAt = nul
       closesAt ?? null,
       touched ? by ?? null : null,
       touched ? Date.now() : null,
-      title,
+      scoped ? npCommId : title,
     )
     .run();
   return rows.length;
 }
+
+/** Flag or clear ONE trophy. Returns whether a row actually moved. */
+export async function setTrophyUnobtainable(env, npCommId, trophyId, { on, note, by }) {
+  const res = await env.DB.prepare(
+    `UPDATE trophies
+        SET unobtainable = ?, unobtainable_note = ?, flagged_by = ?, flagged_at = ?
+      WHERE np_comm_id = ? AND trophy_id = ?`,
+  )
+    .bind(on ? 1 : 0, on ? note ?? null : null, on ? by ?? null : null, on ? Date.now() : null,
+          npCommId, Number(trophyId))
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * The flagged trophies in one game, rarest first.
+ *
+ * Index-backed by `idx_trophies_dead`, which is partial — there are a million
+ * trophy rows and this only ever wants the handful that are flagged.
+ */
+export const deadTrophies = (env, npCommId) =>
+  all(
+    env,
+    `SELECT trophy_id, name, type, unobtainable_note
+       FROM trophies
+      WHERE np_comm_id = ? AND unobtainable = 1
+      ORDER BY trophy_id ASC`,
+    [npCommId],
+  );
+
+/**
+ * Trophies in one game, for the /flag autocomplete.
+ *
+ * Scoped to a single np_comm_id, so this reads one game's list — 40 rows
+ * typically, ~120 at the worst — never the table. LIKE is escaped for the same
+ * reason searchMembers is: `_` is a single-character wildcard and trophy names
+ * are full of them.
+ */
+export const searchTrophies = (env, npCommId, query, limit = 25) => {
+  const term = String(query ?? '').replace(/[\\%_]/g, (c) => `\\${c}`);
+  return all(
+    env,
+    `SELECT trophy_id, name, type, unobtainable
+       FROM trophies
+      WHERE np_comm_id = ?
+        AND (? = '' OR name LIKE ? ESCAPE '\\' COLLATE NOCASE)
+      ORDER BY unobtainable DESC, trophy_id ASC
+      LIMIT ?`,
+    [npCommId, term, `%${term}%`, limit],
+  );
+};
+
+/** One trophy, by game and id. Needed to name a trophy after clearing its flag. */
+export const trophyRow = (env, npCommId, trophyId) =>
+  first(
+    env,
+    'SELECT trophy_id, name, type, unobtainable, unobtainable_note FROM trophies WHERE np_comm_id = ? AND trophy_id = ?',
+    [npCommId, Number(trophyId)],
+  );
 
 export const gameById = (env, npCommId) =>
   first(env, 'SELECT * FROM games WHERE np_comm_id = ?', [npCommId]);

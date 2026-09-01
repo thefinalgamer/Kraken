@@ -715,59 +715,79 @@ td.prog{min-width:112px}
   border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
   animation:landshadow 1.9s cubic-bezier(.22,.55,.35,1) both;
 }
-/* IT ACTUALLY TRAVELS. The first version dropped it forty pixels and called it
-   a throw, which is a die being placed rather than rolled.
-   It now comes in from the right-hand side of the page, crosses most of the
-   width losing height at each bounce, and stops at the heading — the shape of a
-   die thrown down a table, which is where the whole idea comes from.
+/* IT ROLLS. The first attempt travelled but did not roll — it stretched and
+   jumped, and both faults had the same cause: rotation and position were
+   keyframed independently, so the die could cross a third of the screen while
+   barely turning and then spin on the spot while barely moving. That is not
+   motion, it is two animations arguing.
 
-   RIGHT TO LEFT, and that is a constraint rather than a preference: the panel
-   sits at the left of a centred page, so there is real estate to the right of
-   the heading and none to its left. Starting off the left edge would push the
-   document wider and hand every phone a horizontal scrollbar for a second and a
-   half. 72vw always begins on screen and always ends at the heading.
+   ROTATION IS NOW A FUNCTION OF DISTANCE. Twenty-five degrees per vw travelled,
+   everywhere, which is what rolling means: something that turns because it is
+   moving, not alongside it. Seventy-two vw of travel at 25°/vw is 1,800° —
+   exactly five turns — so it also lands in the orientation it was lit for
+   without anybody having to fudge the last keyframe.
 
-   Whole turns at the end, so the die lands in the orientation it was lit for. A
-   throw stopping on 430 degrees settles with its dark side out and looks
-   switched off, which is a strange way to end an animation about arriving. */
+   THE AXIS IS MOSTLY Z, because that is the one a thing rolling across your
+   screen turns around. The small X and Y components are what make it a die
+   rather than a wheel: it tumbles as it goes, but it goes the right way.
+
+   NO SCALE. The pulsing was meant to read as impact and read as stretching,
+   because a scale on a rotating object distorts along whichever axis happens to
+   be vertical at that instant. Weight comes from the shadow instead.
+
+   RIGHT TO LEFT is a constraint, not a preference: the panel sits at the left
+   of a centred page, so there is room to the right of the heading and none to
+   its left. Coming in from off the left edge would widen the document and hand
+   every phone a horizontal scrollbar for two seconds. */
+.rolled .d20{width:52px;height:52px;vertical-align:middle}
+.rolled .dscale{transform:scale(1)}
+.rolled .dspin{animation:throw 2s linear both}
+.rolled .d20::after{
+  content:"";position:absolute;left:8%;right:8%;bottom:-6px;height:7px;
+  border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
+  animation:landshadow 2s linear both;
+}
+/* Per-keyframe easing, because a bounce is two different motions: falling
+   accelerates and rising decelerates. One timing function across the whole
+   animation cannot do both, which is what made the arcs look mechanical. */
 @keyframes throw{
-  0%   {transform:translate3d(72vw,-180px,0) rotate3d(1,.7,.3,-1800deg) scale(.62); opacity:0}
+  0%   {transform:translate3d(72vw,-190px,0)  rotate3d(.25,.15,1,0deg);
+        opacity:0; animation-timing-function:ease-in}
   8%   {opacity:1}
-  /* first bounce, still travelling fast */
-  26%  {transform:translate3d(47vw,0,0)     rotate3d(1,.7,.3,-1240deg) scale(1.06)}
-  38%  {transform:translate3d(33vw,-58px,0) rotate3d(1,.7,.3,-980deg)  scale(.96)}
+  /* first contact */
+  26%  {transform:translate3d(47vw,0,0)       rotate3d(.25,.15,1,-625deg);
+        animation-timing-function:ease-out}
+  38%  {transform:translate3d(33vw,-58px,0)   rotate3d(.25,.15,1,-975deg);
+        animation-timing-function:ease-in}
   /* second */
-  52%  {transform:translate3d(20vw,0,0)     rotate3d(1,.7,.3,-720deg)  scale(1.05)}
-  63%  {transform:translate3d(11vw,-30px,0)  rotate3d(1,.7,.3,-520deg)  scale(.97)}
+  52%  {transform:translate3d(20vw,0,0)       rotate3d(.25,.15,1,-1300deg);
+        animation-timing-function:ease-out}
+  63%  {transform:translate3d(11vw,-30px,0)   rotate3d(.25,.15,1,-1525deg);
+        animation-timing-function:ease-in}
   /* third, almost home */
-  75%  {transform:translate3d(5vw,0,0)      rotate3d(1,.7,.3,-320deg)  scale(1.04)}
-  84%  {transform:translate3d(1.5vw,-11px,0)rotate3d(1,.7,.3,-170deg)  scale(.99)}
-  92%  {transform:translate3d(0,0,0)        rotate3d(1,.7,.3,-60deg)   scale(1.02)}
-  /* the last settle: a die that has stopped moving is still rocking */
-  96%  {transform:translate3d(0,-3px,0)     rotate3d(1,.7,.3,-18deg)   scale(1)}
-  100% {transform:translate3d(0,0,0)        rotate3d(1,.7,.3,0deg)     scale(1)}
+  75%  {transform:translate3d(5vw,0,0)        rotate3d(.25,.15,1,-1675deg);
+        animation-timing-function:ease-out}
+  84%  {transform:translate3d(1.8vw,-11px,0)  rotate3d(.25,.15,1,-1755deg);
+        animation-timing-function:ease-in}
+  /* the last roll, coming to rest on a whole number of turns */
+  94%  {transform:translate3d(.3vw,0,0)       rotate3d(.25,.15,1,-1793deg);
+        animation-timing-function:ease-out}
+  100% {transform:translate3d(0,0,0)          rotate3d(.25,.15,1,-1800deg)}
 }
 /* The shadow travels with it, squashing wide on each impact and thinning while
    the die is in the air. It is most of why the thing reads as having weight —
    without it the die is a sprite sliding across a page. */
 @keyframes landshadow{
   0%   {opacity:0;   transform:translate3d(72vw,0,0)  scale(.35)}
-  20%  {opacity:.15; transform:translate3d(56vw,0,0)  scale(.6)}
+  20%  {opacity:.16; transform:translate3d(54vw,0,0)  scale(.6)}
   26%  {opacity:.6;  transform:translate3d(47vw,0,0)  scale(1.25)}
   38%  {opacity:.16; transform:translate3d(33vw,0,0)  scale(.6)}
   52%  {opacity:.58; transform:translate3d(20vw,0,0)  scale(1.16)}
-  63%  {opacity:.2;  transform:translate3d(11vw,0,0)   scale(.7)}
+  63%  {opacity:.2;  transform:translate3d(11vw,0,0)  scale(.7)}
   75%  {opacity:.55; transform:translate3d(5vw,0,0)   scale(1.1)}
-  84%  {opacity:.3;  transform:translate3d(1.5vw,0,0) scale(.85)}
+  84%  {opacity:.3;  transform:translate3d(1.8vw,0,0) scale(.85)}
   100% {opacity:.45; transform:translate3d(0,0,0)     scale(1)}
 }
-/* The picks land after the die does, one after another, so it reads as a result
-   rather than as a page that happened to contain a die. */
-.rolls li{animation:land .42s ease-out both}
-.rolls li:nth-child(2){animation-delay:.09s}
-.rolls li:nth-child(3){animation-delay:.18s}
-@keyframes land{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
-
 @media (prefers-reduced-motion:reduce){
   /* The die still arrives, it just does not perform. */
   .rolled .dspin,.rolled .d20::after,.rolls li{animation:none}

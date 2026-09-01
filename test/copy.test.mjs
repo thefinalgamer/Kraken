@@ -144,3 +144,33 @@ test('the plural guard can see a broken plural when there is one', () => {
   assert.equal([...broken.matchAll(/(\w*y)\$\{[^}]*?'ies'[^}]*?\}/g)].length, 1, 'catches the bad form');
   assert.equal([...fixed.matchAll(/(\w*y)\$\{[^}]*?'ies'[^}]*?\}/g)].length, 0, 'and passes the good one');
 });
+
+test('the Ko-fi button reads as a button and promises nothing in return', async () => {
+  /**
+   * It was twelve-pixel grey text and read as small print. It is a pill with a
+   * border and a cup on it now, so it is obvious it can be pressed.
+   *
+   * WHAT IT MUST NEVER DO is say what supporting gets you. The star is a
+   * thank-you sent afterwards, not a product on sale, and the moment the footer
+   * advertises it the board becomes a shop. That rule survived the redesign and
+   * this is what keeps it surviving the next one.
+   */
+  const page = await readFile(new URL('../functions/_lib/page.js', import.meta.url), 'utf8');
+  const i = page.indexOf('<a class="kofi"');
+  const anchor = page.slice(i, page.indexOf('</a>', i));
+
+  assert.match(anchor, /ko-fi\.com\/happysquidstudios/, 'the real link');
+  assert.match(anchor, /rel="noopener noreferrer"/, 'no window.opener handle back to us');
+  assert.match(anchor, /<svg/, 'and a cup, so it is not mistaken for a sentence');
+
+  const styles = page.slice(page.indexOf('.credit .by .kofi{'));
+  assert.match(styles.slice(0, 700), /border-radius:99px/, 'a pill');
+  assert.match(styles.slice(0, 900), /:focus-visible/, 'reachable by keyboard, like a button');
+
+  for (const promise of ['star', 'supporter', 'reward', 'perk', 'badge']) {
+    assert.ok(
+      !new RegExp(promise, 'i').test(anchor),
+      `the button offers "${promise}" in exchange, which turns the board into a shop`,
+    );
+  }
+});

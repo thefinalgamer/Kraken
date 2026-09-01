@@ -979,21 +979,49 @@ table.contested .mult{color:var(--kraken);font-weight:650;white-space:nowrap}
   border-bottom:1px solid transparent;transition:border-color .15s ease,color .15s ease;
 }
 .credit .by a:hover{color:var(--kraken);border-bottom-color:var(--kraken)}
-/* THE ASK, AND IT IS DELIBERATELY THE QUIETEST THING IN THE ROW.
-   One line under the studio credit, at the bottom of every page, sized well
-   below the name above it and below the disclaimer beside it. Nobody arrives
-   here to be asked for money — they arrive to look at trophies — so it waits
-   until the end of the page and never interrupts. A banner would earn more this
-   month and cost more than it earned by Christmas.
-   It also never mentions what supporting gets you. The star is a thank-you sent
-   afterwards, not a product on sale, and a footer that advertised it would turn
-   the board into a shop. */
+/* THE ASK. A BUTTON NOW, BUT STILL AT THE BOTTOM OF THE PAGE.
+   It used to be twelve-pixel grey text under the studio credit, which was so
+   quiet that it read as small print rather than as something you could press.
+   It is a pill with a border and a cup on it, so it is obvious it does
+   something, and it stays where it was: the last thing on the page, after the
+   trophies, never interrupting. Nobody arrives here to be asked for money.
+   A banner would earn more this month and cost more than it earned by
+   Christmas.
+
+   BRASS, WHICH IS THE STAR'S COLOUR. The one visual connection between the ask
+   and the thank-you, made without a word of copy about it. The button still
+   never says what supporting gets you: the star is a thank-you sent afterwards,
+   not a product on sale, and a footer that advertised it would turn the board
+   into a shop.
+
+   The specificity here is doing real work: ".credit .by a" sets 17px/700 for
+   the studio name and a mobile query resets it to 16px, so this rule carries
+   three classes to outrank both without touching either.
+   NO BACKTICKS IN THIS COMMENT, and that is not a style preference. The whole
+   stylesheet is a template literal, so a backtick here ends the string and the
+   file stops being JavaScript. It has cost a build twice. */
 .credit .by .kofi{
-  display:block;margin-top:5px;font-size:12px;font-weight:500;color:var(--faint);
-  border-bottom-color:transparent;
+  display:inline-flex;align-items:center;gap:8px;
+  margin-top:13px;padding:8px 17px;
+  font-size:13.5px;font-weight:650;letter-spacing:.01em;
+  color:var(--brass);
+  background:rgba(216,171,62,.09);
+  border:1px solid rgba(216,171,62,.45);
+  border-bottom-color:rgba(216,171,62,.45);
+  border-radius:99px;
+  transition:background .15s ease,border-color .15s ease,color .15s ease;
 }
-.credit .by .kofi:hover{color:var(--kraken);border-bottom-color:transparent;
-  text-decoration:underline}
+.credit .by .kofi svg{width:16px;height:16px;flex:0 0 16px;display:block}
+.credit .by .kofi:hover{
+  background:rgba(216,171,62,.2);
+  border-color:var(--brass);border-bottom-color:var(--brass);
+  color:#f2d68f;text-decoration:none;
+}
+/* It looks like a button, so it has to behave like one for a keyboard. */
+.credit .by .kofi:focus-visible{
+  outline:2px solid var(--brass);outline-offset:3px;
+  background:rgba(216,171,62,.2);color:#f2d68f;
+}
 @media (max-width:720px){ .credit .by a{font-size:16px} }
 /* Sony's name appears on this site constantly — platforms, trophies, the whole
    premise. The disclaimer is not decoration; it is the sentence that makes it
@@ -1672,7 +1700,13 @@ ${
     <span class="by">Brought to you by <a href="https://happysquidstudios.com"
       target="_blank" rel="noopener noreferrer">Happy Squid Studios</a>
       <a class="kofi" href="https://ko-fi.com/happysquidstudios"
-        target="_blank" rel="noopener noreferrer">Buy us a coffee</a></span>
+        target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"
+          ><path d="M3 9h13v5a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V9z" fill="currentColor"/><path
+          d="M16.4 10.6h1.4a2.4 2.4 0 0 1 0 4.8h-1.4" fill="none" stroke="currentColor"
+          stroke-width="1.7"/><path d="M6.6 6.2V4.3M10 6.2V3.2M13.4 6.2V4.3" fill="none"
+          stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path
+          d="M2.6 21.2h14.8" fill="none" stroke="currentColor" stroke-width="1.7"
+          stroke-linecap="round"/></svg>Buy us a coffee</a></span>
     <span class="end">Joining happens in Discord.</span>
   </div>
 </div>

@@ -797,22 +797,144 @@ td.prog{min-width:112px}
 }
 @media (prefers-reduced-motion:reduce){
   /* The die still arrives, it just does not perform. */
-  .rolled .dspin,.rolled .d20::after,.rolls li{animation:none}
+  .rolled .dspin,.rolled .d20::after{animation:none}
+  /* The cards arrive dealt and face up. No flight, no rattle, no turn. */
+  .slot,.dcard{animation:none}
+  .dcard{transform:rotateY(180deg)}
 }
 .panel.roll{margin:0 0 18px}
 .panel.roll h2{gap:9px}
 .panel.roll h2 .d20{margin-right:2px}
-.rlabel{margin:12px 0 6px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--faint);font-weight:700}
-.rlabel:first-of-type{margin-top:2px}
-ul.rolls{list-style:none;margin:0;padding:0}
-ul.rolls li{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--rule)}
-ul.rolls li:last-child{border-bottom:none}
-ul.rolls .ico{width:48px;height:48px;flex:0 0 48px;border-radius:8px}
-ul.rolls .rb{min-width:0}
-ul.rolls .t{display:block;font-weight:600;font-size:15px}
-ul.rolls .s{display:block;color:var(--faint);font-size:12.5px;margin-top:2px}
-ul.rolls .s b{color:var(--soft)}
+/* ---- the deal ----
+
+   THE WHOLE SEQUENCE IS ARITHMETIC, NOT SCRIPT. This site has never shipped a
+   byte of JavaScript and a card trick was not going to be the first. Four
+   phases chained on animation-delay off two custom properties:
+
+     deal    cards fly in from the last slot, --step apart, and land with a pop
+     hold    everything sits still, face down. This is the suspense
+     rattle  they knock against each other, odd and even leaning opposite ways
+     turn    one at a time, --tstep apart, read left to right
+
+   Two animations share .slot, and the order in the list is load-bearing: where
+   two animations touch the same property the later one wins while it is active
+   or filling, so rattle takes forwards fill only. Given backwards fill it would
+   apply its first keyframe during its own delay and cancel the deal entirely.
+*/
+.deck{
+  --gap:14px;
+  --deal:.58s; --step:78ms; --hold:320ms;
+  --rattle:.66s; --rstep:45ms; --turn:.66s; --tstep:165ms;
+  --dealt:calc(var(--deal) + var(--last) * var(--step));
+  --shake-at:calc(var(--dealt) + var(--hold));
+  --turn-at:calc(var(--shake-at) + var(--rattle) - 120ms);
+
+  list-style:none;margin:16px 0 6px;padding:0;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+  gap:var(--gap);
+  /* On the grid, so every card turns toward one vanishing point rather than
+     each having its own and the outer ones flaring. */
+  perspective:1500px;
+}
+.slot{
+  position:relative;aspect-ratio:3/4.5;
+  animation:
+    deal-in var(--deal) cubic-bezier(.16,.74,.24,1) calc(var(--i) * var(--step)) both,
+    rattle var(--rattle) ease-in-out calc(var(--shake-at) + var(--i) * var(--rstep)) forwards;
+}
+.slot:nth-child(even){animation-name:deal-in,rattle-alt}
+
+/* (last - i) columns of travel, so every card starts at the last slot. A fixed
+   offset would start each one to the right of ITS OWN box: five cards sliding
+   in parallel rather than one hand dealing them out. */
+@keyframes deal-in{
+  0%   {opacity:0;
+        transform:translate3d(calc((var(--last) - var(--i)) * (100% + var(--gap))),-26px,0)
+                  rotate(8deg) scale(.9)}
+  55%  {opacity:1}
+  /* Past the mark and back. That overshoot is the whole difference between a
+     card landing on something and a card stopping. */
+  70%  {transform:translate3d(0,0,0) rotate(0) scale(1.05)}
+  85%  {transform:translate3d(0,1px,0) scale(.985)}
+  100% {opacity:1;transform:translate3d(0,0,0) rotate(0) scale(1)}
+}
+@keyframes rattle{
+  0%,100%{transform:translate3d(0,0,0) rotate(0)}
+  16%{transform:translate3d(-3px,1px,0) rotate(-1.3deg)}
+  34%{transform:translate3d(3px,-2px,0) rotate(1.1deg)}
+  52%{transform:translate3d(-2px,1px,0) rotate(-.9deg)}
+  70%{transform:translate3d(2px,-1px,0) rotate(.7deg)}
+  86%{transform:translate3d(-1px,0,0) rotate(-.35deg)}
+}
+@keyframes rattle-alt{
+  0%,100%{transform:translate3d(0,0,0) rotate(0)}
+  16%{transform:translate3d(3px,-1px,0) rotate(1.2deg)}
+  34%{transform:translate3d(-3px,2px,0) rotate(-1deg)}
+  52%{transform:translate3d(2px,-1px,0) rotate(.85deg)}
+  70%{transform:translate3d(-2px,1px,0) rotate(-.6deg)}
+  86%{transform:translate3d(1px,0,0) rotate(.3deg)}
+}
+
+.dcard{
+  position:absolute;inset:0;transform-style:preserve-3d;
+  animation:turn var(--turn) cubic-bezier(.2,.72,.24,1)
+            calc(var(--turn-at) + var(--i) * var(--tstep)) forwards;
+}
+@keyframes turn{ from{transform:rotateY(0)} to{transform:rotateY(180deg)} }
+
+.dface{
+  position:absolute;inset:0;backface-visibility:hidden;
+  border-radius:12px;overflow:hidden;
+  border:1px solid var(--edge);background:var(--panel);
+}
+
+/* The back. It is what you look at for a second and a half, so it is the one
+   surface here allowed to be decorative: hatch, inset rule, and the site's own
+   mark. height:auto matters, the img carries width/height attributes and
+   without it the logo stretches. */
+.dback{
+  display:grid;place-items:center;
+  background:
+    radial-gradient(120% 90% at 50% 0%,rgba(32,184,153,.18),transparent 62%),
+    repeating-linear-gradient(45deg,rgba(32,184,153,.06) 0 2px,transparent 2px 9px),
+    repeating-linear-gradient(-45deg,rgba(32,184,153,.06) 0 2px,transparent 2px 9px),
+    var(--deep);
+}
+.dback::before{content:"";position:absolute;inset:8px;border-radius:8px;
+  border:1px solid rgba(32,184,153,.24)}
+.dback img{width:56%;max-width:92px;height:auto;aspect-ratio:1;object-fit:contain;
+  opacity:.85;filter:drop-shadow(0 0 14px rgba(32,184,153,.3))}
+
+.dfront{transform:rotateY(180deg);display:flex;flex-direction:column}
+.dcover{position:relative;display:block;aspect-ratio:1;background:var(--deep);
+  border-bottom:1px solid var(--edge)}
+.dcover img{width:100%;height:100%;object-fit:cover;display:block}
+
+.dpool,.dplat{
+  position:absolute;top:7px;font-size:9.5px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:99px;
+}
+.dpool{left:7px;background:rgba(4,33,27,.8);color:var(--kraken);
+  border:1px solid rgba(32,184,153,.5)}
+.wild .dpool{background:rgba(38,28,4,.8);color:var(--brass);
+  border:1px solid rgba(216,171,62,.5)}
+.dplat{right:7px;border-radius:5px;letter-spacing:.05em;
+  background:rgba(0,0,0,.62);color:var(--soft);border:1px solid rgba(255,255,255,.12)}
+
+.dbody{display:flex;flex-direction:column;gap:5px;padding:10px 11px 12px;flex:1 1 auto}
+a.dt{color:var(--ink);text-decoration:none;font-weight:600;font-size:14.5px;line-height:1.2}
+a.dt:hover{color:var(--kraken);text-decoration:underline}
+.dmeta{font-size:11.5px;color:var(--faint)}
+/* The number the card exists for, so it is the only thing on the face that
+   takes the accent. */
+.dpay{margin-top:auto;font-size:12px;color:var(--soft);font-variant-numeric:tabular-nums}
+.dpay b{color:var(--kraken);font-size:14.5px;font-weight:700}
+.wild .dpay b{color:var(--brass)}
+.dbody .track{height:4px;border-radius:99px;background:var(--rule);overflow:hidden}
+.dbody .fill{display:block;height:100%;border-radius:99px;background:var(--kraken)}
+
+.dmark{display:inline-flex}
+.dmark svg{width:16px;height:16px;display:block}
 
 details.numbers{margin:0 0 18px}
 details.numbers summary{cursor:pointer;color:var(--soft);font-size:13px;padding:4px 0}
@@ -1556,8 +1678,6 @@ tr.st-dead{background-image:linear-gradient(90deg,rgba(229,52,44,.22),rgba(229,5
 .games .av{width:34px;height:34px;flex:0 0 34px}
 ul.feed a.t{color:inherit;text-decoration:none}
 ul.feed a.t:hover{color:var(--kraken)}
-ul.rolls a.t{color:inherit;text-decoration:none}
-ul.rolls a.t:hover{color:var(--kraken)}
 
 /* The supporter star. Sized to sit on a name without shouting over it — it is
    a thank-you, not a rank, and the row already has a rank on it. */

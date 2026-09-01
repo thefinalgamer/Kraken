@@ -21,7 +21,7 @@
 
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
-  closingState, closingLabel, isUrgent, d20, gameHref, crumb, supporterStar,
+  closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -196,7 +196,7 @@ const WILDCARD_PICKS = 2;
  */
 const ROLL_BACKLOG = `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
-         g.unobtainable, g.closes_at, mg.points, mg.progress
+         g.trophy_count, g.unobtainable, g.closes_at, mg.points, mg.progress
     FROM member_games mg
     JOIN games g ON g.np_comm_id = mg.np_comm_id
    WHERE mg.psn_account_id = ?
@@ -326,39 +326,73 @@ async function wildcards(env, accountId, count) {
   return picked;
 }
 
-function rollCard(g, { mine, who, completion }) {
-  // The dice are a recommendation, so this is the one card where overstating
-  // the payout costs the most: it talks somebody into a game on a number the
-  // update will not pay. Same treatment as gameRow.
+/**
+ * One dealt card.
+ *
+ * REPLACED THE DICE, and the reason is what the die could not do: it showed
+ * twenty blank faces and revealed nothing until it stopped, so the whole wait
+ * was spent on an object with no information on it. A card lands face down,
+ * holds, and turns over to show the game itself. The suspense is the point of a
+ * reveal, and this is the only version of it where the waiting means anything.
+ *
+ * NO JAVASCRIPT. This site has never shipped a byte of it and this feature did
+ * not earn the first one. The whole sequence, deal to hold to rattle to turn,
+ * is animation-delay arithmetic keyed off --i and --last. See the keyframes in
+ * page.js.
+ *
+ * Same rows the roll always read: nothing new is fetched to draw this.
+ */
+function dealCard(g, { mine, who, completion, i }) {
   const max = displayBanked(g.max_points, completion);
   const got = displayBanked(g.points, completion);
   const left = Math.max(0, max - got);
-  const state = closingState(g);
+  const progress = Math.max(0, Math.min(100, Number(g.progress) || 0));
+  const soon = closingState(g) === 'closing';
+  const count = Number(g.trophy_count) || 0;
 
-  return `<li>
-    ${
-      g.icon_url
-        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="48" height="48">`
-        : '<span class="ico"></span>'
-    }
-    <div class="rb">
-      <a class="t" href="${esc(gameHref(g.np_comm_id, who))}">${
-        g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''
-      }${esc(g.title)}</a>
-      <span class="s">${
-        mine
-          ? `${Number(g.progress) || 0}% done &middot; <b>${n(left)}</b> points left`
-          : `<b>${n(max)}</b> points on the table${
-              Number(g.local_started) > 0
-                ? ` &middot; ${n(g.local_started)} here own it`
-                : ' &middot; nobody here owns it'
-            }`
-      }${
-        state === 'closing'
-          ? ` &middot; <b class="closes${isUrgent(g.closes_at) ? '' : ' later'}"
-                style="display:inline">${esc(closingLabel(g.closes_at))}</b>`
-          : ''
-      }</span>
+  /**
+   * "on the table" for a game they do not own, "left" for one they do, because
+   * those are different numbers: one is the whole game, the other is what is
+   * still unclaimed in it. Both already through the completion multiplier, so
+   * the card promises what the update will actually pay.
+   */
+  const pay = mine
+    ? `${progress}% done &middot; <b>${n(left)}</b> points left`
+    : `<b>${n(max)}</b> on the table${
+        Number(g.local_started) > 0
+          ? ` &middot; ${n(g.local_started)} here own it`
+          : ' &middot; nobody here owns it'
+      }`;
+
+  return `<li class="slot" style="--i:${i}">
+    <div class="dcard">
+      <div class="dface dback"><img src="/Kraken.png" alt="" width="192" height="192"></div>
+      <div class="dface dfront${mine ? '' : ' wild'}">
+        <span class="dcover">${
+          g.icon_url
+            ? `<img src="${esc(g.icon_url)}" alt="" loading="lazy" width="160" height="160">`
+            : ''
+        }<span class="dpool">${mine ? 'Backlog' : 'Wildcard'}</span>${
+    g.platform ? `<span class="dplat">${esc(g.platform)}</span>` : ''
+  }</span>
+        <span class="dbody">
+          <a class="dt" href="${esc(gameHref(g.np_comm_id, who))}">${esc(g.title)}</a>
+          ${count ? `<span class="dmeta">${n(count)} ${count === 1 ? 'trophy' : 'trophies'}</span>` : ''}
+          ${
+            soon
+              ? `<span class="closes${isUrgent(g.closes_at) ? '' : ' later'}">${esc(
+                  closingLabel(g.closes_at),
+                )}</span>`
+              : ''
+          }
+          <span class="dpay">${pay}</span>
+          ${
+            mine
+              ? `<span class="track"><span class="fill" style="width:${progress}%"></span></span>`
+              : ''
+          }
+        </span>
+      </div>
     </div>
   </li>`;
 }
@@ -771,35 +805,63 @@ export async function onRequestGet({ params, env, request }) {
    */
   const whose = esc(m.psn_online_id);
 
+  /**
+   * ONE DECK, NOT TWO LISTS.
+   *
+   * The backlog picks and the wildcards used to be two labelled lists stacked
+   * on top of each other. Dealt, they have to be a single row or it stops being
+   * one gesture and becomes two smaller ones. Which pool a card came from is
+   * still said, on the card, where it belongs: the chip reads Backlog or
+   * Wildcard and the accent follows it.
+   *
+   * --last is what lets every card fly in from the same place. A card is
+   * translated relative to its OWN box, so a fixed offset would start all five
+   * the same distance right of their own slot and slide them in parallel;
+   * (last - i) columns of travel starts them all at the last slot instead,
+   * which is what being dealt from one hand looks like.
+   */
+  const picks = [
+    ...backlogPicks.map((g) => ({ g, mine: true })),
+    ...wildPicks.map((g) => ({ g, mine: false })),
+  ];
+
   const rollBlock = rolling
     ? `<section class="panel roll rolled">
-         <h2>${d20()} What should ${whose} play?
-           <a href="${esc(rollHref)}">Roll again &rsaquo;</a>
+         <h2>What should ${whose} play?
+           <a href="${esc(rollHref)}">Deal again &rsaquo;</a>
          </h2>
          ${
-           backlogPicks.length
-             ? `<p class="rlabel">From ${whose}'s backlog</p>
-                <ul class="rolls">${backlogPicks
-                  .map((g) => rollCard(g, { mine: true, who: m.psn_online_id, completion: m.completion }))
-                  .join('')}</ul>`
+           picks.length
+             ? `<ul class="deck" style="--last:${picks.length - 1}">${picks
+                 .map(({ g, mine }, i) =>
+                   dealCard(g, {
+                     mine,
+                     who: mine ? m.psn_online_id : '',
+                     completion: m.completion,
+                     i,
+                   }),
+                 )
+                 .join('')}</ul>`
              : `<p class="note">Nothing unfinished worth points, which is its own kind of answer.</p>`
          }
-         ${
-           wildPicks.length
-             ? `<p class="rlabel">Wildcards from the index</p>
-                <ul class="rolls">${wildPicks
-                  .map((g) => rollCard(g, { mine: false, completion: m.completion }))
-                  .join('')}</ul>`
-             : ''
-         }
-         <p class="note">Three from this library and two from games it does not have.
-           Nothing here is a recommendation about difficulty. It is a coin toss with
+         <p class="note">Three from ${whose}'s backlog and two from games this library does
+           not have. Nothing here is a recommendation about difficulty. It is a coin toss with
            the shovelware filtered out.</p>
        </section>`
     : '';
 
-  const rollLink = `<a class="rollcta" href="${esc(rollHref)}">${d20()}${
-    rolling ? 'Roll again' : 'Roll the dice'
+  /**
+   * The invitation. A deck rather than a die, so the button and the thing it
+   * does are the same object.
+   */
+  const cardMark =
+    '<span class="dmark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none">' +
+    '<rect x="2.6" y="5.4" width="10.4" height="14.2" rx="2" stroke="currentColor" stroke-width="1.8"/>' +
+    '<path d="M7.6 3.4h9.2a2.4 2.4 0 0 1 2.4 2.4v10.4" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round"/></svg></span>';
+
+  const rollLink = `<a class="rollcta" href="${esc(rollHref)}">${cardMark}${
+    rolling ? 'Deal again' : 'Deal the cards'
   }</a>`;
 
   const body = `

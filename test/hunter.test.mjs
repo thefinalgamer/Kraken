@@ -549,10 +549,11 @@ const roll = async (opts) => {
   return { res, out: await res.text(), seen };
 };
 
-test('the dice only roll when asked', async () => {
+test('nothing is dealt until somebody asks', async () => {
   const { out } = await render('JFL__Leon');
-  assert.ok(out.includes('Roll the dice'), 'the invitation is there');
-  assert.ok(!out.includes('What should'), 'but nothing was drawn');
+  assert.ok(out.includes('Deal the cards'), 'the invitation is there');
+  assert.ok(!out.includes('What should'), 'but no cards were drawn');
+  assert.ok(!bodyOf(out).includes('class="deck"'), 'and no deck rendered');
   // It shares the row with Show the numbers and Rivals, which is what that
   // half-empty row was for.
   assert.ok(out.includes('<div class="toolrow">'));
@@ -590,17 +591,52 @@ test('the picker refuses to suggest junk or dead games', async () => {
   assert.ok(wild.includes('NOT EXISTS'), 'and not something they already own');
 });
 
-test('a roll renders both halves and a way to roll again', async () => {
+test('a deal renders both pools and a way to deal again', async () => {
   const { out } = await roll();
-  // "THEIR backlog", never "yours" — the site has no idea who is reading it, so
-  // rolling on Leon's page draws Leon's games and must say so.
-  assert.ok(out.includes('What should JFL__Leon play?'));
-  assert.ok(out.includes("From JFL__Leon's backlog"));
-  assert.ok(!out.includes('your backlog'), 'never claims the reader owns them');
-  assert.ok(out.includes('class="d20"'), 'and a die to roll');
-  assert.ok(out.includes('Wildcards from the index'));
-  assert.ok(out.includes('Wild One'));
-  assert.ok(out.includes('Roll again'));
+  const body = bodyOf(out);
+
+  // "THEIR backlog", never "yours". The site has no idea who is reading it, so
+  // dealing on Leon's page draws Leon's games and must say so.
+  assert.ok(body.includes('What should JFL__Leon play?'));
+  assert.ok(body.includes("JFL__Leon's backlog"));
+  assert.ok(!body.includes('your backlog'), 'never claims the reader owns them');
+
+  // Which pool a card came from is said ON THE CARD now, not in a heading above
+  // a separate list, because the deal has to read as one gesture.
+  assert.ok(body.includes('>Backlog<'), 'the backlog chip');
+  assert.ok(body.includes('>Wildcard<'), 'and the wildcard chip');
+  assert.ok(body.includes('Wild One'), 'the wildcard itself');
+  assert.ok(body.includes('Deal again'));
+});
+
+test('the deal is one deck, numbered so the animation can chain', async () => {
+  /**
+   * Every phase of the sequence is animation-delay arithmetic off --i and
+   * --last: without them the cards all fly in from the same offset, land
+   * together, and turn at once. The markup carrying them is not decoration.
+   */
+  const { out } = await roll();
+  const body = bodyOf(out);
+
+  const last = body.match(/class="deck" style="--last:(\d+)"/);
+  assert.ok(last, 'the deck declares how many cards it holds');
+
+  const slots = [...body.matchAll(/class="slot" style="--i:(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(slots, [...slots.keys()], 'every card is numbered in order from zero');
+  assert.equal(Number(last[1]), slots.length - 1, '--last is the index of the final card');
+  assert.equal((body.match(/class="dcard"/g) || []).length, slots.length, 'one card per slot');
+});
+
+test('the page still ships no JavaScript', async () => {
+  /**
+   * The card deal is four chained animations and it was built without a line of
+   * script, which is the only reason it costs nothing to serve. This site has
+   * never shipped any and the moment one <script> appears the next feature
+   * argues it may as well have some too.
+   */
+  const { out } = await roll();
+  assert.ok(!/<script/i.test(out), 'no script tag');
+  assert.ok(!/\son[a-z]+="/i.test(out), 'and no inline handlers either');
 });
 
 test('every game title is a link to that game', async () => {

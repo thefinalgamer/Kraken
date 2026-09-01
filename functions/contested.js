@@ -222,8 +222,8 @@ export async function onRequestGet({ env, request }) {
 
     <p class="lede">
       A game gets <b>more valuable while people here are still stuck on it</b>, and settles back
-      down as they finish. These are the ones several of us own and nobody has closed out — so
-      every trophy in them is worth more right now than it will be once somebody does.
+      down as they finish. These are the ones several of us own and nobody has closed out.
+      Every trophy in them is worth more right now than it will be once somebody does.
     </p>
 
     ${
@@ -247,7 +247,7 @@ export async function onRequestGet({ env, request }) {
            </div>
            ${pager(pageNo, hasNext)}
            <p class="note">
-             Games with an announced closing date sort to the top, soonest first — a deadline
+             Games with an announced closing date sort to the top, soonest first. A deadline
              beats a difficulty ranking. Games whose trophies are already unearnable are left
              off entirely: a board headed &ldquo;contested&rdquo; is a suggestion, and there is
              no point suggesting a wall. They still pay their owners exactly what they always

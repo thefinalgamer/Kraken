@@ -50,7 +50,7 @@ export function addRival(current, accountId, { self = null, name = 'They' } = {}
   const ids = parseRivals(JSON.stringify(current));
   if (!accountId) return { ids, error: 'I could not find that hunter on the board.' };
   if (self && accountId === self) {
-    return { ids, error: 'You are already on your own list — that is what the top row is.' };
+    return { ids, error: 'You are already on your own list. That is what the top row is.' };
   }
   if (ids.includes(accountId)) return { ids, error: `${name} is already one of your rivals.` };
   if (ids.length >= MAX_RIVALS) {

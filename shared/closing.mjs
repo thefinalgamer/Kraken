@@ -116,7 +116,7 @@ export function parseClosingDate(input, now = Date.now()) {
   if (at <= now) {
     return {
       ok: false,
-      reason: 'That date has passed. Flag it with a note instead — it is already dead.',
+      reason: 'That date has passed. Flag it with a note instead, because it is already dead.',
     };
   }
   // Ten years is not a shutdown announcement, it is a typo in the year.

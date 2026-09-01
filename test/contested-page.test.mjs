@@ -76,6 +76,18 @@ const render = async (opts, query = '') => {
   return { res, out: await res.text() };
 };
 
+/**
+ * The inlined stylesheet, on its own.
+ *
+ * The CSS assertions below have to look INSIDE <style>, which is the exact
+ * opposite of every other test in this repo — bodyOf() exists to keep copy
+ * assertions out of the stylesheet, and these need only the stylesheet.
+ */
+const STYLE = await (async () => {
+  const { out } = await render();
+  return out.slice(out.indexOf('<style'), out.indexOf('</style>'));
+})();
+
 /** Whitespace-insensitive, so two SQL strings compare as logic not layout. */
 const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
@@ -227,4 +239,48 @@ test('a hostile PSN id cannot break out of the closest link', async () => {
     near: [{ np_comm_id: 'NPWR_ELDEN', progress: 90, psn_online_id: '"><script>alert(1)</script>' }],
   });
   assert.ok(!out.includes('<script>alert(1)'));
+});
+
+test('the clock stripe is two shades of red, never the teal accent', () => {
+  /**
+   * It was amber and TEAL. Teal is what this site uses for done, earned, yours
+   * and good, so a teal stripe on a game with a deadline made the column read
+   * as "do I have this?" and every row had to be decoded. Martin hit exactly
+   * that. A clock is bad news at both ends, so both ends are red and only the
+   * urgency changes.
+   */
+  const css = STYLE;
+  assert.match(css, /tr\.st-soon\s+td\.bar\{background:var\(--down\)\}/, 'urgent is the red');
+  assert.match(css, /tr\.st-clock td\.bar\{background:#8e3f3c\}/, 'further out is the deep red');
+  assert.ok(
+    !/tr\.st-(soon|clock)\s+td\.bar\{background:var\(--kraken\)\}/.test(css),
+    'the accent colour is off the clock entirely',
+  );
+});
+
+test('a dated row is washed like a lit trophy card, and only half of it', () => {
+  // "even if its half" — the gradient is gone by 45% so the numbers on the
+  // right keep their contrast, exactly like .tc.got.
+  const css = STYLE;
+  for (const cls of ['st-soon', 'st-clock']) {
+    assert.match(
+      css,
+      new RegExp(`tr\\.${cls}\\{background-image:linear-gradient\\(90deg`),
+      `${cls} carries a wash`,
+    );
+  }
+  assert.ok(css.includes('transparent 45%)'), 'and it fades out halfway across');
+  // On the row. A background on a <td> restarts the gradient at every column.
+  assert.ok(!/td\.(gt|pos)\{background-image:linear-gradient/.test(css), 'never per cell');
+});
+
+test('no page copy uses an em dash', async () => {
+  /**
+   * Martin: "thats a dead give away AI Slop". The site is written in his voice
+   * and an em dash is not in it. This checks the RENDERED page rather than the
+   * source, so a comment can still use one and a sentence a member reads cannot.
+   */
+  const { out } = await render();
+  const body = bodyOf(out).replace(/<style[\s\S]*?<\/style>/g, '');
+  assert.ok(!body.includes('—'), 'no em dash reaches the page');
 });

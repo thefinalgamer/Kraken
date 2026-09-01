@@ -147,8 +147,8 @@ export const FAQ = [
       'psnp-plus.huskycode.dev. Mods can add or clear a flag with `/flag`, and a mod ' +
       'always overrules the list.\n\n' +
       '**And the ⏳ or 🕒?**\n' +
-      'That game is still finishable, but not for ever. A mod has put a date on it — ' +
-      'servers closing, a licence expiring — and the clock counts down to it.\n' +
+      'That game is still finishable, but not for ever. A mod has put a date on it ' +
+      '(servers closing, a licence expiring) and the clock counts down to it.\n' +
       '⏳ means **under a month left**. 🕒 means further out. When the date passes it ' +
       'becomes ⚠️ on its own, overnight.\n' +
       'The difference matters: ⚠️ is a closed door, ⏳ is an invitation with a deadline. ' +
@@ -177,7 +177,7 @@ export const FAQ = [
     description: 'The board, game pages, the dice, and your rivals',
     body:
       '## The website\n\n' +
-      'Everything the bot knows, with room to breathe. Discord is still the hub — you ' +
+      'Everything the bot knows, with room to breathe. Discord is still the hub. You ' +
       'join here, you update here, the board posts here. The site is the window.\n\n' +
       '**Where is it?**\n' +
       'platinumintel.co.uk\n\n' +
@@ -193,7 +193,7 @@ export const FAQ = [
       'of us have it, split into the base game and each DLC pack\n' +
       '▫️ **The dice** - stuck for something to play? Three from your backlog, two from ' +
       'games you have never touched\n\n' +
-      '**"How many of us have it" — what is that?**\n' +
+      '**"How many of us have it". What is that?**\n' +
       'The column no other trophy site can show you. Every trophy says how many people ' +
       '*on this server* have earned it. "Four of us have this" is a different fact from ' +
       '"2% of the world has this", and it is usually the more interesting one.\n\n' +
@@ -202,16 +202,16 @@ export const FAQ = [
       'cannot be spoiled by accident scrolling a game you have not played.\n\n' +
       '**Why is half the trophy list faded?**\n' +
       'Because you clicked through from somebody\'s page, so it is showing *their* ' +
-      'trophies — earned ones lit, the rest dimmed. The chip at the top says whose. ' +
+      'trophies, earned ones lit and the rest dimmed. The chip at the top says whose. ' +
       'Click the ✕ to see the plain list.\n\n' +
       '**What are rivals?**\n' +
       'Up to five hunters you want to keep an eye on. Set them in Discord with ' +
       '`/rivals add`, and they show on your page as a little board of just them and ' +
-      'you — rank, points, and how far ahead or behind each one is. Everyone can see ' +
+      'you: rank, points, and how far ahead or behind each one is. Everyone can see ' +
       'everybody\'s, so being chased is part of it.\n\n' +
       '**The points on a game page look lower than the game is worth. Why?**\n' +
       'Because they are *yours*, not the game\'s. A game worth 1,400 pays you 1,400 ' +
-      'at 100% completion and 980 at 70% — so the number beside your name is what it ' +
+      'at 100% completion and 980 at 70%, so the number beside your name is what it ' +
       'actually adds to your score. Two people with the same trophies and different ' +
       'completions see different numbers, and that is the multiplier doing its job.\n\n' +
       '**Can I see it on my phone?**\n' +
@@ -228,10 +228,10 @@ export const FAQ = [
       '**So why is there a link?**\n' +
       'Hosting costs real money every month and somebody pays it. If you want to chip ' +
       'in there is a Ko-fi link in the footer of the site. If you do not, nothing about ' +
-      'Kraken changes for you — that is the deal.\n\n' +
+      'Kraken changes for you. That is the deal.\n\n' +
       '**What is the star next to some names?**\n' +
       'A thank-you. Bronze from the first month, silver at three, gold at six, platinum ' +
-      'at a year. Once you have it you keep it, even if you stop — it says *you helped*, ' +
+      'at a year. Once you have it you keep it, even if you stop. It says *you helped*, ' +
       'not *you are currently paying*.\n\n' +
       '**Does it get me anything?**\n' +
       '**No.** Not points, not rank, not tier, not a nudge up the board, not early ' +
@@ -266,7 +266,7 @@ export const HOME_BLURB =
   'the lot, so going back and finishing old games is the fastest way up.\n\n' +
   'It also watches the whole server: a game gets **more valuable while people here are still ' +
   'stuck on it**, so your points move when other people play.\n\n' +
-  'The full board, every game and every trophy is at **platinumintel.co.uk** — no ' +
+  'The full board, every game and every trophy is at **platinumintel.co.uk**. No ' +
   'account needed, you are already on it.';
 
 export { DEFAULT_SCORING, localMultiplier };

@@ -765,7 +765,7 @@ export async function onRequestGet({ params, env, request }) {
                 <ul class="rolls">${backlogPicks
                   .map((g) => rollCard(g, { mine: true, who: m.psn_online_id, completion: m.completion }))
                   .join('')}</ul>`
-             : `<p class="note">Nothing unfinished worth points — which is its own kind of answer.</p>`
+             : `<p class="note">Nothing unfinished worth points, which is its own kind of answer.</p>`
          }
          ${
            wildPicks.length
@@ -776,7 +776,7 @@ export async function onRequestGet({ params, env, request }) {
              : ''
          }
          <p class="note">Three from this library and two from games it does not have.
-           Nothing here is a recommendation about difficulty — it is a coin toss with
+           Nothing here is a recommendation about difficulty. It is a coin toss with
            the shovelware filtered out.</p>
        </section>`
     : '';

@@ -1507,7 +1507,7 @@ async function setSupporterStar(interaction, env, targetId, months) {
   const m = Math.max(0, Math.floor(Number(months) || 0));
   const member = await db.memberByDiscordId(env, targetId);
   if (!member) {
-    return errorReply('That member is not on the board yet — they need to register first.');
+    return errorReply('That member is not on the board yet. They need to register first.');
   }
 
   const changed = await db.setSupporter(env, targetId, m);
@@ -1599,7 +1599,7 @@ async function rivals(env, viewerId, add, remove) {
             text('## Your rivals\nNobody yet.'),
             text(
               'Add up to ' + MAX_RIVALS + ' hunters with `/rivals add` and this becomes a ' +
-                'little board of just them and you — the people you are actually racing, ' +
+                'little board of just them and you: the people you are actually racing, ' +
                 'without the other sixty-odd in the way.\n' +
                 '-# Only you can see this message. The list itself shows on your hunter page.',
             ),

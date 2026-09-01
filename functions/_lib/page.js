@@ -1453,15 +1453,46 @@ span.tic svg{width:26px;height:26px}
   border-radius:99px;padding:2px 8px}
 @media (prefers-reduced-motion:reduce){ .secret .spoil{transition:none} }
 
-/* The index stripe. A game on its own has no progress — only a clock. */
+/* The index stripe. A game on its own has no progress, only a clock.
+
+   TWO SHADES OF RED, and this used to be amber and TEAL. Teal is the accent
+   this whole site uses for done, earned, yours and good; putting it on the
+   stripe of a game with a deadline made people read the column as "do I have
+   this?" and then work out, row by row, that it meant something else entirely.
+   Martin hit exactly that and said so.
+
+   A clock is bad news at both ends, so both ends are red and only the urgency
+   changes: bright for inside a month, deep for further out. Nothing on the page
+   is now coloured like the thing it is not. */
 tr.st-dead  td.bar{background:var(--brass)}
-tr.st-soon  td.bar{background:#f0c419}
-tr.st-clock td.bar{background:var(--kraken)}
+tr.st-soon  td.bar{background:var(--down)}
+tr.st-clock td.bar{background:#8e3f3c}
 tr.st-none  td.bar{background:var(--rule)}
 @media (max-width:640px){
   .games tr.st-dead  td.gi{border-left-color:var(--brass)}
-  .games tr.st-soon  td.gi{border-left-color:#f0c419}
-  .games tr.st-clock td.gi{border-left-color:var(--kraken)}
+  .games tr.st-soon  td.gi{border-left-color:var(--down)}
+  .games tr.st-clock td.gi{border-left-color:#8e3f3c}
+}
+
+/* The lit row, borrowed from the trophy cards.
+
+   A .got trophy card carries a wash that starts at its left edge and is gone by
+   the middle, so a list of them reads as lit or unlit at a glance without any
+   row shouting. The same treatment works on a table row and answers Martin's
+   "even if it's half" literally: the gradient fades out at 45%, so the right
+   half of the row stays plain and the numbers over there keep their contrast.
+
+   On the ROW, not the cells. A background on a <td> would tile once per column
+   and the gradient would restart at every cell boundary. */
+tr.st-soon{background-image:linear-gradient(90deg,rgba(224,100,95,.17),rgba(224,100,95,.05) 22%,transparent 45%)}
+tr.st-clock{background-image:linear-gradient(90deg,rgba(142,63,60,.19),rgba(142,63,60,.05) 22%,transparent 45%)}
+tr.st-dead{background-image:linear-gradient(90deg,rgba(216,171,62,.14),rgba(216,171,62,.04) 22%,transparent 45%)}
+
+/* And it brightens as your eye passes, the same half-pixel promise the cards
+   make: this is the row you are on, nothing here is clickable. */
+@media (hover: hover) {
+  .games tbody tr{transition:background-color .14s ease}
+  .games tbody tr:hover{background-color:rgba(255,255,255,.028)}
 }
 
 /* ---- who here has it ---- */

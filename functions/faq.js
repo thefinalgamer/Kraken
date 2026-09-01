@@ -154,7 +154,7 @@ export async function onRequestGet() {
     ).join('')}
 
     <footer>
-      Still stuck? Ask in Discord — somebody will know, and if they do not, it is
+      Still stuck? Ask in Discord. Somebody will know, and if they do not, it is
       probably a bug worth hearing about.
     </footer>`;
 

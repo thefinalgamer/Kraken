@@ -344,62 +344,112 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
     );
   }
 
-  // One edition, or none. A title with a single edition needs no version — but
-  // with several, a trophy id is ambiguous and guessing would flag the wrong
-  // game's trophy without anybody noticing.
-  let target = edition;
-  if (!target) {
-    const editions = await db.gameVersions(env, match.title);
-    if (editions.length > 1) {
-      return errorReply(
-        `**${match.title}** has ${editions.length} editions and a trophy only exists in one of ` +
-          'them. Pick a `version` as well.',
-      );
-    }
-    target = editions[0] ?? match;
-  }
+  /**
+   * BLANK MEANS EVERY EDITION, exactly as it does for a game flag.
+   *
+   * This used to refuse: "this title has several editions, pick a version".
+   * JFL__Leon found it immediately and was right to complain. Regional stacks
+   * are separate np_comm_ids, so WWE All Stars had two and plenty of titles
+   * have eight, and a mod flagging one broken trophy had to run the command
+   * once per stack. Worse, the version dropdown could not tell the stacks apart
+   * anyway, so it was asking for a choice it had not made possible.
+   *
+   * A shutdown kills every stack, so the default now matches the game flag:
+   * leave version blank and the trophy is flagged wherever it exists under that
+   * title. Naming a version still scopes it to that one.
+   *
+   * The reference edition is only used to work out WHICH trophy is meant. The
+   * dropdown hands back an id, ids are per np_comm_id, so the id is resolved to
+   * a name in the most-owned edition and the name is what travels.
+   */
+  const editions = await db.gameVersions(env, match.title);
+  const reference = edition ?? editions[0] ?? match;
+  const scoped = Boolean(edition);
 
-  const moved = await db.setTrophyUnobtainable(env, target.np_comm_id, trophyId, {
-    on: Boolean(note),
-    note: note || null,
-    by: note ? userId : null,
-  });
-  if (!moved) {
+  const row = await db.trophyRow(env, reference.np_comm_id, trophyId);
+  if (!row) {
     return errorReply(
       'I could not find that trophy in that edition. Pick it from the dropdown rather than typing it.',
     );
   }
+  const name = row.name || `Trophy #${trophyId}`;
 
-  // The rollup, read back from the table rather than assumed. The count is the
-  // truth; inferring it from what we just wrote would drift the first time two
-  // mods flag the same game at once.
-  const dead = await db.deadTrophies(env, target.np_comm_id);
-  // Read the row rather than searching `dead` for it: after a CLEAR the trophy
-  // is no longer in that list, and the reply still has to be able to name it.
-  const row = await db.trophyRow(env, target.np_comm_id, trophyId);
-  const name = row?.name || `Trophy #${trophyId}`;
-  const where = `**${target.title}** on **${target.platform ?? 'PlayStation'}**`;
+  const moved = scoped
+    ? await db.setTrophyUnobtainable(env, reference.np_comm_id, trophyId, {
+        on: Boolean(note), note: note || null, by: note ? userId : null,
+      })
+      ? 1
+      : 0
+    : row.name
+      ? await db.setTrophyUnobtainableByName(env, match.title, row.name, {
+          on: Boolean(note), note: note || null, by: note ? userId : null,
+        })
+      : // An unnamed trophy cannot be matched across stacks, so it is flagged
+        // where it was picked and the reply says so rather than pretending.
+        (await db.setTrophyUnobtainable(env, reference.np_comm_id, trophyId, {
+          on: Boolean(note), note: note || null, by: note ? userId : null,
+        }))
+        ? 1
+        : 0;
 
-  await db.setUnobtainable(env, target.title, {
-    on: dead.length > 0,
-    note: dead.length
-      ? dead.length === 1
-        ? `${dead[0].name || 'One trophy'} can no longer be earned.`
-        : `${dead.length} trophies can no longer be earned.`
-      : null,
-    by: dead.length ? userId : null,
-    closesAt: null,
-    npCommId: target.np_comm_id,
-  });
+  if (!moved) {
+    return errorReply(`I could not find **${name}** to change. Nothing was touched.`);
+  }
+
+  /**
+   * The rollup, over every edition that could have been touched.
+   *
+   * A game's flag is derived from its trophies, so flagging across stacks means
+   * bringing each of those games into line. Counts come back in one query and
+   * are read from the table rather than inferred from what was just written:
+   * two mods flagging the same title at once would otherwise disagree.
+   */
+  const affected = scoped ? [reference] : editions.length ? editions : [match];
+  const counts = new Map(
+    (await db.deadCountsByEdition(env, affected.map((e) => e.np_comm_id)))
+      .map((r) => [r.np_comm_id, r]),
+  );
+
+  for (const e of affected) {
+    const c = counts.get(e.np_comm_id);
+    const dead = Number(c?.dead) || 0;
+    await db.setUnobtainable(env, e.title ?? match.title, {
+      on: dead > 0,
+      note: dead
+        ? dead === 1
+          ? `${c.one || 'One trophy'} can no longer be earned.`
+          : `${dead} trophies can no longer be earned.`
+        : null,
+      by: dead ? userId : null,
+      closesAt: null,
+      npCommId: e.np_comm_id,
+    });
+  }
+
+  const touched = affected.filter((e) => (Number(counts.get(e.np_comm_id)?.dead) || 0) > 0).length;
+  const where = scoped
+    ? `**${reference.title}** on **${reference.platform ?? 'PlayStation'}**`
+    : `**${match.title}**`;
+  const spread = scoped
+    ? ' on that edition only, others untouched.'
+    : moved > 1
+      ? ` across all **${moved}** editions of the title.`
+      : '.';
 
   if (!note) {
-    const rest = dead.length
-      ? `\n\n-# ${dead.length} other troph${dead.length === 1 ? 'y' : 'ies'} here ${dead.length === 1 ? 'is' : 'are'} still flagged, so the game keeps its warning.`
-      : '\n\n-# That was the last one, so the game is completable again.';
     return reply(
       [
         container(
-          [text(`### Trophy cleared\n**${name}** is earnable again in ${where}.${rest}`)],
+          [
+            text(
+              `### Trophy cleared\n**${name}** is earnable again in ${where}${spread}` +
+                (touched
+                  ? `\n\n-# ${touched} edition${touched === 1 ? '' : 's'} still ` +
+                    `${touched === 1 ? 'has' : 'have'} other flagged trophies, so ` +
+                    `${touched === 1 ? 'it keeps its' : 'they keep their'} warning.`
+                  : '\n\n-# That was the last one, so the game is completable again.'),
+            ),
+          ],
           COLOR.green,
         ),
       ],
@@ -413,11 +463,9 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
         [
           text(
             `### ⚠️ ${name}\n` +
-              `No longer earnable in ${where}.\n\n` +
+              `No longer earnable in ${where}${spread}\n\n` +
               `-# ${note}\n\n` +
-              `The game now shows the warning everywhere it appears, and ` +
-              `${dead.length} troph${dead.length === 1 ? 'y' : 'ies'} in it ` +
-              `${dead.length === 1 ? 'is' : 'are'} flagged.\n` +
+              `The warning now shows everywhere ${scoped ? 'that edition' : 'the game'} appears.\n` +
               '-# Nobody loses points for having earned it. Run `/flag` with the same trophy and ' +
               'no note to clear this.',
           ),
@@ -1667,31 +1715,39 @@ async function handleAutocomplete(interaction, env) {
               .includes(focused.toLowerCase()))
             .slice(0, 25)
             .map((e) => ({
-              // The owner count is the thing that tells a mod which edition the
-              // server actually plays, which is usually the one being reported.
+              /**
+               * The id tail is on the label because without it two stacks of
+               * one game are indistinguishable: WWE All Stars and WWE All Stars
+               * (JP) are the same platform with the same trophy count, so the
+               * dropdown offered two identical lines. The owner count is what
+               * usually says which one the server actually plays, and the id is
+               * what makes them tellable apart when it does not.
+               */
               name: `${e.platform ?? 'PlayStation'} · ${n(e.trophy_count)} trophies · ` +
-                `${n(e.owners)} here`.slice(0, 100),
+                `${n(e.owners)} here · ${String(e.np_comm_id).slice(-8)}`.slice(0, 100),
               value: e.np_comm_id.slice(0, 100),
             })),
         },
       };
     }
 
-    // The trophy picker. Needs ONE edition resolved, because a trophy id only
-    // means something inside one np_comm_id.
+    /**
+     * The trophy picker, which no longer demands a version first.
+     *
+     * It used to answer "Pick a version first, this title has several editions"
+     * whenever a title had stacks, which is most of them. That was wrong twice
+     * over: it made a mod flag the same broken trophy once per regional stack,
+     * and the version dropdown could not tell those stacks apart anyway.
+     *
+     * A trophy id only means something inside one np_comm_id, so the list still
+     * has to come from one edition. It comes from the MOST-OWNED one, which
+     * gameVersions already sorts first, and flagTrophy then matches on the
+     * trophy's NAME across the rest.
+     */
     const chosen = valueOf('version');
     const editions = chosen ? null : await db.gameVersions(env, title);
-    const npCommId = chosen || (editions?.length === 1 ? editions[0].np_comm_id : null);
-    if (!npCommId) {
-      return {
-        type: REPLY.AUTOCOMPLETE,
-        data: {
-          // A dropdown cannot show an error, so it shows the instruction. The
-          // value is deliberately empty so picking it fills in nothing.
-          choices: [{ name: 'Pick a version first - this title has several editions', value: '' }],
-        },
-      };
-    }
+    const npCommId = chosen || editions?.[0]?.np_comm_id;
+    if (!npCommId) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
 
     const rows = await db.searchTrophies(env, npCommId, focused, 25);
     return {

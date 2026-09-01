@@ -325,6 +325,56 @@ export async function setTrophyUnobtainable(env, npCommId, trophyId, { on, note,
 }
 
 /**
+ * Flag or clear a trophy BY NAME across every edition of a title.
+ *
+ * WHY NAME AND NOT ID. Regional stacks are separate np_comm_ids: WWE All Stars
+ * PS3 and WWE All Stars PS3 (JP) are two games that happen to be the same game.
+ * Their trophy ids usually line up, but "usually" is not a thing to flag data
+ * on, and a remaster with a reordered list would silently mark the wrong
+ * trophy. A moderator saying "Rail Hydra is broken" means the trophy called
+ * Rail Hydra, in whichever stacks have one, so that is what this matches.
+ *
+ * An edition without a trophy by that name is simply not touched, which is the
+ * correct outcome rather than an error: it does not have the broken trophy.
+ *
+ * COLLATE NOCASE on the name for the same reason every other lookup on this
+ * board has it. Returns how many trophy rows moved, across all editions.
+ */
+export async function setTrophyUnobtainableByName(env, title, name, { on, note, by }) {
+  const res = await env.DB.prepare(
+    `UPDATE trophies
+        SET unobtainable = ?, unobtainable_note = ?, flagged_by = ?, flagged_at = ?
+      WHERE name = ? COLLATE NOCASE
+        AND np_comm_id IN (SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE)`,
+  )
+    .bind(on ? 1 : 0, on ? note ?? null : null, on ? by ?? null : null, on ? Date.now() : null,
+          name, title)
+    .run();
+  return res?.meta?.changes ?? 0;
+}
+
+/**
+ * How many flagged trophies each of these editions has, in one query.
+ *
+ * The game flag is a rollup of its trophies, so flagging across eight stacks
+ * means eight games to bring into line. Asking per edition would be eight round
+ * trips for a number SQLite can group in one pass, and the partial index on
+ * `unobtainable = 1` means it only ever walks flagged rows.
+ */
+export const deadCountsByEdition = (env, npCommIds) =>
+  npCommIds.length
+    ? all(
+        env,
+        `SELECT np_comm_id, COUNT(*) AS dead, MIN(name) AS one
+           FROM trophies
+          WHERE unobtainable = 1
+            AND np_comm_id IN (${npCommIds.map(() => '?').join(',')})
+          GROUP BY np_comm_id`,
+        npCommIds,
+      )
+    : Promise.resolve([]);
+
+/**
  * The flagged trophies in one game, rarest first.
  *
  * Index-backed by `idx_trophies_dead`, which is partial — there are a million

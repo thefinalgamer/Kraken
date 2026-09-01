@@ -98,7 +98,7 @@ const commands = [
          * trophy belongs to would silently flag the wrong game's trophy.
          */
         name: 'trophy',
-        description: 'One trophy rather than the whole game. Needs a version if the title has several',
+        description: 'One trophy rather than the whole game. Hits every edition unless you pick a version',
         type: 3,
         required: false,
         autocomplete: true,

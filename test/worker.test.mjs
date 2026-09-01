@@ -135,7 +135,20 @@ test('the game search offers the most-owned match first, not the shortest', asyn
 const autocompleteBody = () => {
   const start = SRC.indexOf('async function handleAutocomplete');
   const end = SRC.indexOf('// ------', start);
-  return SRC.slice(start, end === -1 ? undefined : end);
+  const body = SRC.slice(start, end === -1 ? undefined : end);
+  /**
+   * COMMENTS STRIPPED, and this bit was learned the hard way twice.
+   *
+   * A test asserting a dead string is GONE trips over the comment explaining
+   * why it went: writing "it used to say Pick a version first" put the phrase
+   * straight back into the source the assertion reads. Same shape as the em
+   * dash that hid in a CSS comment.
+   *
+   * Whole-line // only, never to the first // on a line, or every string
+   * holding https:// loses its tail and the assertions quietly stop seeing the
+   * code they claim to check.
+   */
+  return body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 };
 
 test('game autocomplete asks the database nothing until two characters are typed', () => {
@@ -252,12 +265,47 @@ test('the version and trophy pickers read the options already filled in', () => 
   assert.match(body, /db\.searchTrophies\(env, npCommId, focused/, 'trophies from the chosen edition');
 });
 
-test('a trophy on a multi-edition title refuses to guess which edition', () => {
-  // Trophy ids are only unique inside one np_comm_id. Guessing would flag the
-  // wrong game's trophy and nobody would find out.
+test('a blank version flags the trophy across every edition, by name', () => {
+  /**
+   * This test used to assert the OPPOSITE: that a multi-edition title refused
+   * and told the mod to pick a version. JFL__Leon hit that on WWE All Stars,
+   * which has two regional stacks, and pointed out that a title with eight
+   * would mean running the command eight times. He was right, and it was
+   * inconsistent besides: a blank version has always meant "every edition" for
+   * a game flag.
+   *
+   * BY NAME, NOT BY ID, and that distinction is the whole safety of it. Ids are
+   * per np_comm_id. Regional stacks usually share them, but "usually" is not
+   * something to write flags on, and a remaster with a reordered list would
+   * mark the wrong trophy. The id is resolved to a name in one edition and the
+   * name is what travels.
+   */
   const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
-  assert.match(fn, /editions\.length > 1/, 'it counts the editions');
-  assert.match(fn, /Pick a `version` as well/, 'and says so rather than picking one');
+  assert.match(fn, /db\.setTrophyUnobtainableByName\(env, match\.title, row\.name/,
+    'blank scopes to the title, matched on the name');
+  assert.match(fn, /const scoped = Boolean\(edition\)/, 'and naming a version still narrows it');
+  assert.ok(!/Pick a `version` as well/.test(fn), 'the refusal is gone');
+
+  // An unnamed trophy cannot be matched across stacks, so it must not pretend.
+  assert.match(fn, /row\.name\n?\s*\? await db\.setTrophyUnobtainableByName|row\.name$/m,
+    'the name is what decides whether it can travel');
+});
+
+test('the trophy picker no longer demands a version first', () => {
+  // It answered "Pick a version first" for any title with stacks, which is most
+  // of them, while the version dropdown could not tell those stacks apart
+  // anyway. It was asking for a choice it had not made possible.
+  const body = autocompleteBody();
+  assert.ok(!body.includes('Pick a version first'), 'the dead end is gone');
+  assert.match(body, /const npCommId = chosen \|\| editions\?\.\[0\]\?\.np_comm_id/,
+    'it falls back to the most-owned edition');
+});
+
+test('the version dropdown can tell two stacks of one game apart', () => {
+  // WWE All Stars and WWE All Stars (JP) are the same platform with the same
+  // trophy count, so the dropdown offered two identical lines.
+  const body = autocompleteBody();
+  assert.match(body, /String\(e\.np_comm_id\)\.slice\(-8\)/, 'the id tail disambiguates them');
 });
 
 test('flagging a trophy never touches points', () => {
@@ -291,8 +339,9 @@ test('flagging a trophy never touches points', () => {
   const calls = [...fn.matchAll(/db\.(\w+)\(/g)].map((m) => m[1]).sort();
   assert.deepEqual(
     [...new Set(calls)],
-    ['deadTrophies', 'gameVersions', 'setTrophyUnobtainable', 'setUnobtainable', 'trophyRow'],
-    'two flag writes and three reads — nothing that can move a score',
+    ['deadCountsByEdition', 'gameVersions', 'setTrophyUnobtainable',
+     'setTrophyUnobtainableByName', 'setUnobtainable', 'trophyRow'],
+    'flag writes and lookups only — nothing here can move a score',
   );
   assert.match(fn, /Nobody loses points for having earned it/,
     'and the mod is told so in the reply');
@@ -303,9 +352,12 @@ test('the game flag is rolled up from its trophies, and cleared with the last on
   // Making them run /flag twice is how a game ends up with a dead trophy and no
   // warning on it — and a hand-set flag would never come off when it was fixed.
   const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
-  assert.match(fn, /db\.deadTrophies\(env, target\.np_comm_id\)/, 'counts what is actually flagged');
-  assert.match(fn, /on: dead\.length > 0/, 'game flag follows the count, in both directions');
-  assert.match(fn, /npCommId: target\.np_comm_id/, 'and only on the edition that owns the trophy');
+  // Counts come from the table in ONE query across every edition touched, not
+  // per edition and not inferred from what was just written: two mods flagging
+  // the same title at once would otherwise disagree about the total.
+  assert.match(fn, /db\.deadCountsByEdition\(env, affected\.map/, 'counts what is actually flagged');
+  assert.match(fn, /on: dead > 0/, 'game flag follows the count, in both directions');
+  assert.match(fn, /npCommId: e\.np_comm_id/, 'each edition brought into line on its own row');
 });
 
 test('a closing date on a single trophy is refused, not ignored', () => {

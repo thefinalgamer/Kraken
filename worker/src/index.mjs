@@ -675,6 +675,46 @@ function customIdTitle(title) {
   return encoded.slice(0, 80).replace(/%[0-9A-Fa-f]?$/, '');
 }
 
+/**
+ * "Worth to you", and this card meant the word "you" for the first time today.
+ *
+ * The trophy sums are the game's price list. Rarity is shared, so any two
+ * members holding the same trophies produce the same figure — Martin and
+ * JFL__Leon both read 1,400 on Borderlands 2 and compared notes, which is how
+ * this was found. The real answers were 980 and 1,274.
+ *
+ * `/backlog` has always multiplied before printing a number, with a comment
+ * saying why. This card, whose heading is literally the word "you", never did.
+ *
+ * PER-TROPHY VALUES STAY RAW and must. A trophy's worth is a property of the
+ * trophy, identical for everybody; multiplying a 1-point trophy by anybody's
+ * completion floors it to nothing and the top-three list turns into zeroes.
+ * The line is: a trophy HAS a worth, a member BANKS a fraction of it.
+ *
+ * An unregistered member gets the raw figures, because there is no completion
+ * to apply and a card that silently showed a stranger somebody else's currency
+ * would be worse than one that shows the game's own.
+ */
+function worthLine(member, banked, fullValue, remaining) {
+  const c = Number(member?.completion);
+  if (!Number.isFinite(c) || c <= 0 || c >= 100) {
+    return (
+      `**Worth to you:** ${n(banked)} of ${n(fullValue)} points earned` +
+      (remaining > 0 ? `\n-# ${n(remaining)} still on the table` : '')
+    );
+  }
+  const left = applyCompletion(remaining, c);
+  return (
+    `**Worth to you:** ${n(applyCompletion(banked, c))} of ` +
+    `${n(applyCompletion(fullValue, c))} points earned` +
+    // The working, in the same shape /rank already uses. Without it the number
+    // looks like it shrank for no reason, and the multiplier is the single
+    // thing about this board that most needs explaining.
+    `\n-# ${n(fullValue)} rarity points \u00d7 ${pct(c)} completion` +
+    (left > 0 ? ` \u00b7 ${n(left)} still on the table` : '')
+  );
+}
+
 async function game(env, query, userId, pinned = null) {
   const member = await db.memberByDiscordId(env, userId);
 
@@ -755,8 +795,7 @@ async function game(env, query, userId, pinned = null) {
           section(
             [
               `## ${found.title}${clockMark(found)}\n-# ${found.platform ?? 'PlayStation'} · ${n(found.trophy_count)} trophies`,
-              `**Worth to you:** ${n(banked)} of ${n(fullValue)} points earned` +
-                (worth > 0 ? `\n-# ${n(worth)} still on the table` : '') +
+              worthLine(member, banked, fullValue, worth) +
                 (mine ? `\n**Your progress:** ${mine.progress}%` : '\n**Your progress:** not started'),
               plat
                 ? `**Plat rarity:** ${Number(plat.earned_rate) > 0

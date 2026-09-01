@@ -159,3 +159,38 @@ test('the member picker is scoped to /rivals, not to any option called add', () 
     'the command name is part of the test',
   );
 });
+
+test('/game shows what the member banks, not the game\'s raw worth', async () => {
+  /**
+   * The bug Martin and JFL__Leon found by comparing notes: both ran /game on
+   * Borderlands 2 and both were told 1,400. Rarity is shared, so the raw figure
+   * is identical for anybody holding the same trophies — but the card's heading
+   * is the word "you", and at 70.41% and 91.44% they bank 980 and 1,274.
+   *
+   * /backlog has always multiplied. This asserts the /game card does too, and
+   * that the working is shown the same way /rank shows it.
+   */
+  const src = SRC;
+
+  assert.match(src, /function worthLine\(member, banked, fullValue, remaining\)/,
+    'the line is a named function, so it can be reasoned about in one place');
+  assert.match(src, /worthLine\(member, banked, fullValue, worth\)/, 'and the card calls it');
+  assert.ok(
+    !/\*\*Worth to you:\*\* \$\{n\(banked\)\} of \$\{n\(fullValue\)\}/.test(
+      src.slice(src.indexOf('const owners = await db.gameOwners')),
+    ),
+    'the raw pair is no longer printed under that heading',
+  );
+  assert.match(src, /rarity points \\u00d7 \$\{pct\(c\)\} completion/,
+    'and the multiplier is explained, not silently applied');
+});
+
+test('per-trophy values are never multiplied', async () => {
+  // A trophy's worth is a property of the trophy and identical for everyone.
+  // Multiplying a 1-point trophy by anybody's completion floors it to nothing,
+  // and the top-three list becomes three zeroes.
+  const src = SRC;
+  const top = src.slice(src.indexOf('const top = ['), src.indexOf('const owners = await db.gameOwners'));
+  assert.ok(top.includes('n(t.points)'), 'the trophy list prints the stored value');
+  assert.ok(!top.includes('applyCompletion'), 'and does not scale it');
+});

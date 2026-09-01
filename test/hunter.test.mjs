@@ -185,8 +185,16 @@ test('the unobtainable note is readable without a mouse, and without a popup', a
 test('points read as earned out of the full completion, like the backlog does', async () => {
   const { out } = await render('JFL__Leon');
 
-  assert.ok(out.includes('1,500 <span class="of-max">/ 9,000</span>'), 'Sea of Thieves');
-  assert.ok(out.includes('4,200 <span class="of-max">/ 4,200</span>'), 'a finished game shows both');
+  /**
+   * BANKED, NOT RAW. Leon is at 87.45%, so Sea of Thieves stores 1,500 of
+   * 9,000 and pays him 1,305 of 7,830. The stored pair is the game's price
+   * list — identical for anybody holding the same trophies — and printing it
+   * under a column headed "Points" told two members with very different
+   * completions that they were getting the same number. They were not.
+   */
+  assert.ok(out.includes('1,305 <span class="of-max">/ 7,830</span>'), 'Sea of Thieves, banked');
+  assert.ok(out.includes('3,654 <span class="of-max">/ 3,654</span>'), 'a finished game shows both');
+  assert.ok(!out.includes('1,500 <span class="of-max">/ 9,000</span>'), 'never the raw pair');
 
   // The old second column is gone. Forty rows of "done" was noise, and the
   // fraction says the same thing without a word in it.

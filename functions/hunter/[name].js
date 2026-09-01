@@ -24,6 +24,7 @@ import {
   closingState, closingLabel, isUrgent, d20, gameHref, crumb, supporterStar,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
+import { displayBanked } from '../../shared/scoring.mjs';
 
 const PER_PAGE = 50;
 
@@ -325,9 +326,12 @@ async function wildcards(env, accountId, count) {
   return picked;
 }
 
-function rollCard(g, { mine, who }) {
-  const max = Number(g.max_points) || 0;
-  const got = Number(g.points) || 0;
+function rollCard(g, { mine, who, completion }) {
+  // The dice are a recommendation, so this is the one card where overstating
+  // the payout costs the most: it talks somebody into a game on a number the
+  // update will not pay. Same treatment as gameRow.
+  const max = displayBanked(g.max_points, completion);
+  const got = displayBanked(g.points, completion);
   const left = Math.max(0, max - got);
   const state = closingState(g);
 
@@ -400,11 +404,24 @@ function clockMarks(g) {
   return { mark: '', note: '' };
 }
 
-function gameRow(g, who) {
+function gameRow(g, who, completion) {
   const marks = clockMarks(g);
   const done = Number(g.progress) === 100;
-  const max = Number(g.max_points) || 0;
-  const got = Number(g.points) || 0;
+
+  /**
+   * BANKED, NOT RAW — see the note on the same change in functions/game/[id].js.
+   *
+   * `mg.points` and `g.max_points` are rarity sums, identical for any two people
+   * with the same trophies. What this hunter actually scores is that multiplied
+   * by their completion. Printing the raw figure told a 70.41% member a game
+   * was worth 1,400 when it pays them 980 — the exact thing `/backlog` in the
+   * bot has always been careful not to do.
+   *
+   * BOTH numbers are multiplied, never one. Half a fraction in the member's
+   * currency and half in the game's is worse than either on its own.
+   */
+  const max = displayBanked(g.max_points, completion);
+  const got = displayBanked(g.points, completion);
   const left = Math.max(0, max - got);
 
 
@@ -746,7 +763,7 @@ export async function onRequestGet({ params, env, request }) {
            backlogPicks.length
              ? `<p class="rlabel">From ${whose}'s backlog</p>
                 <ul class="rolls">${backlogPicks
-                  .map((g) => rollCard(g, { mine: true, who: m.psn_online_id }))
+                  .map((g) => rollCard(g, { mine: true, who: m.psn_online_id, completion: m.completion }))
                   .join('')}</ul>`
              : `<p class="note">Nothing unfinished worth points — which is its own kind of answer.</p>`
          }
@@ -754,7 +771,7 @@ export async function onRequestGet({ params, env, request }) {
            wildPicks.length
              ? `<p class="rlabel">Wildcards from the index</p>
                 <ul class="rolls">${wildPicks
-                  .map((g) => rollCard(g, { mine: false }))
+                  .map((g) => rollCard(g, { mine: false, completion: m.completion }))
                   .join('')}</ul>`
              : ''
          }
@@ -831,7 +848,7 @@ export async function onRequestGet({ params, env, request }) {
                  <th class="num" title="Earned out of what a full completion pays">Points</th>
                  <th class="bar"></th>
                </tr></thead>
-               <tbody>${games.map((g) => gameRow(g, m.psn_online_id)).join('')}</tbody>
+               <tbody>${games.map((g) => gameRow(g, m.psn_online_id, m.completion)).join('')}</tbody>
              </table>
            </div>
            ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext)}`

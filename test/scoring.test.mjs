@@ -7,6 +7,8 @@ import {
   remainingValue,
   explainDelta,
   applyCompletion,
+  displayBanked,
+  hasCompletion,
   scoreGameTrophies,
   localMultiplier,
   UNRATED_FALLBACK,
@@ -483,4 +485,50 @@ test('the scan and the rescore price a game differently, on purpose', () => {
     earned: new Map([[1, 1]]),
   });
   assert.ok(withLocal[0].points > globalOnly[0].points);
+});
+
+test('displayBanked never wipes somebody out for a missing completion', () => {
+  /**
+   * applyCompletion returns 0 for a completion it cannot use. That is correct
+   * scoring — no completion, no points — and catastrophic on a page: a member
+   * mid-first-scan would show zero on every game they own, and "all my points
+   * are gone" is a worse bug than a figure the multiplier has not reached yet.
+   */
+  assert.equal(displayBanked(1400, null), 1400);
+  assert.equal(displayBanked(1400, undefined), 1400);
+  assert.equal(displayBanked(1400, 0), 1400);
+  assert.equal(displayBanked(1400, 'nonsense'), 1400);
+
+  // But a real completion is applied, and matches the scoring function exactly.
+  assert.equal(displayBanked(1400, 70.41), applyCompletion(1400, 70.41));
+  assert.equal(displayBanked(1400, 70.41), 980);
+  assert.equal(displayBanked(1400, 91.44), 1274);
+});
+
+test('hasCompletion agrees with displayBanked about what is usable', () => {
+  // The two are paired: the explainer note must appear exactly when the
+  // multiplier does, or a raw figure carries a label saying it was scaled.
+  for (const c of [null, undefined, 0, -5, NaN, 'x']) {
+    assert.equal(hasCompletion(c), false, `${c} is not a completion`);
+    assert.equal(displayBanked(500, c), 500, `${c} falls back to raw`);
+  }
+  for (const c of [0.01, 49, 70.41, 100]) {
+    assert.equal(hasCompletion(c), true);
+    assert.equal(displayBanked(500, c), applyCompletion(500, c));
+  }
+});
+
+test('per-game banked figures sum close to, but not exactly, the card', () => {
+  /**
+   * Flooring each game and adding up drifts against flooring the total once.
+   * This is known and accepted — `members.points` stays the truth and the
+   * per-game figures are what each game contributes. The test exists to bound
+   * the drift, so a future change that makes it large gets noticed.
+   */
+  const games = [1400, 41181, 92, 4200, 38522, 7, 999];
+  const c = 70.41;
+  const summed = games.reduce((s, g) => s + displayBanked(g, c), 0);
+  const once = applyCompletion(games.reduce((s, g) => s + g, 0), c);
+  assert.ok(Math.abs(summed - once) <= games.length,
+    `drift ${Math.abs(summed - once)} should be under one point per game`);
 });

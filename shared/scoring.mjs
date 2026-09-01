@@ -473,6 +473,33 @@ export function applyCompletion(rawPoints, completionPercent) {
 }
 
 /**
+ * What a member banks from a raw figure — FOR DISPLAY ONLY.
+ *
+ * `applyCompletion` is the scoring function and returns 0 for a completion it
+ * cannot use, which is right when computing a score: no completion, no points.
+ * It is badly wrong on a page. A member whose completion has not been written
+ * yet — mid-first-scan, or a row an older build left behind — would render as
+ * zero on every game they own, and "all my points vanished" is a far worse bug
+ * to ship than a figure that has not had the multiplier applied yet.
+ *
+ * So this falls back to the raw number and lets the caller notice. Callers pair
+ * it with `bankedNote()` so the explainer disappears at the same moment the
+ * multiplier does, rather than printing "\u00d7 0.00% completion" underneath.
+ */
+export function displayBanked(raw, completionPercent) {
+  const r = Number(raw) || 0;
+  const c = Number(completionPercent);
+  if (!Number.isFinite(c) || c <= 0) return r;
+  return applyCompletion(r, c);
+}
+
+/** True when there is a real multiplier worth explaining to the reader. */
+export const hasCompletion = (completionPercent) => {
+  const c = Number(completionPercent);
+  return Number.isFinite(c) && c > 0;
+};
+
+/**
  * Split a member's points change into the three things that actually caused
  * it, so the update card can explain a number instead of just showing one.
  *

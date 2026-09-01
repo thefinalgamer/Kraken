@@ -30,6 +30,7 @@ import {
   page, html, esc, n, pct, cup, miniCups, trophyGlyph, crumb, gameHref,
   closingState, closingLabel, isUrgent,
 } from '../_lib/page.js';
+import { displayBanked, hasCompletion } from '../../shared/scoring.mjs';
 
 /**
  * Sorts, as a whitelist. The key never reaches SQL — it picks a fragment.
@@ -117,7 +118,7 @@ const GROUPS = `
  * matching every other list on the site.
  */
 const OWNERS = `
-  SELECT m.psn_online_id, m.avatar_url, m.rank,
+  SELECT m.psn_online_id, m.avatar_url, m.rank, m.completion,
          mg.progress, mg.points, mg.earned_total, mg.earned_platinum,
          mg.earned_gold, mg.earned_silver, mg.earned_bronze,
          mg.last_played_at, mg.last_earned_at
@@ -285,6 +286,28 @@ function trophyCard(t, { localTotal, earned }) {
   </li>`;
 }
 
+/**
+ * What this game is worth TO ONE MEMBER, rather than what it is worth.
+ *
+ * `member_games.points` is the rarity sum — the same figure for any two people
+ * holding the same trophies, because rarity is shared. What lands in somebody's
+ * score is that multiplied by their completion, once, at the member total. So
+ * printing the stored number under a column headed "Points" was answering a
+ * question nobody asked: Nurse_Feel_Good at 85.27% and Hawkeyejojon at 73.95%
+ * both read 41,181 on Sea of Thieves, and neither of them banks that.
+ *
+ * THIS DOES NOT BREAK THE ONE RULE. The site still computes no scoring — this
+ * is a product of two stored numbers through the same `applyCompletion()` the
+ * bot uses, which is the same class of thing as "worth finishing" being a
+ * subtraction of two stored numbers. If it ever disagrees with Discord it is
+ * still a bug in the site.
+ *
+ * It will not add up to the card exactly. Flooring per game and summing drifts
+ * a point or so per game against flooring the total once. `members.points` is
+ * the truth; these are what each game contributes to it.
+ */
+const banked = (raw, completion) => displayBanked(raw, completion);
+
 /** One member who owns it. */
 function ownerRow(o, id, viewing) {
   const width = Math.max(0, Math.min(100, Number(o.progress) || 0));
@@ -323,7 +346,13 @@ function ownerRow(o, id, viewing) {
       <span class="${done ? 'done' : ''}">${width}%</span>
       <span class="track"><span class="fill ${shade}" style="width:${width}%"></span></span>
     </td>
-    <td class="num pts" data-v="${Number(o.points) || 0}">${n(o.points)}</td>
+    <td class="num pts" data-v="${banked(o.points, o.completion)}"${
+      // The explainer and the multiplier appear and disappear together. A row
+      // showing the raw figure must not carry a note claiming it was scaled.
+      hasCompletion(o.completion)
+        ? ` title="${esc(`${n(o.points)} rarity points \u00d7 ${pct(o.completion)} completion`)}"`
+        : ''
+    }>${n(banked(o.points, o.completion))}</td>
     <td class="num"><a class="vchip${isViewing ? ' on' : ''}" href="${esc(
       isViewing ? gameHref(id) : gameHref(id, o.psn_online_id),
     )}">${isViewing ? 'Viewing' : 'View'}</a></td>

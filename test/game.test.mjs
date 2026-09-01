@@ -459,3 +459,46 @@ test('the local column is headed Hunters, not Here', async () => {
   assert.ok(out.includes('>Hunters<'), 'it counts people, so it is named after them');
   assert.ok(!bodyOf(out).includes('>Here<'));
 });
+
+/* ---------------------------------------------------------------------------
+ * The completion multiplier on the owners panel.
+ *
+ * The bug this covers: Nurse_Feel_Good (85.27%) and Hawkeyejojon (73.95%) both
+ * read 41,181 on the same game, because `member_games.points` is the rarity sum
+ * and rarity is shared. Neither of them banks that. The scoring was never
+ * wrong — the column was.
+ * ------------------------------------------------------------------------ */
+
+test('an owner is shown what they bank, not what the game is worth', async () => {
+  const owners = [
+    { psn_online_id: 'Nurse_Feel_Good', avatar_url: null, rank: 12, completion: 85.27,
+      progress: 100, points: 41181, earned_total: 195, earned_platinum: 1,
+      earned_gold: 6, earned_silver: 6, earned_bronze: 286, last_earned_at: null },
+    { psn_online_id: 'Hawkeyejojon', avatar_url: null, rank: 15, completion: 73.95,
+      progress: 100, points: 41181, earned_total: 195, earned_platinum: 1,
+      earned_gold: 6, earned_silver: 6, earned_bronze: 286, last_earned_at: null },
+  ];
+  const { out } = await render({ owners });
+
+  // Same trophies, same raw worth, different completions — so the column has to
+  // separate them. It did not, and that is what Martin caught.
+  assert.ok(out.includes('35,115') || out.includes('35,003'), 'Nurse banks ~85% of it');
+  assert.ok(out.includes('30,453') || out.includes('30,062'), 'Hawks banks ~74%');
+  assert.ok(!out.includes('>41,181<'), 'and neither of them sees the raw figure');
+});
+
+test('an owner with no completion yet shows the raw figure, never zero', async () => {
+  /**
+   * applyCompletion returns 0 for an unusable completion, which is correct
+   * scoring and catastrophic display: a member mid-first-scan would render as
+   * zero on every game they own. displayBanked falls back to raw instead.
+   */
+  const owners = [
+    { psn_online_id: 'BrandNew', avatar_url: null, rank: 70, completion: null,
+      progress: 40, points: 1234, earned_total: 8, earned_platinum: 0,
+      earned_gold: 0, earned_silver: 1, earned_bronze: 7, last_earned_at: null },
+  ];
+  const { out } = await render({ owners });
+  assert.ok(out.includes('1,234'), 'raw, rather than a wiped-out zero');
+  assert.ok(!out.includes('0.00% completion'), 'and no note claiming it was scaled');
+});

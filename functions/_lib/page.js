@@ -631,7 +631,16 @@ td.prog{min-width:112px}
 /* ---- the dice ---- */
 /* The trigger sits IN the row with "Show the numbers" and Rivals, which is what
    that row was half-empty for. */
-.toolrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px}
+/* ALIGN TO THE TOP, NOT THE MIDDLE.
+   With align-items:center, opening "Show the numbers" made its <details> tall
+   and every sibling centred itself against that new height, so Rivals and the
+   deal link slid half a table down the page and snapped back when it shut.
+   Aligned to the start, the three summaries stay on one line and the open panel
+   grows underneath without touching anything beside it. */
+.toolrow{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:0 0 14px}
+/* Matching the 4px the <details> summaries carry, so the three sit on one line
+   rather than one riding a few pixels high. */
+.toolrow .rollcta{padding:4px 0}
 .toolrow details.numbers{margin:0}
 .rollcta{display:inline-flex;align-items:center;gap:7px;color:var(--kraken);
   text-decoration:none;font-weight:600;font-size:13.5px;white-space:nowrap}
@@ -836,8 +845,13 @@ td.prog{min-width:112px}
      each having its own and the outer ones flaring. */
   perspective:1500px;
 }
+/* NO FIXED RATIO. aspect-ratio:3/4.5 set the card's height before anything was
+   in it, and .dfront was absolutely positioned so nothing inside could push
+   back: a two-line title ate the points line, which is the one number the card
+   exists to show. Height now comes from the front face, which is in flow, and
+   the grid stretches every slot in a row to match the tallest. */
 .slot{
-  position:relative;aspect-ratio:3/4.5;
+  position:relative;
   animation:
     deal-in var(--deal) cubic-bezier(.16,.74,.24,1) calc(var(--i) * var(--step)) both,
     rattle var(--rattle) ease-in-out calc(var(--shake-at) + var(--i) * var(--rstep)) forwards;
@@ -876,17 +890,22 @@ td.prog{min-width:112px}
 }
 
 .dcard{
-  position:absolute;inset:0;transform-style:preserve-3d;
+  position:relative;height:100%;transform-style:preserve-3d;
   animation:turn var(--turn) cubic-bezier(.2,.72,.24,1)
             calc(var(--turn-at) + var(--i) * var(--tstep)) forwards;
 }
 @keyframes turn{ from{transform:rotateY(0)} to{transform:rotateY(180deg)} }
 
+/* The FRONT is in flow and sets the height; the back is laid over it. Only one
+   of the two can be in flow or the card is twice as tall as it looks, and it
+   has to be the front, because the front is the one with content in it. */
 .dface{
-  position:absolute;inset:0;backface-visibility:hidden;
+  backface-visibility:hidden;
   border-radius:12px;overflow:hidden;
   border:1px solid var(--edge);background:var(--panel);
 }
+.dback{position:absolute;inset:0}
+.dfront{position:relative;height:100%}
 
 /* The back. It is what you look at for a second and a half, so it is the one
    surface here allowed to be decorative: hatch, inset rule, and the site's own
@@ -906,6 +925,11 @@ td.prog{min-width:112px}
   opacity:.85;filter:drop-shadow(0 0 14px rgba(32,184,153,.3))}
 
 .dfront{transform:rotateY(180deg);display:flex;flex-direction:column}
+/* Two lines, then stop. A long title used to wrap to four and push the points
+   line out of the card; now it sets the row height for its neighbours and no
+   further. The whole name is one click away on the game page. */
+a.dt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;overflow-wrap:anywhere}
 .dcover{position:relative;display:block;aspect-ratio:1;background:var(--deep);
   border-bottom:1px solid var(--edge)}
 .dcover img{width:100%;height:100%;object-fit:cover;display:block}

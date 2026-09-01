@@ -824,6 +824,63 @@ async function scanGame(
     ],
   );
 
+  /**
+   * THE TROPHY LOG. See migrations/016-trophy-log.sql.
+   *
+   * PSN hands over earnedDateTime for every earned trophy on every scan and
+   * this function has always parsed it, used it to derive the game's first and
+   * last dates, and dropped the rest. These are those dropped dates.
+   *
+   * ONLY WHAT IS NEW, not the whole list. A member who already had this game
+   * gets rows for the trophies they did not have last time, which is a handful.
+   *
+   * A GAME SEEN FOR THE FIRST TIME IS CAPPED TO 90 DAYS, and that is a cost
+   * decision rather than a tidiness one. Without it, one newcomer's first scan
+   * writes their entire history: MRTheChez has 1,512 games, which is tens of
+   * thousands of rows in a single job, and the board already runs at roughly
+   * half of D1's monthly write allowance. Ninety days is also all the strip
+   * will ever show, so nothing useful is lost by not writing the rest.
+   *
+   * IT NEVER THROWS. A scan that dies because a migration has not been run yet
+   * would take the nightly job down over a decoration. Missing table, missing
+   * column, anything: log it and carry on. The site renders the strip only when
+   * there are rows, so silence here is invisible rather than broken.
+   */
+  try {
+    let previouslyHad = null;
+    if (was?.earned_ids) {
+      try {
+        const ids = JSON.parse(was.earned_ids);
+        if (Array.isArray(ids)) previouslyHad = new Set(ids);
+      } catch {
+        // A mangled column means we cannot tell what is new, so treat the game
+        // as unseen and let the 90-day cap decide. Never guess "all of it".
+      }
+    }
+
+    const CAP_MS = 90 * 24 * 60 * 60 * 1000;
+    const floor = Date.now() - CAP_MS;
+
+    const fresh = mine.filter(
+      (t) =>
+        Number.isFinite(t.earnedAt) &&
+        (previouslyHad ? !previouslyHad.has(t.id) : t.earnedAt >= floor),
+    );
+
+    if (fresh.length) {
+      // OR IGNORE, because a rescan of the same game re-offers trophies that
+      // are already logged and their recorded date is the one to keep.
+      await db.run(
+        'INSERT OR IGNORE INTO member_trophies ' +
+          '(psn_account_id, np_comm_id, trophy_id, earned_at) VALUES ' +
+          fresh.map(() => '(?,?,?,?)').join(','),
+        fresh.flatMap((t) => [accountId, title.npCommunicationId, t.id, t.earnedAt]),
+      );
+    }
+  } catch (err) {
+    console.log(`  trophy log skipped for ${title.npCommunicationId}: ${err.message}`);
+  }
+
   const gained = earnedIds.length - (was?.earned_total ?? 0);
   if (was && gained === 0 && was.progress === progress) return null; // rarity-only refresh
 

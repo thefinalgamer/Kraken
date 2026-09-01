@@ -174,13 +174,13 @@ export const FAQ = [
   {
     value: 'website',
     label: 'The website',
-    description: 'The board, game pages, the dice, and the star',
+    description: 'The board, game pages, the dice, and your rivals',
     body:
       '## The website\n\n' +
       'Everything the bot knows, with room to breathe. Discord is still the hub — you ' +
       'join here, you update here, the board posts here. The site is the window.\n\n' +
       '**Where is it?**\n' +
-      'platinumintel.pages.dev\n\n' +
+      'platinumintel.co.uk\n\n' +
       '**Do I need an account?**\n' +
       'No, and there is nothing to sign up for. If you are on the board you are already ' +
       'on the site. Nobody joins from there.\n\n' +
@@ -204,6 +204,16 @@ export const FAQ = [
       'Because you clicked through from somebody\'s page, so it is showing *their* ' +
       'trophies — earned ones lit, the rest dimmed. The chip at the top says whose. ' +
       'Click the ✕ to see the plain list.\n\n' +
+      '**What are rivals?**\n' +
+      'Up to five hunters you want to keep an eye on. Set them in Discord with ' +
+      '`/rivals add`, and they show on your page as a little board of just them and ' +
+      'you — rank, points, and how far ahead or behind each one is. Everyone can see ' +
+      'everybody\'s, so being chased is part of it.\n\n' +
+      '**The points on a game page look lower than the game is worth. Why?**\n' +
+      'Because they are *yours*, not the game\'s. A game worth 1,400 pays you 1,400 ' +
+      'at 100% completion and 980 at 70% — so the number beside your name is what it ' +
+      'actually adds to your score. Two people with the same trophies and different ' +
+      'completions see different numbers, and that is the multiplier doing its job.\n\n' +
       '**Can I see it on my phone?**\n' +
       'Yes. All of it.',
   },
@@ -256,7 +266,7 @@ export const HOME_BLURB =
   'the lot, so going back and finishing old games is the fastest way up.\n\n' +
   'It also watches the whole server: a game gets **more valuable while people here are still ' +
   'stuck on it**, so your points move when other people play.\n\n' +
-  'The full board, every game and every trophy is at **platinumintel.pages.dev** — no ' +
+  'The full board, every game and every trophy is at **platinumintel.co.uk** — no ' +
   'account needed, you are already on it.';
 
 export { DEFAULT_SCORING, localMultiplier };

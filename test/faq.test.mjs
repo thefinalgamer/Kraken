@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { faqSection, HOME_BLURB } from '../shared/faq.mjs';
 
 /**
  * The FAQ page.
@@ -96,4 +98,36 @@ test('the supporting section says plainly that the star buys nothing', async () 
   const i = out.indexOf('Supporting Kraken');
   const section = out.slice(i, i + 4000);
   assert.match(section, /Not points, not rank, not tier/);
+});
+
+test('the FAQ points at the domain we own, never a pages.dev subdomain', async () => {
+  /**
+   * Both free subdomains this site has lived on were flagged by Google Safe
+   * Browsing — kraken-ehu for the word "kraken" matching a crypto brand sweep,
+   * and platinumintel.pages.dev for reasons never established. A member
+   * (Cherrius) found the stale one in the FAQ and got a full-page "Dangerous
+   * site" warning, which is the worst possible first impression.
+   *
+   * The FAQ is the single source for both Discord and /faq on the site, so this
+   * one assertion covers both surfaces.
+   */
+  const src = await readFile(new URL('../shared/faq.mjs', import.meta.url), 'utf8');
+  assert.ok(!src.includes('pages.dev'), 'no free subdomain anywhere in the FAQ');
+  assert.match(faqSection('website'), /platinumintel\.co\.uk/, 'the real domain is named');
+  assert.match(HOME_BLURB, /platinumintel\.co\.uk/, 'and the home blurb agrees with it');
+});
+
+test('the FAQ explains why a game page shows a smaller number than the game is worth', () => {
+  // Martin found this by comparing Borderlands 2 with JFL__Leon and getting the
+  // same figure. Now that the pages show banked values, two people WILL see
+  // different numbers for the same game, and the FAQ has to say why first.
+  const site = faqSection('website');
+  assert.match(site, /not the game's/, 'names whose number it is');
+  assert.match(site, /1,400 at 100% completion and 980 at 70%/, 'with the arithmetic shown');
+});
+
+test('rivals are documented, and documented as public', () => {
+  const site = faqSection('website');
+  assert.match(site, /\/rivals add/, 'says how to set them');
+  assert.match(site, /Everyone can see everybody's/, 'and does not imply the list is private');
 });

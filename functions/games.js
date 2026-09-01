@@ -74,25 +74,34 @@ const listSql = (order, search) => `
 
 const likeTerm = (q) => `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
-/** The mark beside a title. Identical rules to every other page. */
-function clock(g) {
+/**
+ * The mark beside a title, and the sentence under it. Same shape as the hunter
+ * page, and for the same reason — see the note there. Short version: the popup
+ * this replaced turned the table into a scroll container on every phone.
+ */
+function clockMarks(g) {
   const state = closingState(g);
+
   if (state === 'closing') {
     const soon = isUrgent(g.closes_at);
-    return `<details class="flagwrap clock${soon ? ' soon' : ''}"><summary
-        aria-label="Closing soon">${soon ? '&#8987;' : '&#128338;'}</summary><span
-        class="flagnote"><b>${esc(closingLabel(g.closes_at))}</b>. Everything in it is
-        still earnable until then.${
-          g.unobtainable_note ? ` ${esc(g.unobtainable_note)}` : ''
-        }</span></details>`;
+    return {
+      mark: `<span class="mk clock${soon ? ' soon' : ''}" title="${esc(
+        closingLabel(g.closes_at),
+      )}">${soon ? '&#8987;' : '&#128338;'}</span>`,
+      note: '',
+    };
   }
+
   if (state === 'dead') {
-    return `<details class="flagwrap"><summary aria-label="Has unobtainable trophies"
-        >&#9888;</summary><span class="flagnote">${esc(
-          g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
-        )}</span></details>`;
+    return {
+      mark: '<span class="mk dead" title="Has unobtainable trophies">&#9888;</span>',
+      note: `<span class="gnote">${esc(
+        g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
+      )}</span>`,
+    };
   }
-  return '';
+
+  return { mark: '', note: '' };
 }
 
 /**
@@ -113,6 +122,7 @@ const stripe = (g) => {
 };
 
 function row(g) {
+  const marks = clockMarks(g);
   const owned = Number(g.local_started) || 0;
   const href = `/game/${encodeURIComponent(g.np_comm_id)}`;
 
@@ -124,7 +134,7 @@ function row(g) {
     }</td>
     <td class="gt">
       ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<a
-        class="tname" href="${esc(href)}">${esc(g.title)}</a>${clock(g)}
+        class="tname" href="${esc(href)}">${esc(g.title)}</a>${marks.mark}
       <span class="meta">${n(g.trophy_count)} ${
         Number(g.trophy_count) === 1 ? 'trophy' : 'trophies'
       }</span>${
@@ -133,7 +143,7 @@ function row(g) {
               closingLabel(g.closes_at),
             )}</span>`
           : ''
-      }
+      }${marks.note}
     </td>
     <td class="num" data-v="${owned}">${n(owned)} <span class="of-max">${
       owned === 1 ? 'hunter' : 'hunters'

@@ -537,17 +537,27 @@ export const setRivals = (env, discordId, json) =>
  * index. `rank IS NOT NULL` matches what the board will actually show — there
  * is no point offering somebody you cannot then display.
  */
-export const searchMembers = (env, query, limit = 25) =>
-  all(
+export const searchMembers = (env, query, limit = 25) => {
+  /*
+   * ESCAPED, because PSN IDs are full of underscores and `_` is LIKE's own
+   * single-character wildcard. Typing "JFL__Leon" without this searches for
+   * "JFL" then any two characters then "Leon" — which happens to match the
+   * person you meant, and also matches JFLxxLeon if one ever existed. On a
+   * seventy-row table nobody would ever notice being quietly wrong, which is
+   * exactly the kind of bug that survives for years.
+   */
+  const term = String(query ?? '').replace(/[\\%_]/g, (c) => `\\${c}`);
+  return all(
     env,
     `SELECT psn_account_id, psn_online_id, rank FROM members
       WHERE rank IS NOT NULL
-        AND psn_online_id LIKE ? COLLATE NOCASE
-      ORDER BY CASE WHEN psn_online_id LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+        AND psn_online_id LIKE ? ESCAPE '\\' COLLATE NOCASE
+      ORDER BY CASE WHEN psn_online_id LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 0 ELSE 1 END,
                rank ASC
       LIMIT ?`,
-    [`%${query}%`, `${query}%`, limit],
+    [`%${term}%`, `${term}%`, limit],
   );
+};
 
 export const rankedCount = async (env) =>
   (await first(env, 'SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL'))?.c ?? 0;

@@ -2,7 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
+
+/**
+ * node:sqlite ARRIVED IN NODE 22.5, and this file was written on 22 and pushed
+ * to a CI running 20 — where the import threw, took the whole file with it, and
+ * failed a deploy for a reason that had nothing to do with the change.
+ *
+ * The workflows now pin 22. The guard stays anyway, because the next person to
+ * run these on an older Node should get four skipped tests and a sentence
+ * explaining why, not a red build and a stack trace. The source checks below do
+ * not need SQLite and always run, so the guards are still asserted even where
+ * the SQL cannot be executed.
+ */
+let DatabaseSync = null;
+try {
+  ({ DatabaseSync } = await import('node:sqlite'));
+} catch {
+  // Older Node. The SQL tests skip; the source tests do not.
+}
+const needsSqlite = { skip: DatabaseSync ? false : 'node:sqlite needs Node 22.5 or newer' };
 
 /**
  * The nightly job's write volume.
@@ -77,7 +95,7 @@ const ESTIMATED = `
     SELECT 1 FROM trophies t WHERE t.np_comm_id = games.np_comm_id AND t.earned_rate > 0)
     THEN 1 ELSE 0 END)`;
 
-test('a rescore where nothing moved writes nothing', () => {
+test('a rescore where nothing moved writes nothing', needsSqlite, () => {
   // The ordinary night. Nobody started or finished anything, no rarity drifted,
   // and the job should cost zero writes rather than seven hundred thousand.
   const db = fixture();
@@ -98,7 +116,7 @@ test('a rescore where nothing moved writes nothing', () => {
   );
 });
 
-test('and a rescore where something moved still writes it', () => {
+test('and a rescore where something moved still writes it', needsSqlite, () => {
   // The guard must not be so clever it stops the job working. This is the half
   // that would fail if IS NOT were the wrong comparison.
   const db = fixture();
@@ -120,7 +138,7 @@ test('and a rescore where something moved still writes it', () => {
   );
 });
 
-test('a NULL column counts as different, not as equal', () => {
+test('a NULL column counts as different, not as equal', needsSqlite, () => {
   // `=` returns NULL against NULL, so a plain comparison would skip exactly the
   // rows that most need writing — the ones added by an older build before the
   // column existed. IS NOT is null-safe; that is why it is used.

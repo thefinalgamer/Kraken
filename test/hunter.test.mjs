@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { bodyOf } from './helpers.mjs';
 
 /**
  * The hunter page, rendered against fake rows.
@@ -162,14 +163,18 @@ test('a game with nothing earned gets the track colour, not a bronze', async () 
   assert.ok(out.includes('<tr class="sh-none">'), 'no hole in the column, no trophy claimed');
 });
 
-test('the unobtainable note is readable without a mouse', async () => {
+test('the unobtainable note is readable without a mouse, and without a popup', async () => {
   const { out } = await render('JFL__Leon');
 
-  // A title attribute cannot be opened on a touch screen, so on a phone there
-  // was no way to find out why a game was flagged.
-  assert.ok(out.includes('<details class="flagwrap">'), 'tappable');
-  assert.ok(out.includes('<span class="flagnote">Servers closed</span>'), 'note is in the DOM');
-  assert.ok(!out.includes('class="warn" title='), 'the hover-only version is gone');
+  // Two bugs, one line. A title attribute cannot be opened on a touch screen,
+  // so a phone had no way to find out why a game was flagged. The <details>
+  // popup that replaced it was WORSE: absolutely positioned inside .tablewrap,
+  // whose overflow-x:auto promotes the other axis too, so opening a note turned
+  // the table into a scroll box.
+  assert.ok(out.includes('<span class="gnote">Servers closed</span>'), 'the note is a line');
+  assert.ok(!bodyOf(out).includes('flagwrap'), 'no popup');
+  assert.ok(!bodyOf(out).includes('flagnote'), 'and nothing positioned over the table');
+  assert.ok(out.includes('&#9888;'), 'the mark is still beside the title');
 });
 
 test('points read as earned out of the full completion, like the backlog does', async () => {
@@ -410,7 +415,10 @@ test('a closing game is an invitation, not a warning', async () => {
   assert.ok(out.includes('closes in 12 days'), 'the countdown is said out loud');
   assert.ok(out.includes('&#8987;'), 'hourglass, not a warning triangle');
   assert.ok(!out.includes('&#9888;'), 'and definitely not both');
-  assert.ok(out.includes('still earnable until then'), 'it says you can still do it');
+  // "still earnable until then" lived in the popup. The countdown itself now
+  // carries that meaning: a date you can still reach IS the invitation, and the
+  // game page spells it out in full for anybody who wants the sentence.
+  assert.ok(!bodyOf(out).includes('gnote'), 'a closing game gets no warning note');
 });
 
 test('near and far deadlines read differently', async () => {

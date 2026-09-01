@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { bodyOf } from './helpers.mjs';
 
 /**
  * The game page, rendered against fake rows.
@@ -84,19 +85,6 @@ const fakeEnv = ({
   },
 });
 
-/**
- * The markup, without the stylesheet.
- *
- * THE SAME TRAP, FROM THE OTHER SIDE. Positive assertions on an inlined
- * stylesheet pass over an empty page — that lesson is written three times in
- * this repo. This is the mirror image: `assert.ok(!out.includes('Turn off'))`
- * FAILED even after the words were gone from every element, because they were
- * still in a CSS comment explaining why they had been removed.
- *
- * Anything asserting about what the page SAYS should look at what the page
- * says, so a negative goes through here.
- */
-const bodyOf = (out) => out.slice(out.indexOf('</style>'));
 
 const render = async (opts = {}, query = '') => {
   const res = await mod.onRequestGet({

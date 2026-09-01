@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { bodyOf } from './helpers.mjs';
 
 /**
  * The front page.
@@ -80,17 +81,6 @@ const fakeEnv = (o = {}) => ({
   },
 });
 
-/**
- * The markup, without the stylesheet.
- *
- * THE INLINED-STYLESHEET TRAP, for the third time in this repo and the first
- * time from this direction. Positive assertions on `out` pass over an empty
- * page because the CSS is in it; NEGATIVE ones fail over a comment. This test
- * file caught "Newest hunters" surviving in a CSS note explaining why the panel
- * grid has four cells. Anything asserting about what the page SAYS goes
- * through here.
- */
-const bodyOf = (out) => out.slice(out.indexOf('</style>'));
 
 const render = async (o) => {
   const res = await mod.onRequestGet({ env: fakeEnv(o) });

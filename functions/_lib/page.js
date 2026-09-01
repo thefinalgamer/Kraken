@@ -582,14 +582,8 @@ td.prog{min-width:112px}
 .gt{white-space:normal;min-width:220px;position:relative}
 .tname{font-weight:600}
 .gt .meta{display:block;font-size:12px;color:var(--faint);margin-top:2px}
-.warn{color:var(--brass);cursor:help}
 /* Dying is not dead, so it does not wear the dead colour. Amber for "you have
    time", the brass warning for "you do not". */
-.clock{color:var(--kraken)}
-.clock.soon{color:#f0c419}
-.flagwrap.clock summary{color:inherit}
-.flagwrap.clock summary:hover{background:rgba(32,184,153,.14)}
-.flagwrap.clock.soon summary:hover{background:rgba(240,196,25,.16)}
 .closes{
   display:block;font-size:11.5px;font-weight:600;margin-top:3px;color:#f0c419;
 }
@@ -604,25 +598,20 @@ td.prog{min-width:112px}
    the title's baseline and squeezing the game name sideways. Hanging it below
    the row on absolute position keeps every other pixel exactly where it was
    whether it is open or shut. */
-.flagwrap{display:inline-block;vertical-align:middle;margin-left:6px}
-.flagwrap summary{
-  list-style:none;cursor:pointer;color:var(--brass);display:inline-block;
-  /* A 24px target. The glyph is 14px, which is under every touch guideline
-     going, and this is a control people are meant to find. */
-  padding:2px 6px;margin:-2px -6px;border-radius:6px;
+/* The mark beside a game title, and the line under it.
+   THIS REPLACED A POPUP, and the popup is worth remembering: it was a
+   <details> whose panel was absolutely positioned inside .tablewrap. That
+   wrapper sets overflow-x:auto so a wide table can scroll on a phone — and CSS
+   promotes the other axis to auto the moment one axis stops being visible,
+   so a panel hanging below the table quietly turned the table into a scroll
+   box. Reading a flag meant scrolling a container nobody knew existed.
+   A mark and a sentence cannot overflow anything. */
+.mk{margin-left:6px;vertical-align:middle;cursor:help}
+.mk.dead{color:var(--brass)}
+.mk.mk.gnote{
+  display:block;margin-top:4px;font-size:12px;line-height:1.5;color:var(--brass);
+  white-space:normal;max-width:56ch;
 }
-.flagwrap summary::-webkit-details-marker{display:none}
-.flagwrap summary:hover{background:rgba(216,171,62,.14)}
-.flagwrap[open] summary{background:rgba(216,171,62,.18)}
-.flagnote{
-  position:absolute;left:0;top:calc(100% + 6px);z-index:6;
-  padding:9px 11px;border-radius:8px;
-  background:var(--deep);border:1px solid var(--edge);
-  box-shadow:0 8px 24px rgba(0,0,0,.45);
-  color:var(--soft);font-size:12.5px;font-weight:400;line-height:1.5;
-  white-space:normal;width:max-content;max-width:min(42ch,70vw);
-}
-.flagnote b{color:var(--ink)}
 .done{color:var(--up);font-weight:600}
 .zero{color:var(--faint)}
 

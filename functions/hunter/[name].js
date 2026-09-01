@@ -334,34 +334,48 @@ function rollCard(g, { mine, who }) {
 }
 
 /**
- * The mark beside a game title: nothing, a countdown, or a warning.
+ * The mark beside a game title, and the sentence under it.
  *
- * Both live in a <details> so the reason is readable by tapping, which a title
- * attribute never was on a phone.
+ * THIS WAS A POPUP AND THE POPUP WAS THE BUG. The note used to be an absolutely
+ * positioned panel inside a <details>, which looked right on a desktop and did
+ * something horrible everywhere else: `.tablewrap` sets `overflow-x:auto` so
+ * the table can scroll sideways on a phone, and CSS turns the OTHER axis into
+ * `auto` the moment one axis is not `visible`. So a panel hanging below the
+ * table made the table itself scrollable, and reading a flag meant scrolling a
+ * box you did not know you were in. Leon found it within a day.
+ *
+ * It is a line under the title now — no click, no layer, no overflow. The site
+ * already prints "closes in 21 days" exactly this way, so the two now match,
+ * and the information arrives without anybody having to discover that the icon
+ * was a button.
  */
-function clock(g) {
+function clockMarks(g) {
   const state = closingState(g);
 
   if (state === 'closing') {
     const soon = isUrgent(g.closes_at);
-    const note = g.unobtainable_note ? ` ${esc(g.unobtainable_note)}` : '';
-    return `<details class="flagwrap clock${soon ? ' soon' : ''}"><summary
-        aria-label="Closing soon">${soon ? '&#8987;' : '&#128338;'}</summary><span
-        class="flagnote"><b>${esc(closingLabel(g.closes_at))}</b>. Everything in it is
-        still earnable until then.${note}</span></details>`;
+    return {
+      mark: `<span class="mk clock${soon ? ' soon' : ''}" title="${esc(
+        closingLabel(g.closes_at),
+      )}">${soon ? '&#8987;' : '&#128338;'}</span>`,
+      note: '',
+    };
   }
 
   if (state === 'dead') {
-    return `<details class="flagwrap"><summary aria-label="Has unobtainable trophies"
-        >&#9888;</summary><span class="flagnote">${esc(
-          g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
-        )}</span></details>`;
+    return {
+      mark: '<span class="mk dead" title="Has unobtainable trophies">&#9888;</span>',
+      note: `<span class="gnote">${esc(
+        g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
+      )}</span>`,
+    };
   }
 
-  return '';
+  return { mark: '', note: '' };
 }
 
 function gameRow(g, who) {
+  const marks = clockMarks(g);
   const done = Number(g.progress) === 100;
   const max = Number(g.max_points) || 0;
   const got = Number(g.points) || 0;
@@ -424,7 +438,7 @@ function gameRow(g, who) {
          * anybody hurry — so it is never the same colour or the same shape as
          * the thing that means "do not bother".
          */
-        clock(g)
+        marks.mark
       }
       <span class="meta">${
         // The same field the sort uses, or the column and the order would tell
@@ -440,7 +454,7 @@ function gameRow(g, who) {
               closingLabel(g.closes_at),
             )}</span>`
           : ''
-      }
+      }${marks.note}
     </td>
     <td class="num prog" data-v="${width}">
       <span class="${done ? 'done' : ''}">${width}%</span>

@@ -249,7 +249,8 @@ export async function onRequestGet({ env }) {
                 )
                 .join('')}</ul>
                <p class="note">Games several of us own and nobody here has finished.
-                 Every trophy in them is worth more until somebody does.</p>`
+                 Every trophy in them is worth more until somebody does.
+                 <a href="/contested">The whole board &rsaquo;</a></p>`
             : '<p class="empty">Nothing contested right now.</p>'
         }
       </section>

@@ -807,6 +807,31 @@ details.numbers summary:hover{color:var(--kraken)}
   opacity:.7;
 }
 
+/* ---- the contested board ----
+   Same table language as the index, with three columns the index has no use
+   for: position, who is closest, and the multiplier. The multiplier is the only
+   number on this site that moves because of what OTHER people did, so it gets
+   the accent colour and everything else stays quiet around it. */
+table.contested .pos{
+  color:var(--faint);font-variant-numeric:tabular-nums;text-align:right;
+  width:2.6em;padding-right:2px;
+}
+table.contested .stuck{white-space:nowrap}
+table.contested .mult{color:var(--kraken);font-weight:650;white-space:nowrap}
+
+/* The name and the percentage stack on a phone and sit inline above it — a
+   name and a number on one line is two columns pretending to be one, and the
+   percentage is meaningless without the name beside it. */
+.closest{white-space:nowrap;font-size:13.5px}
+.closest a{color:var(--ink);text-decoration:none;font-weight:600}
+.closest a:hover{color:var(--kraken);text-decoration:underline}
+.cp{margin-left:7px;color:var(--soft);font-variant-numeric:tabular-nums}
+.cnone{color:var(--faint);font-style:italic}
+
+/* The lede sits between the hero and the table on this page only, so it needs
+   the breathing room the front page gives it by being in a panel. */
+.hero.plain + .lede{margin:0 0 22px}
+
 /* ---- a trophy nobody can earn any more ----
    Amber, not red, and NOT struck through. The points still count for everybody
    who got there in time, so a style that reads as "this is worthless" would be
@@ -1492,7 +1517,7 @@ export const NAV = [
   // disagree with each other or with the <h1> on the page itself.
   { href: '/leaderboard', label: 'Leaderboards', key: 'board' },
   { href: '/games', label: 'Games', key: 'games' },
-  { label: 'Contested', key: 'contested' },
+  { href: '/contested', label: 'Contested', key: 'contested' },
   { href: '/faq', label: 'FAQ', key: 'faq' },
   // The door. Everything else on this site is a window.
   { href: 'https://discord.com/invite/gdSqDYrXaH', label: 'Discord', key: 'discord', out: true },

@@ -96,9 +96,13 @@ test('the Discord link is real, external and safe', async () => {
   assert.ok(out.includes('https://discord.com/invite/gdSqDYrXaH'), 'the invite');
   assert.ok(out.includes('rel="noopener noreferrer"'), 'no window.opener handle back to us');
 
-  // The pages that do not exist are still labels, not links that 404.
+  // Every page in NAV exists now. This used to assert that Contested was a
+  // label rather than a link that 404s; it is a real page, so the assertion is
+  // inverted rather than deleted — the rule being protected is "the header
+  // never contains a link that goes nowhere", in either direction.
   assert.ok(out.includes('href="/games"'), 'Games is built and linked');
-  assert.ok(out.includes('<span class="soon" title="Coming soon">Contested</span>'));
+  assert.ok(out.includes('href="/contested"'), 'and so is Contested');
+  assert.ok(!out.includes('title="Coming soon"'), 'nothing in the header is a placeholder');
 });
 
 test('the logo is the artwork, not an emoji, and doubles as the favicon', async () => {

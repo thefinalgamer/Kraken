@@ -107,10 +107,12 @@ test('the front page leads with what this is and where to go', async () => {
   for (const label of ['Leaderboards', 'Games', 'Contested', 'Discord']) {
     assert.ok(out.includes(`>${label}<`), `${label} missing from the door`);
   }
-  // Games is a door now. Contested is still the one that is not, and it stays a
-  // label rather than a link that 404s.
+  // Every route in NAV is a door now — Contested was the last label and it
+  // shipped. Nothing in the navigation is allowed to be decoration: a link that
+  // does nothing teaches people not to click the header.
   assert.ok(out.includes('href="/games"'), 'the index is reachable from the door');
-  assert.ok(out.includes('<span class="soon">Contested</span>'), 'unbuilt stays a label');
+  assert.ok(out.includes('href="/contested"'), 'and so is the contested board');
+  assert.ok(!out.includes('class="soon"'), 'no coming-soon labels left in the navigation');
 });
 
 test('the panels are still under the door', async () => {

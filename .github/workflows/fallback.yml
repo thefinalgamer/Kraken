@@ -55,6 +55,7 @@ jobs:
           DISCORD_UPDATES_CHANNEL_ID: ${{ vars.DISCORD_UPDATES_CHANNEL_ID }}
           DISCORD_LEADERBOARD_CHANNEL_ID: ${{ vars.DISCORD_LEADERBOARD_CHANNEL_ID }}
           DISCORD_OWNER_ID: ${{ vars.DISCORD_OWNER_ID }}
+          DISCORD_DIGEST_CHANNEL_ID: ${{ vars.DISCORD_DIGEST_CHANNEL_ID }}
         run: npm run fallback
  
       - name: Keepalive commit

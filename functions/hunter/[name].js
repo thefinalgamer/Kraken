@@ -23,6 +23,7 @@ import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
   closingState, closingLabel, isUrgent, d20, gameHref, crumb, supporterStar,
 } from '../_lib/page.js';
+import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 
 const PER_PAGE = 50;
 
@@ -70,13 +71,38 @@ const DEFAULT_SORT = 'played';
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, country, avatar_url, rank, prev_rank,
          points, reported_points, completion, platinum, gold, silver, bronze,
-         projects, completed, last_update_at, supporter_months
+         projects, completed, last_update_at, supporter_months, rivals
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
    LIMIT 1`;
 
 const TOTAL = `SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL`;
+
+/**
+ * The hunters somebody is watching. Set in Discord with /rivals, read here.
+ *
+ * PUBLIC, AND THAT WAS A DECISION. The Discord reply is ephemeral, which made
+ * it easy to assume the list was secret; it never was, it was just unbuilt.
+ * Showing it on a page anybody can open means Snolib can see he is being
+ * chased, and that is the point — a rivalry nobody knows about is just maths.
+ * The wording in the bot was changed to match, because a footer promising
+ * privacy that the website does not keep is worse than no footer at all.
+ *
+ * At most MAX_RIVALS ids, so the IN list is five placeholders at the very
+ * worst and the query is a primary-key lookup of five rows. It is bounded by
+ * construction rather than by a LIMIT.
+ *
+ * `rank IS NOT NULL` matches every other query on this site: somebody who has
+ * left the board or never finished a scan cannot be ranked against, so they
+ * quietly drop out of the list rather than rendering as a blank row.
+ */
+const rivalsSql = (count) => `
+  SELECT psn_account_id, psn_online_id, avatar_url, rank, points, supporter_months
+    FROM members
+   WHERE psn_account_id IN (${Array.from({ length: count }, () => '?').join(',')})
+     AND rank IS NOT NULL
+   ORDER BY rank ASC`;
 
 /**
  * Their score, backwards.
@@ -551,6 +577,20 @@ export async function onRequestGet({ params, env, request }) {
     m.reported_points ?? m.points,
   );
 
+  /**
+   * Rivals ride the first page too, and for the same reason — it is the same
+   * five rows however deep into somebody's library you are, so paying for them
+   * on page 6 buys nothing.
+   *
+   * parseRivals never throws. A column mangled by an older build renders as no
+   * rivals at all, which is the correct failure: a decoration on a page must
+   * not be able to take the page down.
+   */
+  const rivalIds = pageNo === 1 && !q ? parseRivals(m.rivals) : [];
+  const { results: rivals = [] } = rivalIds.length
+    ? await env.DB.prepare(rivalsSql(rivalIds.length)).bind(...rivalIds).all()
+    : { results: [] };
+
   // Only when asked. Nobody pays for the dice unless somebody rolls them.
   const [backlogPicks, wildPicks] = rolling
     ? await Promise.all([
@@ -606,7 +646,7 @@ export async function onRequestGet({ params, env, request }) {
   const numbersBlock =
     updates.length >= 2 && curve.length >= 2
       ? `<details class="numbers">
-           <summary>Show the numbers<span class="soon-tag">Rivals &middot; soon</span></summary>
+           <summary>Show the numbers</summary>
            <div class="tablewrap"><table><thead><tr>
              <th>When</th><th class="num">Points</th><th class="num">Change</th>
            </tr></thead><tbody>${curve
@@ -624,6 +664,57 @@ export async function onRequestGet({ params, env, request }) {
              .join('')}</tbody></table></div>
          </details>`
       : '';
+
+  /**
+   * The rivals panel.
+   *
+   * SORTED BY RANK, NEVER BY GAP. Sorting by the gap would reshuffle the list
+   * every time anybody played anything, and the whole use of this thing is
+   * glancing at it and knowing where people sit. Rank is the order they are in
+   * on the board, so the list reads the same way the board does.
+   *
+   * The hunter is folded into their own list. A watchlist that does not show
+   * you is a table of five numbers with nothing to measure against — the row
+   * that says "you" is what turns it into a race.
+   *
+   * EVERY GAP IS MEASURED FROM THE HUNTER WHOSE PAGE THIS IS, not from whoever
+   * is reading. The site still has no idea who is looking, so "8,263 ahead" on
+   * Leon's page means ahead of Leon. Saying it any other way would be a lie to
+   * everybody except one person.
+   */
+  const mine = Number(m.points) || 0;
+  const rivalRows = [...rivals, m]
+    .filter((r) => r && r.rank)
+    .sort((a, b) => a.rank - b.rank)
+    .map((r) => {
+      const isMe = r.psn_account_id === m.psn_account_id;
+      const gap = (Number(r.points) || 0) - mine;
+      const tail = isMe
+        ? '<span class="gme">this hunter</span>'
+        : gap > 0
+          ? `<span class="gup">&#9650; ${n(gap)} ahead</span>`
+          : gap < 0
+            ? `<span class="gdn">&#9660; ${n(-gap)} behind</span>`
+            : '<span class="glv">level</span>';
+      return (
+        `<tr${isMe ? ' class="isme"' : ''}>` +
+        `<td class="rk">${n(r.rank)}</td>` +
+        `<td class="who"><a href="/hunter/${encodeURIComponent(r.psn_online_id)}">${esc(
+          r.psn_online_id,
+        )}</a>${supporterStar(r.supporter_months)}</td>` +
+        `<td class="num">${n(r.points)}</td>` +
+        `<td class="gap">${tail}</td></tr>`
+      );
+    })
+    .join('');
+
+  const rivalsBlock = rivals.length
+    ? `<details class="numbers rivals">
+         <summary>Rivals<span class="soon-tag">${rivals.length} of ${MAX_RIVALS}</span></summary>
+         <div class="tablewrap"><table class="rivaltab"><tbody>${rivalRows}</tbody></table></div>
+         <p class="rivalnote">Set with <code>/rivals</code> in Discord.</p>
+       </details>`
+    : '';
 
   /**
    * The dice.
@@ -709,8 +800,7 @@ export async function onRequestGet({ params, env, request }) {
 
     ${splitBlock}
 
-    <!-- The row that was half empty. Rivals will land in the same one. -->
-    <div class="toolrow">${numbersBlock}${rollLink}</div>
+    <div class="toolrow">${rivalsBlock}${numbersBlock}${rollLink}</div>
 
     ${rollBlock}
 

@@ -67,11 +67,16 @@ const UPDATES = [
 
 let lastGamesSql = '';
 let lastBind = [];
+let lastRivalBind = [];
 
-const fakeEnv = ({ member = MEMBER, games = GAMES, updates = UPDATES } = {}) => ({
+const fakeEnv = ({ member = MEMBER, games = GAMES, updates = UPDATES, rivals = [] } = {}) => ({
   DB: {
     prepare(sql) {
       const answer = (args) => {
+        if (sql.includes('psn_account_id IN (')) {
+          lastRivalBind = args;
+          return { all: async () => ({ results: rivals }) };
+        }
         if (sql.includes('FROM members')) {
           return sql.includes('COUNT(*)')
             ? { first: async () => ({ c: 64 }), all: async () => ({ results: [] }) }
@@ -584,4 +589,126 @@ test('every game title is a link to that game', async () => {
       `${g.title} is not a link to its page`,
     );
   }
+});
+
+/* ---------------------------------------------------------------------------
+ * Rivals.
+ *
+ * Set in Discord, rendered here, and PUBLIC — anybody can open anybody's page
+ * and read their watchlist. That was a deliberate choice rather than an
+ * oversight, so the tests say so out loud: if this ever needs to become private
+ * again, these are the assertions that have to be argued with first.
+ * ------------------------------------------------------------------------ */
+
+const RIVALS = [
+  { psn_account_id: 'acc-2', psn_online_id: 'th3finalgamer--', avatar_url: null,
+    rank: 32, points: 175881, supporter_months: 0 },
+  { psn_account_id: 'acc-3', psn_online_id: 'Snolib', avatar_url: null,
+    rank: 40, points: 99449, supporter_months: 0 },
+];
+
+const withRivals = (extra = {}) => ({
+  member: { ...MEMBER, rivals: JSON.stringify(['acc-2', 'acc-3']) },
+  rivals: RIVALS,
+  ...extra,
+});
+
+test('rivals render, with the gap measured from the hunter whose page it is', async () => {
+  const { out } = await render('JFL__Leon', '', withRivals());
+  // bodyOf, because the stylesheet is inlined into every page and a CSS
+  // comment explaining the ahead/behind colours contains the word "ahead".
+  // This negative assertion passed against the comment, not against a row.
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('th3finalgamer--'), 'the rival is named');
+  assert.ok(body.includes('Snolib'), 'and so is the second one');
+
+  // Leon has 186,406. th3finalgamer-- has 175,881 — 10,525 BEHIND Leon, even
+  // though on th3finalgamer's own Discord card Leon shows as ahead. Same two
+  // numbers, opposite sign, because the page belongs to Leon.
+  assert.ok(body.includes('10,525 behind'), 'measured from Leon, not from the reader');
+  assert.ok(body.includes('86,957 behind'), 'and Snolib the same way');
+  assert.ok(!body.includes('ahead'), 'nobody here is ahead of Leon');
+});
+
+test('the hunter appears in their own rivals list, marked', async () => {
+  const { out } = await render('JFL__Leon', '', withRivals());
+  assert.match(out, /<tr class="isme">/, 'their own row is marked');
+  assert.ok(out.includes('this hunter'), 'and labelled — never "you", the site has no idea who is reading');
+  assert.ok(!out.includes('>you<'), 'the one word this page cannot honestly say');
+});
+
+test('rivals are ordered by rank, not by gap', async () => {
+  // Rank order does not reshuffle when somebody plays, so the list stays
+  // readable at a glance. Leon is 27th, so he leads his own list.
+  const { out } = await render('JFL__Leon', '', withRivals());
+  const body = bodyOf(out);
+  const order = [...body.matchAll(/class="rk">(\d+)</g)].map((x) => Number(x[1]));
+  assert.deepEqual(order, [27, 32, 40], 'ascending rank, hunter folded in');
+});
+
+test('a hunter with no rivals gets no panel at all', async () => {
+  const { out } = await render('JFL__Leon');
+  const body = bodyOf(out);
+  assert.ok(!body.includes('rivaltab'), 'no empty table');
+  assert.ok(!/<summary>Rivals/.test(body), 'and no summary promising one');
+});
+
+test('the "soon" placeholder is gone', async () => {
+  // It said Rivals · soon for weeks. Shipping the feature and leaving the
+  // teaser is a bug people notice immediately.
+  const { out } = await render('JFL__Leon', '', withRivals());
+  assert.ok(!bodyOf(out).includes('&middot; soon'), 'the teaser is retired');
+  assert.ok(bodyOf(out).includes('2 of 5'), 'replaced by a real count');
+});
+
+test('a mangled rivals column renders a page, not an error', async () => {
+  // The column is text written by an older build. A watchlist that cannot be
+  // parsed must cost the page its panel and nothing else.
+  const { res, out } = await render('JFL__Leon', '', {
+    member: { ...MEMBER, rivals: '{not json at all' },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(out.includes('Bloodborne'), 'the library still renders');
+  assert.ok(!bodyOf(out).includes('rivaltab'));
+});
+
+test('rivals are fetched by account id, and only on the first unsearched page', async () => {
+  await render('JFL__Leon', '', withRivals());
+  assert.deepEqual(lastRivalBind, ['acc-2', 'acc-3'], 'ids, never names — people rename on PSN');
+
+  lastRivalBind = [];
+  await render('JFL__Leon', '?page=3', withRivals());
+  assert.deepEqual(lastRivalBind, [], 'page 3 does not pay for the same five rows again');
+
+  lastRivalBind = [];
+  await render('JFL__Leon', '?q=blood', withRivals());
+  assert.deepEqual(lastRivalBind, [], 'nor does a search');
+});
+
+test('a hostile rival name cannot inject markup', async () => {
+  const { out } = await render('JFL__Leon', '', withRivals({
+    rivals: [{ ...RIVALS[0], psn_online_id: '<img src=x onerror=alert(1)>' }],
+  }));
+  assert.ok(out.includes('&lt;img'), 'escaped');
+  assert.ok(!out.includes('<img src=x'), 'and not live');
+});
+
+test('every rival is a link through to their own page', async () => {
+  const { out } = await render('JFL__Leon', '', withRivals());
+  // A watchlist you cannot click through is a list of names.
+  assert.ok(out.includes('href="/hunter/th3finalgamer--"'), 'and the dashes survive encoding');
+  assert.ok(out.includes('href="/hunter/Snolib"'));
+});
+
+test('somebody above the hunter reads as ahead, in the other colour', async () => {
+  // The other half of the branch. Every rival in the fixture above sits below
+  // Leon, so without this the "ahead" arm was never once rendered.
+  const { out } = await render('JFL__Leon', '', withRivals({
+    rivals: [{ ...RIVALS[0], psn_online_id: 'MRTheChez', rank: 3, points: 500000 }],
+  }));
+  const body = bodyOf(out);
+  assert.ok(body.includes('313,594 ahead'), 'the difference, said the right way round');
+  assert.ok(body.includes('class="gup"'), 'and green, matching the arrows in Discord');
+  assert.match(body, /class="rk">3<[\s\S]*class="rk">27</, 'rank 3 sorts above rank 27');
 });

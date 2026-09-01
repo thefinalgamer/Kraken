@@ -7,11 +7,17 @@
 -- personal data a login would have put on the website, for a feature that is
 -- better anyway: you set it where you talk to your rivals.
 --
--- PRIVATE, AND STORED AS ACCOUNT IDS. Every reply is ephemeral — a watchlist is
--- nobody else's business, and "who is watching me" is a question this board
--- should not be able to answer out loud. The ids are psn_account_id rather than
--- psn_online_id because a member can rename themselves on PSN and a list of
--- names would quietly lose people.
+-- PUBLIC, AND STORED AS ACCOUNT IDS. This started out private on the grounds
+-- that "who is watching me" was nobody's business, but that was privacy by
+-- accident: the reply is ephemeral because Discord replies are, not because
+-- anybody decided the list was secret. It now renders on the hunter page for
+-- anyone to read, which is the better feature — being visibly chased is the
+-- half of a rivalry that makes it one. The bot's wording was changed in the
+-- same commit; a footer promising privacy the website does not keep would be
+-- worse than no footer at all.
+--
+-- The ids are psn_account_id rather than psn_online_id because a member can
+-- rename themselves on PSN and a list of names would quietly lose people.
 --
 -- ONE COLUMN, NOT A TABLE. A join table would be the textbook answer for a
 -- many-to-many, and it would be right at a thousand members. At seventy, with a

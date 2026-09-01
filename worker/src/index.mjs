@@ -1354,7 +1354,7 @@ async function rivals(env, viewerId, add, remove) {
               'Add up to ' + MAX_RIVALS + ' hunters with `/rivals add` and this becomes a ' +
                 'little board of just them and you — the people you are actually racing, ' +
                 'without the other sixty-odd in the way.\n' +
-                '-# Private. Only you ever see this, and nobody is told they are on it.',
+                '-# Only you can see this message. The list itself shows on your hunter page.',
             ),
           ],
           COLOR.blurple,
@@ -1371,7 +1371,10 @@ async function rivals(env, viewerId, add, remove) {
           `${n(total)} overall${note ? ` · ${note}` : ''}`,
       ),
       ...rivalBlocks(me, rows, total),
-      text('-# Private to you. `/rivals add` or `/rivals remove` to change it.'),
+      text(
+        '-# Only you can see this message; the list shows on your hunter page. '
+          + '`/rivals add` or `/rivals remove` to change it.',
+      ),
     ],
     { ephemeral: true },
   );

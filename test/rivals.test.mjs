@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   MAX_RIVALS, parseRivals, serialiseRivals, addRival, removeRival,
@@ -120,4 +121,21 @@ test('the PSN id is escaped for Discord markdown', () => {
   // in Discord and PSN allows underscores.
   const out = JSON.stringify(rivalBlocks(ME, THEM, 70));
   assert.match(out, /JFL\\\\_\\\\_Leon/, 'the underscores are escaped');
+});
+
+test('the bot never tells anybody their rivals list is private', async () => {
+  /**
+   * The list renders on the hunter page, which anybody can open. The Discord
+   * reply is still ephemeral, so "only you can see this message" stays true —
+   * but the list it contains is not secret, and the bot said it was for as long
+   * as the website half was unbuilt.
+   *
+   * Asserted against the source rather than a rendered reply because building a
+   * whole interaction to read one footer is more fake than this is. If the
+   * wording is ever softened back, this fails and asks why.
+   */
+  const src = await readFile(new URL('../worker/src/index.mjs', import.meta.url), 'utf8');
+  const claims = src.match(/-# Private[^']*/g) || [];
+  assert.deepEqual(claims, [], `the bot still promises privacy it does not keep: ${claims}`);
+  assert.match(src, /the list shows on your hunter page/, 'and says where it actually shows');
 });

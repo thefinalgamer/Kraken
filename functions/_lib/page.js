@@ -799,13 +799,44 @@ ul.rolls .s b{color:var(--soft)}
 details.numbers{margin:0 0 18px}
 details.numbers summary{cursor:pointer;color:var(--soft);font-size:13px;padding:4px 0}
 details.numbers summary:hover{color:var(--kraken)}
-/* Holding the space for the private board so the layout does not jump when it
-   lands, and so somebody asks about it before it exists. */
+/* Started life holding space for a feature that did not exist yet. It now
+   carries the rivals count, which is what the space was being held for. */
 .soon-tag{
   margin-left:14px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
   color:var(--faint);border:1px solid var(--edge);border-radius:99px;padding:2px 9px;
   opacity:.7;
 }
+
+/* ---- rivals ----
+   Four columns and no <thead>. Rank, who, points, gap reads without a header
+   the way a scoreboard does, and a header row on a five-row table is a third
+   of the table spent saying what the numbers obviously are. */
+.rivaltab{width:100%;border-collapse:collapse;font-size:14px}
+.rivaltab td{padding:7px 10px;border-top:1px solid var(--edge);vertical-align:middle}
+.rivaltab tr:first-child td{border-top:0}
+.rivaltab .rk{color:var(--faint);font-variant-numeric:tabular-nums;width:3.2em;text-align:right}
+.rivaltab .who a{color:var(--ink);text-decoration:none;font-weight:600}
+.rivaltab .who a:hover{color:var(--kraken);text-decoration:underline}
+.rivaltab .num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.rivaltab .gap{white-space:nowrap;font-size:13px}
+
+/* The hunter's own row. A left edge rather than a background fill: the fill
+   fought the zebra striping everywhere else and made the row look selected
+   rather than owned. */
+.rivaltab tr.isme td{background:rgba(45,212,191,.06)}
+.rivaltab tr.isme .rk{box-shadow:inset 3px 0 0 var(--kraken);color:var(--ink)}
+.rivaltab tr.isme .who a{color:var(--kraken)}
+
+/* Green up, red down, matching the arrows in the Discord reply exactly. The
+   colours are directional, not a judgement: somebody ahead of you is not a bad
+   thing happening, and the site should not read as though it were. Reuse the
+   board's own --up/--down rather than picking a second pair of greens. */
+.gup{color:var(--up)}
+.gdn{color:var(--down)}
+.glv,.gme{color:var(--faint)}
+
+.rivalnote{margin:8px 0 0;font-size:12px;color:var(--faint)}
+.rivalnote code{background:var(--deep);border:1px solid var(--edge);border-radius:4px;padding:1px 5px}
 
 /* ---- the deep ----
    Bioluminescence at the foot of every page. The gradient does the depth; the

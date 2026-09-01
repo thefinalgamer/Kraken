@@ -104,7 +104,28 @@ async function countLocalRarity() {
   return { earned, started };
 }
 
-/** Persist the counts, so /game can show them without recounting. */
+/**
+ * Persist the counts, so /game can show them without recounting.
+ *
+ * EVERY STATEMENT IS GUARDED BY THE VALUE IT IS ABOUT TO WRITE, and that guard
+ * is most of this job's cost.
+ *
+ * These two updates touch every owned game and every trophy anybody here holds
+ * — around seven hundred thousand rows — and they ran unconditionally, every
+ * night. That is about twenty-one million writes a month against a fifty
+ * million allowance, spent almost entirely on setting numbers to the values
+ * they already had: a count only moves when somebody starts or finishes that
+ * exact game, which on any given night is a few hundred rows out of the lot.
+ *
+ * Adding `AND col IS NOT <value>` costs one comparison per row and no extra
+ * round trips — the statement count is identical — and turns a nightly rewrite
+ * of the whole table into a write of only what changed. Reads go up a shade,
+ * which is free: reads sit at four percent of their allowance and writes were
+ * at fifty-four.
+ *
+ * The same guard is already on trophies.points and member_games.points, for
+ * the same reason. These two were simply missed.
+ */
 async function writeLocalCounts({ earned, started }) {
   const byStarted = new Map();
   for (const [game, n] of started) {
@@ -116,7 +137,8 @@ async function writeLocalCounts({ earned, started }) {
     for (let i = 0; i < games.length; i += 200) {
       statements.push(
         `UPDATE games SET local_started = ${D1.lit(n)} WHERE np_comm_id IN (` +
-          games.slice(i, i + 200).map((g) => D1.lit(g)).join(',') + ')',
+          games.slice(i, i + 200).map((g) => D1.lit(g)).join(',') +
+          `) AND local_started IS NOT ${D1.lit(n)}`,
       );
     }
   }
@@ -131,7 +153,7 @@ async function writeLocalCounts({ earned, started }) {
       statements.push(
         `UPDATE trophies SET local_earned = ${D1.lit(n)} WHERE (np_comm_id, trophy_id) IN (VALUES ` +
           pairs.slice(i, i + 200).map(([g, t]) => `(${D1.lit(g)},${D1.lit(Number(t))})`).join(',') +
-          ')',
+          `) AND local_earned IS NOT ${D1.lit(n)}`,
       );
     }
   }
@@ -254,10 +276,16 @@ async function rescoreTrophies(local) {
   // Keep games.estimated honest, so the scan knows which ones to re-check in
   // days rather than a month. One statement — a game is estimated exactly when
   // none of its trophies has a published rarity, which SQL can answer itself.
+  // Guarded, like everything else that touches a whole table nightly. Almost no
+  // game changes from estimated to priced on any given night; without the WHERE
+  // this rewrote all twenty-six thousand rows to the values they already held.
   await db.run(
     `UPDATE games SET estimated = CASE WHEN NOT EXISTS (
        SELECT 1 FROM trophies t WHERE t.np_comm_id = games.np_comm_id AND t.earned_rate > 0
-     ) THEN 1 ELSE 0 END`,
+     ) THEN 1 ELSE 0 END
+     WHERE estimated IS NOT (CASE WHEN NOT EXISTS (
+       SELECT 1 FROM trophies t WHERE t.np_comm_id = games.np_comm_id AND t.earned_rate > 0
+     ) THEN 1 ELSE 0 END)`,
   );
 
   console.log(
@@ -270,8 +298,13 @@ async function rescoreTrophies(local) {
 
 /** games.max_points is the sum of its trophies. Recomputed in one statement. */
 async function rescoreGames() {
+  // Only the games whose total actually moved. A rescore that re-priced four
+  // hundred trophies used to rewrite max_points on all twenty-six thousand
+  // games; now it writes the handful whose sum is different.
   await db.run(
     `UPDATE games SET max_points =
+       (SELECT COALESCE(SUM(t.points), 0) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)
+     WHERE max_points IS NOT
        (SELECT COALESCE(SUM(t.points), 0) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)`,
   );
 
@@ -279,8 +312,16 @@ async function rescoreGames() {
   // trophy make-up — but recomputed here so a game added by an older build,
   // before the column existed, cannot sit at zero and quietly drop itself out
   // of everyone's completion.
+  // This one changes only when a game gains or loses trophies — a DLC landing,
+  // or a first scan filling in a game we knew nothing about — so on most nights
+  // the guard makes it write nothing at all.
   await db.run(
     `UPDATE games SET completion_weight = (
+       SELECT COALESCE(SUM(CASE t.type
+                WHEN 'gold' THEN 90 WHEN 'silver' THEN 30 WHEN 'bronze' THEN 15
+                ELSE 0 END), 0)
+         FROM trophies t WHERE t.np_comm_id = games.np_comm_id)
+     WHERE completion_weight IS NOT (
        SELECT COALESCE(SUM(CASE t.type
                 WHEN 'gold' THEN 90 WHEN 'silver' THEN 30 WHEN 'bronze' THEN 15
                 ELSE 0 END), 0)

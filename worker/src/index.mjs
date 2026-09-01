@@ -394,7 +394,7 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
 
   if (!note) {
     const rest = dead.length
-      ? `\n\n-# ${dead.length} other trophy${dead.length === 1 ? '' : 'ies'} here ${dead.length === 1 ? 'is' : 'are'} still flagged, so the game keeps its warning.`
+      ? `\n\n-# ${dead.length} other troph${dead.length === 1 ? 'y' : 'ies'} here ${dead.length === 1 ? 'is' : 'are'} still flagged, so the game keeps its warning.`
       : '\n\n-# That was the last one, so the game is completable again.';
     return reply(
       [
@@ -416,7 +416,7 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
               `No longer earnable in ${where}.\n\n` +
               `-# ${note}\n\n` +
               `The game now shows the warning everywhere it appears, and ` +
-              `${dead.length} trophy${dead.length === 1 ? '' : 'ies'} in it ` +
+              `${dead.length} troph${dead.length === 1 ? 'y' : 'ies'} in it ` +
               `${dead.length === 1 ? 'is' : 'are'} flagged.\n` +
               '-# Nobody loses points for having earned it. Run `/flag` with the same trophy and ' +
               'no note to clear this.',

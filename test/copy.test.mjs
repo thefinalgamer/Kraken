@@ -116,3 +116,31 @@ test('the guard actually reads the files it claims to', async () => {
   // And it can still see a dash when there is one to see.
   assert.equal(hits([{ path: 'x', code: 'const a = "one — two";' }], '—').length, 1);
 });
+
+test('plurals are built from the stem, not by gluing a suffix onto the singular', async () => {
+  /**
+   * `trophy${n === 1 ? '' : 'ies'}` renders "trophyies", and it shipped: Leon
+   * screenshotted "4 trophyies in it are flagged" out of a /flag reply.
+   *
+   * The stem is "troph". The rule generalises to every -y word, so this looks
+   * for the shape rather than the one word that caught us, and it has to be a
+   * source check because the broken string only exists at runtime.
+   */
+  const bad = [];
+  for (const { path, code } of await sources()) {
+    // A template pluralisation whose literal part already ends in the singular
+    // "y" while the branch supplies "ies".
+    for (const m of code.matchAll(/(\w*y)\$\{[^}]*?'ies'[^}]*?\}/g)) {
+      bad.push(`${path}: ${m[0].slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(bad, [], 'these render as "<word>yies"');
+});
+
+test('the plural guard can see a broken plural when there is one', () => {
+  // The test above passes on an empty codebase, so prove the pattern matches.
+  const broken = "`${n} trophy${n === 1 ? '' : 'ies'} left`";
+  const fixed = "`${n} troph${n === 1 ? 'y' : 'ies'} left`";
+  assert.equal([...broken.matchAll(/(\w*y)\$\{[^}]*?'ies'[^}]*?\}/g)].length, 1, 'catches the bad form');
+  assert.equal([...fixed.matchAll(/(\w*y)\$\{[^}]*?'ies'[^}]*?\}/g)].length, 0, 'and passes the good one');
+});

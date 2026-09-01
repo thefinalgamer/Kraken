@@ -168,18 +168,36 @@ test('a game with nothing earned gets the track colour, not a bronze', async () 
   assert.ok(out.includes('<tr class="sh-none">'), 'no hole in the column, no trophy claimed');
 });
 
-test('the unobtainable note is readable without a mouse, and without a popup', async () => {
+test('the unobtainable note rides the symbol, and never becomes a popup again', async () => {
   const { out } = await render('JFL__Leon');
+  const body = bodyOf(out);
 
-  // Two bugs, one line. A title attribute cannot be opened on a touch screen,
-  // so a phone had no way to find out why a game was flagged. The <details>
-  // popup that replaced it was WORSE: absolutely positioned inside .tablewrap,
-  // whose overflow-x:auto promotes the other axis too, so opening a note turned
-  // the table into a scroll box.
-  assert.ok(out.includes('<span class="gnote">Servers closed</span>'), 'the note is a line');
-  assert.ok(!bodyOf(out).includes('flagwrap'), 'no popup');
-  assert.ok(!bodyOf(out).includes('flagnote'), 'and nothing positioned over the table');
-  assert.ok(out.includes('&#9888;'), 'the mark is still beside the title');
+  /**
+   * THIRD PLACE THIS NOTE HAS LIVED, and the history is why the assertions
+   * below look the way they do.
+   *
+   *   1. a `title` on the symbol   — invisible on a phone
+   *   2. a <details> popup          — absolutely positioned inside .tablewrap,
+   *                                   whose overflow-x:auto promotes the other
+   *                                   axis, so opening one turned the table into
+   *                                   a scroll box. Leon found it in a day.
+   *   3. an inline line under the title
+   *   4. back to `title`, deliberately
+   *
+   * Martin, on (3): a good note is a bad table row. "4 Trophies Unobtainable -
+   * UGC Servers Shutdown 31st August 2026" is longer than the game title, wraps,
+   * and pushes every row below it down, so in a list of forty games the
+   * exception shouts louder than the games.
+   *
+   * The phone problem from (1) is real and is answered elsewhere rather than
+   * pretended away: the game page prints the note in full, guarded by its own
+   * test in game.test.mjs. What must never come back is (2).
+   */
+  assert.match(body, /class="mk dead" title="Servers closed"/, 'the note is on the symbol');
+  assert.ok(!body.includes('class="gnote"'), 'and no longer a line that pushes the table around');
+  assert.ok(!body.includes('flagwrap'), 'no popup');
+  assert.ok(!body.includes('flagnote'), 'and nothing positioned over the table');
+  assert.ok(body.includes('&#9888;'), 'the mark is still beside the title');
 });
 
 test('points read as earned out of the full completion, like the backlog does', async () => {

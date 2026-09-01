@@ -553,3 +553,24 @@ test('the page survives migration 015 not having run, without losing DLC folders
   assert.ok(!bodyOf(out).includes('deadmark'), 'no flags, because the column is not there');
   assert.ok(out.includes('The Old Hunters'), 'but the DLC folders survive');
 });
+
+test('the game page still prints the mod note in full, which is the phone answer', async () => {
+  /**
+   * The index and the hunter page now carry the note as a `title` on the ⚠,
+   * which does nothing on a touch screen. That is only acceptable because this
+   * page spells it out, so a phone is one tap from the whole sentence rather
+   * than locked out of it. If this ever stops rendering, that trade breaks and
+   * the note becomes desktop-only.
+   */
+  const g = {
+    ...GAME,
+    unobtainable: 1,
+    unobtainable_note: '4 Trophies Unobtainable - UGC Servers Shutdown 31st August 2026',
+    closes_at: null,
+  };
+  const { out } = await render({ game: g });
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('4 Trophies Unobtainable'), 'the mod\'s words, in full');
+  assert.match(body, /class="warn dead"/, 'as a proper banner, not a tooltip');
+});

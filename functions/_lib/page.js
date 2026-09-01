@@ -608,10 +608,6 @@ td.prog{min-width:112px}
    A mark and a sentence cannot overflow anything. */
 .mk{margin-left:6px;vertical-align:middle;cursor:help}
 .mk.dead{color:var(--brass)}
-.mk.mk.gnote{
-  display:block;margin-top:4px;font-size:12px;line-height:1.5;color:var(--brass);
-  white-space:normal;max-width:56ch;
-}
 .done{color:var(--up);font-weight:600}
 .zero{color:var(--faint)}
 
@@ -1464,12 +1460,12 @@ span.tic svg{width:26px;height:26px}
    A clock is bad news at both ends, so both ends are red and only the urgency
    changes: bright for inside a month, deep for further out. Nothing on the page
    is now coloured like the thing it is not. */
-tr.st-dead  td.bar{background:var(--brass)}
+tr.st-dead  td.bar{background:#e5342c}
 tr.st-soon  td.bar{background:var(--down)}
 tr.st-clock td.bar{background:#8e3f3c}
 tr.st-none  td.bar{background:var(--rule)}
 @media (max-width:640px){
-  .games tr.st-dead  td.gi{border-left-color:var(--brass)}
+  .games tr.st-dead  td.gi{border-left-color:#e5342c}
   .games tr.st-soon  td.gi{border-left-color:var(--down)}
   .games tr.st-clock td.gi{border-left-color:#8e3f3c}
 }
@@ -1486,7 +1482,14 @@ tr.st-none  td.bar{background:var(--rule)}
    and the gradient would restart at every cell boundary. */
 tr.st-soon{background-image:linear-gradient(90deg,rgba(224,100,95,.17),rgba(224,100,95,.05) 22%,transparent 45%)}
 tr.st-clock{background-image:linear-gradient(90deg,rgba(142,63,60,.19),rgba(142,63,60,.05) 22%,transparent 45%)}
-tr.st-dead{background-image:linear-gradient(90deg,rgba(216,171,62,.14),rgba(216,171,62,.04) 22%,transparent 45%)}
+/* DEAD IS THE ONE THAT DOES NOT FADE OUT.
+   Martin: "dont half it full red so scrolling down i can see this is FUCKED".
+   Closing soon is a warning and gets the half wash like everything else; a game
+   whose trophies are already gone is not a warning, it is a verdict, and it
+   carries colour the whole way across so it is unmissable at scrolling speed.
+   Full width is what separates it from the two clock states, which are also red
+   now — the shade says how bad, the WIDTH says whether it is over. */
+tr.st-dead{background-image:linear-gradient(90deg,rgba(229,52,44,.22),rgba(229,52,44,.15) 55%,rgba(229,52,44,.11))}
 
 /* And it brightens as your eye passes, the same half-pixel promise the cards
    make: this is the row you are on, nothing here is clickable. */

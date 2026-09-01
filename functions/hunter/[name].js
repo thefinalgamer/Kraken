@@ -393,11 +393,28 @@ function clockMarks(g) {
   }
 
   if (state === 'dead') {
+    /**
+     * THE MOD'S NOTE MOVES ONTO THE SYMBOL, and none of their work is lost.
+     *
+     * "4 Trophies Unobtainable - UGC Servers Shutdown 31st August 2026" is a
+     * good note and a bad table row: it is longer than the game title, wraps to
+     * a second line, and pushes every row below it down. In a list of forty
+     * games the exception ends up shouting louder than the games.
+     *
+     * It is a `title` attribute rather than a styled tooltip ON PURPOSE. A
+     * positioned popup inside `.tablewrap` is exactly what caused Leon's
+     * scrollbar bug: `overflow-x:auto` promotes the other axis to auto, so an
+     * absolutely positioned child made the whole table scroll vertically. The
+     * browser's own tooltip has no layout at all and cannot do that.
+     *
+     * The note is still printed IN FULL on the game page itself, so a phone,
+     * where `title` does nothing, is one tap from the whole sentence.
+     */
     return {
-      mark: '<span class="mk dead" title="Has unobtainable trophies">&#9888;</span>',
-      note: `<span class="gnote">${esc(
+      mark: `<span class="mk dead" title="${esc(
         g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
-      )}</span>`,
+      )}">&#9888;</span>`,
+      note: '',
     };
   }
 

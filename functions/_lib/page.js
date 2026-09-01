@@ -714,113 +714,90 @@ td.prog{min-width:112px}
    its left. Coming in from off the left edge would widen the document and hand
    every phone a horizontal scrollbar for two seconds. */
 .rolled .d20{width:52px;height:52px;vertical-align:middle}
+.rolled .dscale{transform:scale(1)}
+/* IT ROLLS. The first attempt travelled but did not roll: it stretched and
+   jumped, and both faults had the same cause. Rotation and position were
+   keyframed independently, so the die could cross a third of the screen while
+   barely turning and then spin on the spot while barely moving. That is not
+   motion, it is two animations arguing.
 
-/* TWO AXES, TWO ELEMENTS, and this is the whole fix.
-   Horizontal and vertical used to share one transform, so the ease-out that
-   makes the die decelerate as it RISES was also decelerating its travel across
-   the screen. The keyframes had been fudged to compensate and the compensation
-   overshot: measured, the die moved 21% FASTER just after the first bounce than
-   it did falling in. That speed-up is what read as a jump.
-   A thrown die keeps its horizontal speed the whole time it is airborne and
-   loses a share of it at each impact. Nothing else. So travel lives on .dscale
-   at constant speed per flight, and the bouncing and the roll live on .dspin
-   where the easing belongs. Neither can distort the other now.
-   Every x below comes from that model with 22% of horizontal speed lost per
-   impact, and every rotation is 25 degrees per vw travelled, which is what
-   makes it roll rather than spin. 72vw x 25 = 1,800 degrees = five whole turns,
-   so it lands in the orientation it was lit for. */
-.rolled .dscale{animation:throwx 2s linear both}
-.rolled .dspin{animation:throwy 2s linear both}
+   ROTATION IS A FUNCTION OF DISTANCE. Twenty-five degrees per vw travelled,
+   which is what rolling means: something that turns because it is moving, not
+   alongside it. Seventy-two vw at 25 deg/vw is 1,800 degrees, exactly five
+   turns, so it also lands in the orientation it was lit for without anybody
+   having to fudge the last keyframe.
+
+   THE AXIS IS MOSTLY Z, because that is the one a thing rolling across your
+   screen turns around. The small X and Y components are what make it a die
+   rather than a wheel.
+
+   NO SCALE. The pulsing was meant to read as impact and read as stretching,
+   because a scale on a rotating object distorts along whichever axis happens to
+   be vertical at that instant. Weight comes from the shadow instead.
+
+   DO NOT "IMPROVE" THIS. It has been rebuilt twice on the grounds that the
+   physics could be more accurate, and both times it looked worse and had to
+   come back. Once the horizontal travel was split onto its own element so the
+   die never sped up after a bounce, which is more correct and reads as wrong;
+   once with a second rotation axis for tumble, which put it in a perspective
+   frustum it was never designed for and made it fly like a ship. Accuracy is
+   not the goal here. This version is the one Martin approved. Change it only
+   if he asks, and change one thing at a time.
+
+   RIGHT TO LEFT is a constraint, not a preference: the panel sits at the left
+   of a centred page, so there is room to the right of the heading and none to
+   its left. Coming in from off the left edge would widen the document and hand
+   every phone a horizontal scrollbar for two seconds. */
+.rolled .dspin{animation:throw 2s linear both}
 .rolled .d20::after{
   content:"";position:absolute;left:8%;right:8%;bottom:-6px;height:7px;
-  border-radius:50%;background:rgba(0,0,0,.55);
+  border-radius:50%;background:rgba(0,0,0,.55);filter:blur(3px);
   animation:landshadow 2s linear both;
 }
-
-/* Travel, and NOTHING ELSE ON THIS ELEMENT.
-   A second slow rotation was added here to make the die tumble rather than
-   wheel, and it was a bad idea for a reason worth writing down: the perspective
-   lives on .d20, so a child translated most of a screen away from the
-   perspective origin is being viewed further and further off-axis. Rotating
-   THAT on a mostly-X axis pitches it through the skewed frustum, and the die
-   stops reading as something rolling on a surface and starts reading as
-   something banking through the air. Martin's word for it was "a flying ship",
-   and he was right.
-   The roll only ever wanted one axis. Travel here, turn on .dspin, and the two
-   compose without either distorting the other.
-   Linear inside a flight, because that is what constant horizontal speed means;
-   the step down happens at the impact keyframes. */
-@keyframes throwx{
-  0%   {transform:translate3d(72vw,0,0)    scale(1)}
-  26%  {transform:translate3d(45.82vw,0,0) scale(1)}
-  38%  {transform:translate3d(36.4vw,0,0)  scale(1)}
-  52%  {transform:translate3d(25.4vw,0,0)  scale(1)}
-  63%  {transform:translate3d(18.67vw,0,0) scale(1)}
-  75%  {transform:translate3d(11.31vw,0,0) scale(1)}
-  84%  {transform:translate3d(7.01vw,0,0)  scale(1)}
-  94%  {transform:translate3d(2.24vw,0,0)  scale(1)}
-  100% {transform:translate3d(0,0,0)       scale(1)}
-}
-
-/* The bounce and the roll. Per-keyframe easing, because a bounce is two
-   different motions: falling accelerates, rising decelerates, and one timing
-   function across the whole thing can only ever do one of them. */
-@keyframes throwy{
-  0%   {transform:translate3d(0,-190px,0) rotate3d(.25,.14,1,0deg);
+/* Per-keyframe easing, because a bounce is two different motions: falling
+   accelerates and rising decelerates. One timing function across the whole
+   animation cannot do both, which is what made the arcs look mechanical. */
+@keyframes throw{
+  0%   {transform:translate3d(72vw,-190px,0)  rotate3d(.25,.15,1,0deg);
         opacity:0; animation-timing-function:ease-in}
   8%   {opacity:1}
   /* first contact */
-  26%  {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-655deg);
+  26%  {transform:translate3d(47vw,0,0)       rotate3d(.25,.15,1,-625deg);
         animation-timing-function:ease-out}
-  38%  {transform:translate3d(0,-58px,0)  rotate3d(.25,.14,1,-890deg);
+  38%  {transform:translate3d(33vw,-58px,0)   rotate3d(.25,.15,1,-975deg);
         animation-timing-function:ease-in}
   /* second */
-  52%  {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1165deg);
+  52%  {transform:translate3d(20vw,0,0)       rotate3d(.25,.15,1,-1300deg);
         animation-timing-function:ease-out}
-  63%  {transform:translate3d(0,-30px,0)  rotate3d(.25,.14,1,-1333deg);
+  63%  {transform:translate3d(11vw,-30px,0)   rotate3d(.25,.15,1,-1525deg);
         animation-timing-function:ease-in}
-  /* third */
-  75%  {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1517deg);
+  /* third, almost home */
+  75%  {transform:translate3d(5vw,0,0)        rotate3d(.25,.15,1,-1675deg);
         animation-timing-function:ease-out}
-  84%  {transform:translate3d(0,-11px,0)  rotate3d(.25,.14,1,-1625deg);
+  84%  {transform:translate3d(1.8vw,-11px,0)  rotate3d(.25,.15,1,-1755deg);
         animation-timing-function:ease-in}
-  /* fourth, barely off the ground */
-  94%  {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1744deg);
+  /* the last roll, coming to rest on a whole number of turns */
+  94%  {transform:translate3d(.3vw,0,0)       rotate3d(.25,.15,1,-1793deg);
         animation-timing-function:ease-out}
-  /* THE SETTLE. It used to stop dead on the last frame, which is the one thing
-     a physical object never does. It rocks a few degrees past and rolls back
-     onto the face. NO HOP: a 2px lift on a 52px die is a twitch, not a bounce,
-     and the rotation is doing all the work anyway. */
-  97.5%{transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1804deg);
-        animation-timing-function:ease-in}
-  100% {transform:translate3d(0,0,0)      rotate3d(.25,.14,1,-1800deg)}
+  100% {transform:translate3d(0,0,0)          rotate3d(.25,.15,1,-1800deg)}
 }
-
-/* The shadow travels underneath, squashing wide on each impact and thinning
-   while the die is in the air. It is most of why the thing reads as having
-   weight rather than as a sprite sliding across a page.
-   IT ALSO BLURS WITH HEIGHT NOW. A shadow whose edge stays equally sharp at the
-   top of an arc and at the moment of contact is the tell that there is no
-   height in the scene at all. Its x stops match the die's exactly; when they
-   drifted apart the die appeared to skate. */
+/* The shadow travels with it, squashing wide on each impact and thinning while
+   the die is in the air. It is most of why the thing reads as having weight;
+   without it the die is a sprite sliding across a page. */
 @keyframes landshadow{
-  0%   {opacity:0;   transform:translate3d(72vw,0,0)    scale(.30); filter:blur(6px)}
-  20%  {opacity:.16; transform:translate3d(51.86vw,0,0) scale(.55); filter:blur(5px)}
-  26%  {opacity:.60; transform:translate3d(45.82vw,0,0) scale(1.25);filter:blur(2px)}
-  38%  {opacity:.18; transform:translate3d(36.4vw,0,0)  scale(.60); filter:blur(5px)}
-  52%  {opacity:.58; transform:translate3d(25.4vw,0,0)  scale(1.16);filter:blur(2px)}
-  63%  {opacity:.24; transform:translate3d(18.67vw,0,0) scale(.72); filter:blur(4px)}
-  75%  {opacity:.55; transform:translate3d(11.31vw,0,0) scale(1.10);filter:blur(2px)}
-  84%  {opacity:.34; transform:translate3d(7.01vw,0,0)  scale(.86); filter:blur(3px)}
-  94%  {opacity:.52; transform:translate3d(2.24vw,0,0)  scale(1.05);filter:blur(2px)}
-  100% {opacity:.45; transform:translate3d(0,0,0)       scale(1);   filter:blur(3px)}
+  0%   {opacity:0;   transform:translate3d(72vw,0,0)  scale(.35)}
+  20%  {opacity:.16; transform:translate3d(54vw,0,0)  scale(.6)}
+  26%  {opacity:.6;  transform:translate3d(47vw,0,0)  scale(1.25)}
+  38%  {opacity:.16; transform:translate3d(33vw,0,0)  scale(.6)}
+  52%  {opacity:.58; transform:translate3d(20vw,0,0)  scale(1.16)}
+  63%  {opacity:.2;  transform:translate3d(11vw,0,0)  scale(.7)}
+  75%  {opacity:.55; transform:translate3d(5vw,0,0)   scale(1.1)}
+  84%  {opacity:.3;  transform:translate3d(1.8vw,0,0) scale(.85)}
+  100% {opacity:.45; transform:translate3d(0,0,0)     scale(1)}
 }
 @media (prefers-reduced-motion:reduce){
   /* The die still arrives, it just does not perform. */
-  .rolled .dscale,.rolled .dspin,.rolled .d20::after,.rolls li{animation:none}
-  /* .dscale carries the size as well as the travel, so switching its
-     animation off has to put the scale back by hand. */
-  .rolled .dscale{transform:scale(1)}
+  .rolled .dspin,.rolled .d20::after,.rolls li{animation:none}
 }
 .panel.roll{margin:0 0 18px}
 .panel.roll h2{gap:9px}

@@ -322,3 +322,47 @@ test('a typed-in version is checked against the database, not trusted', () => {
   assert.match(fn.slice(0, 6000), /is not an edition I know/, 'and rejected if it is not real');
   assert.match(fn.slice(0, 6000), /Pick the game again/, 'and if it belongs to another title');
 });
+
+test('a closing date with a note counts down — it does not kill the game today', () => {
+  /**
+   * The bug this replaces: `on: Boolean(clean)` meant the obvious command —
+   *
+   *   /flag <game> closes:2027-03-15 note:"Servers shut down"
+   *
+   * — marked the game unobtainable that night, eighteen months early, and the
+   * countdown the mod thought they were setting never mattered because the game
+   * was already dead. A note is now the REASON for the countdown.
+   */
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  assert.match(fn.slice(0, 9000), /on: Boolean\(clean\) && !closesAt/,
+    'a date means not yet, whatever else was typed');
+  assert.ok(!/on: Boolean\(clean\),/.test(fn.slice(0, 9000)),
+    'and the old unconditional form is gone');
+});
+
+test('a note with no date still means broken now', () => {
+  // The other half. A moderator writing a note and no date is saying the game
+  // is already gone, which is what /flag was built for.
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  assert.match(fn.slice(0, 9000), /### ⚠️ \$\{match\.title\} flagged/, 'the dead reply exists');
+  assert.ok(!/Also counting down/.test(fn.slice(0, 9000)),
+    'and it no longer mentions a countdown, because that path cannot be reached');
+});
+
+test('the countdown reply carries the reason and says nothing is dead yet', () => {
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  const window = fn.slice(0, 9000);
+  assert.match(window, /if \(closesAt\) \{/, 'one branch for every dated flag');
+  assert.match(window, /clean \? `\\n\\n> \$\{clean\}` : ''/, 'the mod\'s words are shown back');
+  assert.match(window, /Nothing is unobtainable yet/, 'and the state is stated plainly');
+});
+
+test('a closing date is scoped to one edition when a version is given', () => {
+  // Sea of Thieves on PS4 can die while the PS5 list carries on. The date has
+  // to follow the same scoping the dead flag does, or a mod scopes the flag and
+  // silently sets a countdown on all three editions anyway.
+  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  const call = fn.slice(fn.indexOf('db.setUnobtainable'), fn.indexOf('if (!clean && !closesAt)'));
+  assert.match(call, /closesAt,/, 'the date goes through');
+  assert.match(call, /npCommId: edition\?\.np_comm_id \?\? null/, 'with the edition beside it');
+});

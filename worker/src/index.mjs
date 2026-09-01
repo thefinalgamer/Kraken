@@ -510,8 +510,27 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
    * nightly rescore flips it when the day actually arrives. Only a note, which
    * is a moderator saying "this is broken now", sets the dead flag.
    */
+  /**
+   * A DATE MEANS "NOT YET", EVEN WITH A NOTE.
+   *
+   * This read `on: Boolean(clean)`, so a mod writing the obvious thing —
+   * `/flag <game> closes:2027-03-15 note:"Servers shut down, online trophies
+   * go with them"` — marked the game unobtainable THAT NIGHT, a year and a half
+   * early, and the countdown they thought they were setting never mattered
+   * because the game was already dead.
+   *
+   * The note is now the REASON for the countdown. The game stays fully playable
+   * until the date, and `jobs/rescore.mjs` already prefers a stored note over
+   * its own generated sentence when the clock runs out — so the mod's words are
+   * what members read on the night it dies, which is the version worth having.
+   *
+   * A note with NO date still means "broken now", because that is a moderator
+   * saying it is already gone. The case this drops — dead today AND closing in
+   * March — was incoherent: once a game is dead, its closing date changes
+   * nothing about how it renders or scores.
+   */
   const editions = await db.setUnobtainable(env, match.title, {
-    on: Boolean(clean),
+    on: Boolean(clean) && !closesAt,
     note: clean || null,
     by: clean || closesAt ? userId : null,
     closesAt,
@@ -546,7 +565,7 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
       ? ` - applied to all **${editions}** editions of the title.`
       : '.';
 
-  if (!clean && closesAt) {
+  if (closesAt) {
     return reply(
       [
         container(
@@ -555,10 +574,16 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
               `### ⏳ ${match.title} is on the clock\n` +
                 `**${closingLabel(closesAt)}**, and it stays fully playable until then` +
                 spread +
+                // The reason, when one was given. It shows beside the countdown
+                // on the game page already, and it becomes the note members
+                // read on the night the clock runs out.
+                (clean ? `\n\n> ${clean}` : '') +
                 `\n\nIt will show a countdown everywhere it appears, and it rises up ` +
                 `\`/contested\` as the date gets closer. The night it passes, Kraken marks ` +
-                `it unobtainable on its own.` +
-                `\n\n-# Recorded against you. Run \`/flag\` with nothing else to clear it.`,
+                `it unobtainable on its own` +
+                (clean ? `, using those words.` : '.') +
+                `\n\n-# Nothing is unobtainable yet. Run \`/flag\` with a note and no date ` +
+                `to mark it broken now, or with nothing else to clear it.`,
             ),
           ],
           COLOR.orange,
@@ -574,7 +599,6 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
         [
           text(
             `### ⚠️ ${match.title} flagged\n> ${clean}\n\n` +
-              (closesAt ? `Also counting down: **${closingLabel(closesAt)}**.\n\n` : '') +
               `This shows on \`/game\`, in the backlog, and on the card whenever somebody ` +
               `starts or finishes it` +
               spread +

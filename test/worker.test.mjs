@@ -124,23 +124,38 @@ test('the game search offers the most-owned match first, not the shortest', asyn
   );
 });
 
-test('autocomplete asks the database nothing until two characters are typed', () => {
+test('game autocomplete asks the database nothing until two characters are typed', () => {
   // Discord fires the moment the field is focused. A bare focus and a single
   // letter both have better answers than a search, and a search for "a" is a
   // lottery over every game ever released.
+  //
+  // The MEMBER branch has no such floor and does not need one: the members
+  // table is seventy rows, so a one-letter search there is a scan of nothing.
   assert.match(SRC, /const MIN_QUERY = 2/, 'the floor exists');
   const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
   assert.match(
-    fn.slice(0, 2000),
+    fn.slice(0, 4000),
     /focused\.length < MIN_QUERY/,
-    'and the handler checks it before searching',
+    'and the handler checks it before searching games',
   );
 });
 
 test('autocomplete answers only for fields it populates', () => {
   // A future option with autocomplete switched on and no handler should get an
   // empty list, not silently get a list of game titles.
-  assert.match(SRC, /AUTOCOMPLETE_FIELDS = new Set\(\['game', 'title'\]\)/);
+  assert.match(SRC, /GAME_FIELDS = new Set\(\['game', 'title'\]\)/);
+  assert.match(SRC, /MEMBER_FIELDS = new Set\(\['add', 'remove'\]\)/);
   const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
-  assert.match(fn.slice(0, 2000), /AUTOCOMPLETE_FIELDS\.has\(option\.name\)/);
+  assert.match(fn.slice(0, 4000), /GAME_FIELDS\.has\(option\.name\)/);
+});
+
+test('the member picker is scoped to /rivals, not to any option called add', () => {
+  // "add" and "remove" are ordinary words. Keying on the option name alone
+  // would hand a list of PSN IDs to some future /flag add: option.
+  const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
+  assert.match(
+    fn.slice(0, 4000),
+    /interaction\.data\.name === 'rivals' && MEMBER_FIELDS\.has/,
+    'the command name is part of the test',
+  );
 });

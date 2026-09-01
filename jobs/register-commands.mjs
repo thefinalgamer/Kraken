@@ -123,6 +123,30 @@ const commands = [
     ],
   },
   {
+    name: 'rivals',
+    description: 'Your private watchlist: up to five hunters you are actually racing',
+    options: [
+      {
+        // ONE COMMAND, NOT FOUR. `/rivals` on its own shows the board; adding
+        // an option does the thing AND shows the board. Subcommands would make
+        // somebody learn `/rivals show` before they could see anything, to
+        // separate operations that always end in the same place.
+        name: 'add',
+        description: 'A hunter to start watching',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+      {
+        name: 'remove',
+        description: 'A hunter to stop watching',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+    ],
+  },
+  {
     name: 'faq',
     description: 'How the board works: points, roles, joining, all of it',
   },

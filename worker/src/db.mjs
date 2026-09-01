@@ -502,6 +502,53 @@ export function backlog(env, accountId, sort = 'value', limit = 5) {
  * memberCount() counts registrations, which includes anyone mid-first-scan and
  * made the leaderboard header disagree with the list underneath it.
  */
+/**
+ * Everybody a member is watching, in one query.
+ *
+ * `rank IS NOT NULL` keeps somebody mid-first-scan out of the board rather than
+ * rendering them with a blank position. They stay ON the list — the id is still
+ * stored — they just do not appear until they have a rank, which is the same
+ * rule every other list on this board follows.
+ *
+ * At most five ids, so the IN() list can never approach D1's parameter ceiling.
+ */
+export const rivalRows = (env, accountIds) =>
+  accountIds.length
+    ? all(
+        env,
+        `SELECT * FROM members
+          WHERE psn_account_id IN (${accountIds.map(() => '?').join(',')})
+            AND rank IS NOT NULL
+          ORDER BY rank ASC`,
+        accountIds,
+      )
+    : Promise.resolve([]);
+
+/** Save the list. One column, one row, no join table — see migrations/014. */
+export const setRivals = (env, discordId, json) =>
+  env.DB.prepare('UPDATE members SET rivals = ? WHERE discord_id = ?')
+    .bind(json, String(discordId))
+    .run();
+
+/**
+ * Registered hunters, for the /rivals autocomplete.
+ *
+ * Seventy rows on the whole table, so this is a scan of nothing and needs no
+ * index. `rank IS NOT NULL` matches what the board will actually show — there
+ * is no point offering somebody you cannot then display.
+ */
+export const searchMembers = (env, query, limit = 25) =>
+  all(
+    env,
+    `SELECT psn_account_id, psn_online_id, rank FROM members
+      WHERE rank IS NOT NULL
+        AND psn_online_id LIKE ? COLLATE NOCASE
+      ORDER BY CASE WHEN psn_online_id LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+               rank ASC
+      LIMIT ?`,
+    [`%${query}%`, `${query}%`, limit],
+  );
+
 export const rankedCount = async (env) =>
   (await first(env, 'SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL'))?.c ?? 0;
 

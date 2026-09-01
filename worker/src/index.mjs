@@ -15,10 +15,13 @@ import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
-  memberCard, boardBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
+  memberCard, boardBlocks, rivalBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
   ordinal, trophyLine, FALLBACK_AVATAR, TIERS, tierFor, md, clockMark,
 } from '../../shared/ui.mjs';
 import { supporterTier } from '../../shared/supporter.mjs';
+import {
+  MAX_RIVALS, parseRivals, serialiseRivals, addRival, removeRival,
+} from '../../shared/rivals.mjs';
 import { trophyPoints, rarityBand, RARITY_BANDS, applyCompletion } from '../../shared/scoring.mjs';
 import { faqSection, faqOptions } from '../../shared/faq.mjs';
 import {
@@ -107,6 +110,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'game':       return game(env, opt('title'), userId);
     case 'backlog':    return backlog(env, userId, opt('sort') ?? 'value');
     case 'contested':  return contested(env);
+    case 'rivals':     return rivals(env, userId, opt('add'), opt('remove'));
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
@@ -1215,7 +1219,13 @@ async function changelog(env, updateId) {
  * and gives us three seconds to answer. So the cost that matters is not "per
  * command" but "per letter", multiplied by every mod who ever opens /flag.
  */
-const AUTOCOMPLETE_FIELDS = new Set(['game', 'title']);
+const GAME_FIELDS = new Set(['game', 'title']);
+/**
+ * `/rivals` offers PEOPLE, not games, and `remove` offers only the people
+ * already on your list — so taking somebody off is picking from what is there
+ * rather than remembering how they spell their PSN ID.
+ */
+const MEMBER_FIELDS = new Set(['add', 'remove']);
 
 /**
  * TWO LETTERS BEFORE WE ASK THE DATABASE.
@@ -1279,17 +1289,143 @@ async function setSupporterStar(interaction, env, targetId, months) {
   );
 }
 
+/**
+ * Rivals. A private watchlist of up to five hunters.
+ *
+ * ONE COMMAND FOR ALL OF IT. `/rivals` shows the board; `/rivals add:` and
+ * `/rivals remove:` change it and then show the board, because the thing you
+ * want after editing a list is to see the list. Splitting this into subcommands
+ * would make somebody learn a verb before they could look at anything.
+ *
+ * EPHEMERAL, ALWAYS. A watchlist is nobody else's business, and "who is
+ * watching me" is a question this board should not be able to answer out loud.
+ * Nothing about rivals appears on the website for the same reason.
+ *
+ * THE RULES LIVE IN shared/rivals.mjs, not here — so the answers are the same
+ * however this is reached, and every one of them can be tested without building
+ * a fake Discord interaction.
+ */
+async function rivals(env, viewerId, add, remove) {
+  const me = await db.memberByDiscordId(env, viewerId);
+  if (!me) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  let ids = parseRivals(me.rivals);
+  let note = '';
+
+  // Resolve by PSN online id, which is what the autocomplete offers and what
+  // somebody would type from memory. Stored as account ids, so a rename on PSN
+  // cannot silently drop somebody off a list.
+  const target = async (name) => (name ? db.memberByOnlineId(env, String(name).trim()) : null);
+
+  if (add) {
+    const them = await target(add);
+    const res = addRival(ids, them?.psn_account_id, {
+      self: me.psn_account_id,
+      name: them ? md(them.psn_online_id) : 'They',
+    });
+    if (res.error) return errorReply(res.error);
+    ids = res.ids;
+    await db.setRivals(env, viewerId, serialiseRivals(ids));
+    note = `Now watching **${md(them.psn_online_id)}**.`;
+  }
+
+  if (remove) {
+    const them = await target(remove);
+    const res = removeRival(ids, them?.psn_account_id, {
+      name: them ? md(them.psn_online_id) : 'They',
+    });
+    if (res.error) return errorReply(res.error);
+    ids = res.ids;
+    await db.setRivals(env, viewerId, serialiseRivals(ids));
+    note = `Stopped watching **${md(them.psn_online_id)}**.`;
+  }
+
+  const [rows, total] = await Promise.all([db.rivalRows(env, ids), db.rankedCount(env)]);
+
+  if (!rows.length) {
+    return reply(
+      [
+        container(
+          [
+            text('## Your rivals\nNobody yet.'),
+            text(
+              'Add up to ' + MAX_RIVALS + ' hunters with `/rivals add` and this becomes a ' +
+                'little board of just them and you — the people you are actually racing, ' +
+                'without the other sixty-odd in the way.\n' +
+                '-# Private. Only you ever see this, and nobody is told they are on it.',
+            ),
+          ],
+          COLOR.blurple,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  return reply(
+    [
+      text(
+        `## Your rivals\n-# ${rows.length} of ${MAX_RIVALS} · ${ordinal(me.rank)} of ` +
+          `${n(total)} overall${note ? ` · ${note}` : ''}`,
+      ),
+      ...rivalBlocks(me, rows, total),
+      text('-# Private to you. `/rivals add` or `/rivals remove` to change it.'),
+    ],
+    { ephemeral: true },
+  );
+}
+
 async function handleAutocomplete(interaction, env) {
   const option = interaction.data.options?.find((o) => o.focused);
 
   // Answer only for fields we actually populate. A future option with
   // autocomplete switched on and no handler should return an empty list, not
   // silently get a list of game titles.
-  if (!option || !AUTOCOMPLETE_FIELDS.has(option.name)) {
+  const isMember = interaction.data.name === 'rivals' && MEMBER_FIELDS.has(option?.name);
+  if (!option || !(isMember || GAME_FIELDS.has(option.name))) {
     return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
   }
 
   const focused = String(option.value ?? '').trim();
+
+  if (isMember) {
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+    const me = userId ? await db.memberByDiscordId(env, userId) : null;
+
+    // Removing: offer what is actually on the list. The whole table is seventy
+    // rows, so both branches are a scan of nothing.
+    if (option.name === 'remove') {
+      const rows = await db.rivalRows(env, parseRivals(me?.rivals));
+      return {
+        type: REPLY.AUTOCOMPLETE,
+        data: {
+          choices: rows
+            .filter((r) => !focused || r.psn_online_id.toLowerCase().includes(focused.toLowerCase()))
+            .slice(0, 25)
+            .map((r) => ({ name: r.psn_online_id.slice(0, 100), value: r.psn_online_id.slice(0, 100) })),
+        },
+      };
+    }
+
+    // Adding: everybody on the board except yourself and the ones already on
+    // the list, because offering them is offering an error message.
+    const already = new Set(parseRivals(me?.rivals));
+    const rows = await db.searchMembers(env, focused, 25 + already.size + 1);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows
+          .filter((r) => r.psn_account_id !== me?.psn_account_id && !already.has(r.psn_account_id))
+          .slice(0, 25)
+          .map((r) => ({
+            name: `${r.psn_online_id} · ${ordinal(r.rank)}`.slice(0, 100),
+            value: r.psn_online_id.slice(0, 100),
+          })),
+      },
+    };
+  }
 
   // Empty box, or barely started: offer their own library rather than the
   // shortest titles in the database, which is what produced a dropdown of

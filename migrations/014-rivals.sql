@@ -1,0 +1,26 @@
+-- Rivals: a private watchlist of up to five hunters.
+--
+-- WHY THIS REPLACES A LOGIN. Rivals was the last feature waiting on Phase 4 —
+-- sign in with Discord, keep a list against the account. It turns out the list
+-- can just live in Discord, where everybody already is, and be read back by a
+-- slash command. That removes OAuth, sessions, cookies and every piece of
+-- personal data a login would have put on the website, for a feature that is
+-- better anyway: you set it where you talk to your rivals.
+--
+-- PRIVATE, AND STORED AS ACCOUNT IDS. Every reply is ephemeral — a watchlist is
+-- nobody else's business, and "who is watching me" is a question this board
+-- should not be able to answer out loud. The ids are psn_account_id rather than
+-- psn_online_id because a member can rename themselves on PSN and a list of
+-- names would quietly lose people.
+--
+-- ONE COLUMN, NOT A TABLE. A join table would be the textbook answer for a
+-- many-to-many, and it would be right at a thousand members. At seventy, with a
+-- hard cap of five, the whole dataset is 350 short strings that are only ever
+-- read all-at-once for one person. A JSON array in the row we are already
+-- fetching costs zero extra queries; a table costs one on every /rivals.
+--
+-- Run this in the D1 console BEFORE pushing. A migration that ships after the
+-- code that needs it takes the site down — SQLite rejects the whole query for
+-- one unknown column.
+
+ALTER TABLE members ADD COLUMN rivals TEXT;

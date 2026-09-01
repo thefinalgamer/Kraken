@@ -554,6 +554,45 @@ export function boardBlocks(
 }
 
 /**
+ * A rivals board: you, and the handful of people you are actually racing.
+ *
+ * NOT boardBlocks(). That one groups by tier, which is right for a slice of the
+ * real leaderboard where neighbours share a tier — and wrong here, where five
+ * scattered ranks would produce five one-row containers with a heading each.
+ *
+ * THE GAP IS THE POINT, not the position. A rank tells you where somebody is; a
+ * number tells you what to do about it. "62,000 ahead" is a target, "12th" is
+ * trivia — which is the same reasoning as the chase line on /rank, applied to
+ * everybody you have chosen to watch.
+ *
+ * Sorted by rank rather than by gap, so the list does not reshuffle every time
+ * somebody plays and you lose track of where people sit.
+ */
+export function rivalBlocks(me, rivals, total = 0) {
+  const rows = [...rivals, me]
+    .filter((m) => m && m.rank)
+    .sort((a, b) => a.rank - b.rank);
+
+  const mine = Number(me?.points) || 0;
+  const lines = rows.map((m) => {
+    const isMe = m.psn_account_id === me?.psn_account_id;
+    const gap = (Number(m.points) || 0) - mine;
+    const tail = isMe
+      ? '**you**'
+      : gap > 0
+        ? `${EMOJI.up} **${n(gap)}** ahead`
+        : gap < 0
+          ? `${EMOJI.down} **${n(-gap)}** behind`
+          : 'level with you';
+    const who = isMe ? `__${md(m.psn_online_id)}__` : md(m.psn_online_id);
+    return `\`${String(m.rank).padStart(3)}\` **${who}** - ${n(m.points)} pts · ${tail}`;
+  });
+
+  const tier = TIERS[tierFor(me?.rank ?? 1, total || rows.length)];
+  return [container([text(lines.join('\n'))], tier.color)];
+}
+
+/**
  * How many members go in one Discord message.
  *
  * Bounded by two ceilings: 40 components per message, and 4,000 characters

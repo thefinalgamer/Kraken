@@ -814,6 +814,12 @@ td.prog{min-width:112px}
 .panel.roll{margin:0 0 18px}
 .panel.roll h2{gap:9px}
 .panel.roll h2 .d20{margin-right:2px}
+/* The platform chips. Same .tab pill as the sort tabs everywhere else, because
+   it is the same gesture: pick one, the page reloads showing that one. Sitting
+   above the deck rather than in the toolrow so it is obviously part of the
+   deal and not a filter on the library below. */
+.platrow{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 4px}
+
 /* ---- the deal ----
 
    THE WHOLE SEQUENCE IS ARITHMETIC, NOT SCRIPT. This site has never shipped a

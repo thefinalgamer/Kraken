@@ -194,7 +194,33 @@ const WILDCARD_PICKS = 2;
  * suggests shovelware worth nothing, which is exactly the advice this board
  * exists to stop people taking.
  */
-const ROLL_BACKLOG = `
+/**
+ * Platforms you can narrow a deal to.
+ *
+ * A WHITELIST, and for the same reason the sort keys are one: the value goes
+ * into a bound parameter, never into the SQL, and only these four keys can
+ * reach it at all.
+ *
+ * MATCHED WITH LIKE, not equals, because PSN joins platforms for a cross-gen
+ * title: a game released on both comes back as "PS4,PS5" in one column. An
+ * exact match would hide every cross-gen game from both filters, which is a
+ * silent wrong answer rather than a visible one. None of these four is a
+ * substring of another, so a contains-match cannot collide.
+ *
+ * This is the ONLY filter, deliberately. Difficulty and time-to-platinum are
+ * what people ask for next; Sony publishes neither, and inventing them means a
+ * data-entry job for the mods that would sit half empty for years. Platform is
+ * the one that is costing real slots: a deal that hands somebody four PS3 games
+ * has wasted itself if the PS3 is in a cupboard.
+ */
+const PLATFORMS = {
+  ps5: { label: 'PS5', match: 'PS5' },
+  ps4: { label: 'PS4', match: 'PS4' },
+  ps3: { label: 'PS3', match: 'PS3' },
+  vita: { label: 'Vita', match: 'PSVITA' },
+};
+
+const rollBacklogSql = (plat) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.trophy_count, g.unobtainable, g.closes_at, mg.points, mg.progress
     FROM member_games mg
@@ -203,6 +229,7 @@ const ROLL_BACKLOG = `
      AND mg.progress < 100
      AND g.unobtainable = 0
      AND g.max_points > mg.points
+     ${plat ? "AND g.platform LIKE '%' || ? || '%'" : ''}
    ORDER BY RANDOM()
    LIMIT ?`;
 
@@ -216,7 +243,7 @@ const ROLL_BACKLOG = `
  * Run once per wildcard rather than LIMIT 2, because two rows next to each
  * other in rowid order are usually two editions of the same game.
  */
-const ROLL_WILD = `
+const rollWildSql = (plat) => `
   SELECT np_comm_id, title, platform, icon_url, max_points, trophy_count,
          unobtainable, closes_at, local_started
     FROM games
@@ -224,6 +251,7 @@ const ROLL_WILD = `
      AND max_points > 0
      AND unobtainable = 0
      AND title IS NOT NULL AND TRIM(title) <> ''
+     ${plat ? "AND platform LIKE '%' || ? || '%'" : ''}
      AND NOT EXISTS (
            SELECT 1 FROM member_games mg
             WHERE mg.psn_account_id = ? AND mg.np_comm_id = games.np_comm_id)
@@ -306,18 +334,23 @@ const delta = (v) => {
  * silently show one wildcard instead of two, roughly whenever the dice landed
  * high, and nobody would ever work out why.
  */
-async function wildcards(env, accountId, count) {
+async function wildcards(env, accountId, count, plat = null) {
   const top = await env.DB.prepare(MAX_ROWID).first();
   const max = Number(top?.m) || 0;
   if (!max) return [];
+
+  const sql = rollWildSql(plat);
+  // The bound values in the order the clauses appear: rowid, then the platform
+  // if there is one, then the account for the NOT EXISTS.
+  const args = (from) => (plat ? [from, plat, accountId] : [from, accountId]);
 
   const picked = [];
   const seen = new Set();
 
   for (let i = 0; i < count * 3 && picked.length < count; i++) {
     const from = Math.floor(Math.random() * max);
-    let row = await env.DB.prepare(ROLL_WILD).bind(from, accountId).first();
-    if (!row) row = await env.DB.prepare(ROLL_WILD).bind(0, accountId).first();
+    let row = await env.DB.prepare(sql).bind(...args(from)).first();
+    if (!row) row = await env.DB.prepare(sql).bind(...args(0)).first();
     if (row && !seen.has(row.np_comm_id)) {
       seen.add(row.np_comm_id);
       picked.push(row);
@@ -595,6 +628,16 @@ export async function onRequestGet({ params, env, request }) {
   const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
   const rolling = url.searchParams.has('roll');
 
+  /**
+   * Which platform this deal is narrowed to, or null for all of them.
+   *
+   * A key from the whitelist and nothing else. An unknown value is treated as
+   * no filter rather than as an error: somebody editing the URL by hand should
+   * get a normal deal, not a broken page.
+   */
+  const platKey = PLATFORMS[url.searchParams.get('plat')] ? url.searchParams.get('plat') : null;
+  const plat = platKey ? PLATFORMS[platKey].match : null;
+
   const m = await env.DB.prepare(MEMBER).bind(name).first();
   if (!m) {
     return html(
@@ -662,9 +705,13 @@ export async function onRequestGet({ params, env, request }) {
   // Only when asked. Nobody pays for the dice unless somebody rolls them.
   const [backlogPicks, wildPicks] = rolling
     ? await Promise.all([
-        env.DB.prepare(ROLL_BACKLOG).bind(m.psn_account_id, BACKLOG_PICKS).all()
+        env.DB.prepare(rollBacklogSql(plat))
+          .bind(...(plat
+            ? [m.psn_account_id, plat, BACKLOG_PICKS]
+            : [m.psn_account_id, BACKLOG_PICKS]))
+          .all()
           .then((r) => r.results ?? []),
-        wildcards(env, m.psn_account_id, WILDCARD_PICKS),
+        wildcards(env, m.psn_account_id, WILDCARD_PICKS, plat),
       ])
     : [[], []];
 
@@ -792,7 +839,34 @@ export async function onRequestGet({ params, env, request }) {
    * been handed the identical URL will happily not ask at all, and "click again
    * for the same three games" is the one behaviour this feature cannot have.
    */
-  const rollHref = `/hunter/${encodeURIComponent(m.psn_online_id)}?roll=${Date.now() % 100000}`;
+  const rollHref = `/hunter/${encodeURIComponent(m.psn_online_id)}?roll=${Date.now() % 100000}${
+    platKey ? `&plat=${platKey}` : ''
+  }`;
+
+  /**
+   * A chip per platform, each one its own deal.
+   *
+   * Every chip carries a fresh roll value, because changing the platform IS a
+   * new deal: leaving the old one on screen under a different filter would show
+   * five games that do not match the chip now lit.
+   */
+  const platHref = (key) =>
+    `/hunter/${encodeURIComponent(m.psn_online_id)}?roll=${(Date.now() + 1) % 100000}${
+      key ? `&plat=${key}` : ''
+    }`;
+
+  const platChips =
+    `<div class="platrow">` +
+    `<a class="tab${platKey ? '' : ' on'}" href="${esc(platHref(null))}">All</a>` +
+    Object.entries(PLATFORMS)
+      .map(
+        ([key, p]) =>
+          `<a class="tab${key === platKey ? ' on' : ''}" href="${esc(platHref(key))}">${esc(
+            p.label,
+          )}</a>`,
+      )
+      .join('') +
+    `</div>`;
 
   /**
    * "THEIR backlog", never "yours".
@@ -830,6 +904,7 @@ export async function onRequestGet({ params, env, request }) {
          <h2>What should ${whose} play?
            <a href="${esc(rollHref)}">Deal again &rsaquo;</a>
          </h2>
+         ${platChips}
          ${
            picks.length
              ? `<ul class="deck" style="--last:${picks.length - 1}">${picks
@@ -842,11 +917,16 @@ export async function onRequestGet({ params, env, request }) {
                    }),
                  )
                  .join('')}</ul>`
-             : `<p class="note">Nothing unfinished worth points, which is its own kind of answer.</p>`
+             : platKey
+               ? `<p class="note">Nothing on <b>${esc(PLATFORMS[platKey].label)}</b> to deal.
+                    ${whose} either has none left worth finishing there, or none at all.
+                    <a href="${esc(platHref(null))}">Deal from everything</a></p>`
+               : `<p class="note">Nothing unfinished worth points, which is its own kind of answer.</p>`
          }
          <p class="note">Three from ${whose}'s backlog and two from games this library does
-           not have. Nothing here is a recommendation about difficulty. It is a coin toss with
-           the shovelware filtered out.</p>
+           not have${platKey ? `, ${esc(PLATFORMS[platKey].label)} only` : ''}. Nothing here is a
+           recommendation about difficulty. It is a coin toss with the shovelware filtered
+           out.</p>
        </section>`
     : '';
 

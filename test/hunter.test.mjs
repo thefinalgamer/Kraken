@@ -774,3 +774,102 @@ test('somebody above the hunter reads as ahead, in the other colour', async () =
   assert.ok(body.includes('class="gup"'), 'and green, matching the arrows in Discord');
   assert.match(body, /class="rk">3<[\s\S]*class="rk">27</, 'rank 3 sorts above rank 27');
 });
+
+/* ---------------------------------------------------------------------------
+ * The platform filter.
+ *
+ * Martin dealt himself four PS3 games in a row. The picker was not broken: it
+ * was drawing from a pool he could not act on, which wastes the deal just as
+ * effectively.
+ * ------------------------------------------------------------------------ */
+
+const rollPlat = async (query) => {
+  const { env, seen } = rollEnv();
+  const res = await mod.onRequestGet({
+    params: { name: 'JFL__Leon' }, env,
+    request: new Request(`https://kraken.test/hunter/JFL__Leon${query}`),
+  });
+  return { out: await res.text(), seen };
+};
+
+test('a platform filter reaches both halves of the deal', async () => {
+  // Filtering the backlog and leaving the wildcards unfiltered would hand back
+  // three PS5 games and two of whatever, which looks like the filter is broken.
+  const { seen } = await rollPlat('?roll=1&plat=ps5');
+  const backlog = seen.sqls.find((q) => q.includes('mg.progress < 100'));
+  const wild = seen.sqls.find((q) => q.includes('WHERE rowid >='));
+
+  assert.match(backlog, /g\.platform LIKE '%' \|\| \? \|\| '%'/, 'the backlog is narrowed');
+  assert.match(wild, /platform LIKE '%' \|\| \? \|\| '%'/, 'and so are the wildcards');
+});
+
+test('the platform is matched with LIKE, so cross-gen games survive', async () => {
+  /**
+   * PSN joins platforms for a cross-gen title: one column reading "PS4,PS5".
+   * An exact match would hide every one of those from BOTH filters, which is a
+   * silent wrong answer. None of the four whitelist values is a substring of
+   * another, so a contains-match cannot collide.
+   */
+  const { seen } = await rollPlat('?roll=1&plat=ps4');
+  const backlog = seen.sqls.find((q) => q.includes('mg.progress < 100'));
+  assert.ok(!/platform = \?/.test(backlog), 'never an equals match');
+});
+
+test('an unfiltered deal adds no clause at all', async () => {
+  // The filter is optional and must leave the original query untouched when it
+  // is not set, or every deal pays for a LIKE nobody asked for.
+  const { seen } = await rollPlat('?roll=1');
+  const backlog = seen.sqls.find((q) => q.includes('mg.progress < 100'));
+  assert.ok(!backlog.includes('platform LIKE'), 'no clause when no filter');
+});
+
+test('a junk platform is ignored rather than breaking the page', async () => {
+  // Somebody editing the URL by hand should get a normal deal.
+  const { out, seen } = await rollPlat('?roll=1&plat=" OR 1=1--');
+  const backlog = seen.sqls.find((q) => q.includes('mg.progress < 100'));
+  assert.ok(!backlog.includes('platform LIKE'), 'falls back to no filter');
+  assert.ok(!backlog.includes('OR 1=1'), 'and the value never reaches the SQL');
+  assert.ok(out.includes('What should JFL__Leon play?'), 'the page still deals');
+});
+
+test('the chips say which one is on, and every one is a fresh deal', async () => {
+  const { out } = await rollPlat('?roll=1&plat=ps3');
+  const body = bodyOf(out);
+  const row = body.slice(body.indexOf('class="platrow"'), body.indexOf('</div>', body.indexOf('class="platrow"')));
+
+  assert.match(row, /class="tab on"[^>]*>PS3</, 'the chosen one is lit');
+  assert.ok(row.includes('>All<'), 'and there is a way back to everything');
+  for (const label of ['PS5', 'PS4', 'PS3', 'Vita']) {
+    assert.ok(row.includes(`>${label}<`), `${label} chip missing`);
+  }
+  // Changing platform IS a new deal: leaving the old cards under a different
+  // chip would show five games that do not match the filter now lit.
+  assert.ok((row.match(/roll=/g) || []).length === 5, 'every chip carries its own roll');
+});
+
+test('the deal link keeps the filter you chose', async () => {
+  // Otherwise "Deal again" quietly drops you back to everything.
+  const { out } = await rollPlat('?roll=1&plat=ps5');
+  const body = bodyOf(out);
+  // The first version of this was /Deal again[\s\S]{0,80}|plat=ps5/, an
+  // alternation: the left half matched on its own and the assertion passed
+  // whether or not the filter survived at all.
+  // Assert the anchors themselves. Slicing backwards from the words "Deal
+  // again" landed inside the card icon's SVG, which is markup between the href
+  // and the label and says nothing about either.
+  assert.match(body, /<a class="rollcta" href="[^"]*plat=ps5"/, 'the toolrow link keeps it');
+  assert.match(body, /<a href="[^"]*plat=ps5[^"]*">Deal again/, 'and so does the one on the panel');
+});
+
+test('an empty filtered deal explains itself and offers a way out', async () => {
+  // `null` would fall through `opts.wild ?? WILD` and hand back a game, so the
+  // deal would not have been empty and this branch would never have run.
+  const { env } = rollEnv({ backlog: [], wild: false });
+  const res = await mod.onRequestGet({
+    params: { name: 'JFL__Leon' }, env,
+    request: new Request('https://kraken.test/hunter/JFL__Leon?roll=1&plat=vita'),
+  });
+  const body = bodyOf(await res.text());
+  assert.ok(body.includes('Nothing on <b>Vita</b> to deal'), 'names the platform');
+  assert.match(body, /Deal from everything/, 'and does not strand you there');
+});

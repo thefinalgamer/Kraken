@@ -227,10 +227,18 @@ test('a wholly dead game says so before it says why', async () => {
 
   assert.match(
     body,
-    /title="All 35 trophies in this game can no longer be earned.\nReplaced with a free-to-play/,
-    'the count first, then the reason',
+    /title="All 35 trophies in this game can no longer be earned."/,
+    'the count, on its own',
   );
   assert.match(body, /class="mk dead whole"/, 'and it is the red mark, not the brass one');
+
+  /**
+   * ONE LINE, NOT TWO. Leon asked for the reason to come off this hover once he
+   * saw it: on a game where nothing can be earned the why changes nothing you
+   * would do about it, and the game page still prints it in full. A partly
+   * broken game is the opposite case and is covered by the test above.
+   */
+  assert.ok(!body.includes('Replaced with a free-to-play'), 'the reason stays off the red hover');
 });
 
 test('a generated count is not printed twice', async () => {

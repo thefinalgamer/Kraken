@@ -231,10 +231,20 @@ export const isUrgent = (closesAt, now = Date.now()) => {
  * Both games are dead; only one of them said so in the first four words.
  *
  * The count is DERIVED here rather than read out of the note, so the lead
- * sentence is the same shape however the flag got there, and the moderator's
- * words follow on a second line when they add something the count does not
- * already say. That second line is why the whole-game path stores their
- * sentence at all, and it is still printed in full on the game page.
+ * sentence is the same shape however the flag got there.
+ *
+ * A WHOLLY DEAD GAME GETS THE ONE LINE AND NOTHING ELSE. JFL__Leon, having
+ * asked for the count in the first place: "take out the bottom line, just the
+ * top line only". He is right, and the reason is that on a game where nothing
+ * at all can be earned the reason changes nothing you would do about it. You
+ * are not picking your way around four broken trophies, you are not starting
+ * it, and the sentence has already told you so.
+ *
+ * A PARTLY BROKEN GAME KEEPS ITS NOTE, because there the note is the useful
+ * half: "4 trophies unobtainable, UGC servers shut down 31st August 2026" says
+ * WHICH ones and is the difference between avoiding a game and avoiding a
+ * corner of it. The moderator's words are printed in full on the game page
+ * either way, so nothing anybody typed is ever lost.
  *
  * `\n` in a title attribute is a real line break in every browser that shows
  * titles at all. Phones show none of this, which is why the game page carries
@@ -252,6 +262,8 @@ export function deadTitle(g) {
     : dead > 0
       ? `${dead} troph${dead === 1 ? 'y' : 'ies'} can no longer be earned.`
       : 'Some trophies in this game can no longer be earned.';
+
+  if (whole) return lead;
 
   // A note that is itself a generated count adds nothing but a second copy of
   // the line above it.

@@ -356,6 +356,41 @@ test('the version dropdown can tell two stacks of one game apart', () => {
   assert.match(body, /String\(e\.np_comm_id\)\.slice\(-8\)/, 'the id tail disambiguates them');
 });
 
+test('/overlay hands back a link instead of asking who they are', () => {
+  /**
+   * The tool this replaces needs a web page where you type your PSN ID into a
+   * box, because it has no idea who you are. The bot does, so the command is
+   * the generator: no form, no ID to mistype, and the link comes back already
+   * correct.
+   */
+  const fn = SRC.slice(SRC.indexOf('async function overlay('), SRC.indexOf('async function flagTrophy'));
+
+  assert.match(fn, /db\.memberByDiscordId\(env, userId\)/, 'it knows who asked');
+  assert.match(fn, /not on the board yet/, 'and says so when they are not registered');
+  assert.match(fn, /'\/overlay\/' \+ who \+ qs/, 'the bar');
+  assert.match(fn, /'\/overlay\/' \+ who \+ '\/pop'/, 'and the pop, as separate sources');
+  assert.match(fn, /encodeURIComponent\(me\.psn_online_id\)/, 'names are escaped into the path');
+  assert.match(fn, /ephemeral: true/, 'nobody else needs to see somebody else source URL');
+
+  // Both options are checked against a literal here as well as in the page,
+  // because a wrong link is invisible until the person is live.
+  assert.match(fn, /position === 'top'/);
+  assert.match(fn, /board === 'hide'/);
+
+  // The test link is the whole reason somebody can place the pop at all.
+  assert.match(fn, /\?test=gold/, 'and it tells them how to see it on demand');
+});
+
+test('the overlay command registers with defaults, not questions', () => {
+  const cmds = readFileSync(
+    fileURLToPath(new URL('../jobs/register-commands.mjs', import.meta.url)), 'utf8',
+  );
+  const block = cmds.slice(cmds.indexOf("name: 'overlay'"), cmds.indexOf("name: 'rivals'"));
+  assert.match(block, /choices: \[[\s\S]*?value: 'bottom'/, 'position is a choice list');
+  assert.match(block, /value: 'hide'/, 'so is hiding the middle');
+  assert.ok(!/required: true/.test(block), 'and neither is required');
+});
+
 test('flagging a trophy never touches points', () => {
   /**
    * Martin's rule, and it is settled: "we cant take points away from people for
@@ -384,6 +419,14 @@ test('flagging a trophy never touches points', () => {
    * two writes this handler makes are the two flags.
    */
   const fn = SRC.slice(SRC.indexOf('async function flagTrophy'), SRC.indexOf('async function flagGame'));
+  /**
+   * THE SLICE IS THE FRAGILE PART. It runs from one function to the next, so
+   * anything dropped between them joins the list and fails this test with a
+   * name that has nothing to do with flags. That happened the day /overlay was
+   * added: `memberByDiscordId` appeared here and the failure read as if the
+   * flag handler had grown a member lookup. The fix is to put new handlers
+   * somewhere else, not to widen this list.
+   */
   const calls = [...fn.matchAll(/db\.(\w+)\(/g)].map((m) => m[1]).sort();
   assert.deepEqual(
     [...new Set(calls)],

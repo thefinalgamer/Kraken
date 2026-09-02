@@ -149,6 +149,37 @@ const commands = [
     ],
   },
   {
+    name: 'overlay',
+    description: 'Your stream overlay: two browser sources for OBS',
+    options: [
+      {
+        /**
+         * TWO OPTIONS, BOTH WITH SENSIBLE DEFAULTS, because the person running
+         * this is about to be in OBS rather than in Discord. Anything they can
+         * change later by editing the URL does not need to be a question now.
+         */
+        name: 'position',
+        description: 'Which edge the bar sits on (default: bottom)',
+        type: 3,
+        required: false,
+        choices: [
+          { name: 'Bottom of the screen', value: 'bottom' },
+          { name: 'Top of the screen', value: 'top' },
+        ],
+      },
+      {
+        name: 'board',
+        description: 'Show your points, multiplier and position (default: show)',
+        type: 3,
+        required: false,
+        choices: [
+          { name: 'Show them', value: 'show' },
+          { name: 'Hide them, just PSN stats', value: 'hide' },
+        ],
+      },
+    ],
+  },
+  {
     name: 'rivals',
     description: 'Your private watchlist: up to five hunters you are actually racing',
     options: [

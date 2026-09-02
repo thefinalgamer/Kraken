@@ -114,6 +114,9 @@ async function handleCommand(interaction, env, ctx) {
     case 'backlog':    return backlog(env, userId, opt('sort') ?? 'value');
     case 'contested':  return contested(env);
     case 'rivals':     return rivals(env, userId, opt('add'), opt('remove'));
+    case 'overlay':    return overlay(env, userId, {
+      position: opt('position'), board: opt('board'),
+    });
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
@@ -336,6 +339,75 @@ async function unlink(interaction, env, targetId) {
  * would be the same class of bug parseClosingDate exists to prevent, so it is
  * refused out loud.
  */
+/**
+ * Their own overlay links. /overlay
+ *
+ * NO GENERATOR PAGE, AND THAT IS THE POINT OF DOING IT HERE. The tool people
+ * used before this one needs a website where you type your PSN ID into a box,
+ * because it has no idea who you are. This does: they are already registered,
+ * so the bot knows their name and hands back a link that is already right.
+ *
+ * EPHEMERAL. The links hold nothing secret, since everything on the overlay is
+ * on the website anyway, but a channel filling up with other people's browser
+ * source URLs is noise and somebody would eventually paste the wrong one.
+ */
+async function overlay(env, userId, { position, board }) {
+  const me = await db.memberByDiscordId(env, userId);
+  if (!me) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  const site = env.SITE_URL || 'https://platinumintel.co.uk';
+  const who = encodeURIComponent(me.psn_online_id);
+
+  /**
+   * Whitelisted here as well as in the page. Discord only ever sends one of the
+   * choices the command was registered with, but this link is going into
+   * somebody's OBS, where being wrong is invisible until they are live.
+   */
+  const params = [];
+  if (position === 'top') params.push('pos=top');
+  if (board === 'hide') params.push('mid=0');
+  const qs = params.length ? '?' + params.join('&') : '';
+
+  const bar = site + '/overlay/' + who + qs;
+  const pop = site + '/overlay/' + who + '/pop';
+
+  return reply(
+    [
+      container(
+        [
+          text('## Your overlay\nTwo browser sources. In OBS: **+ > Browser**.'),
+          separator(),
+          text(
+            '### The bar\n```\n' + bar + '\n```\n' +
+              '**Width 1920, height 44.** It sits on the ' +
+              (position === 'top' ? 'top' : 'bottom') + ' edge' +
+              (board === 'hide' ? ', with the middle section hidden.' : '.') +
+              '\n-# Untick "Shutdown source when not visible" or it blanks between scenes.',
+          ),
+          text(
+            '### The trophy pop\n```\n' + pop + '\n```\n' +
+              '**Width 560, height 140.** Put it anywhere. It is empty until a trophy lands.' +
+              '\n-# To place it, point the source at `' + pop + '?test=gold` first. That ' +
+              'loops a fake card so you can drag it where you want it. Swap `gold` for ' +
+              '`platinum`, `silver` or `bronze`, then set the URL back when you are done.',
+          ),
+          separator(),
+          text(
+            '-# Neither source names this server. They are your numbers, and the only way ' +
+              'anybody finds out where they come from is you telling them.\n' +
+              '-# The game on the bar follows your last update rather than your disc tray, ' +
+              'for now.',
+          ),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
 async function flagTrophy(env, userId, { match, edition, trophyId, note, closesAt }) {
   if (closesAt) {
     return errorReply(
@@ -530,6 +602,7 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
     { ephemeral: true },
   );
 }
+
 
 async function flagGame(interaction, env, userId, { title, note, closes, version, trophy }) {
   // MANAGE_MESSAGES, not MANAGE_GUILD.

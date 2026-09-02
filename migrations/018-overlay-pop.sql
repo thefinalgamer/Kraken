@@ -1,0 +1,22 @@
+-- One column, so a trophy pops once.
+--
+-- The pop overlay is a page that repaints itself every twenty seconds. Without
+-- somewhere to remember what it has already shown, a trophy earned at 9:04
+-- would pop again at 9:04:20, and again at 9:04:40, for as long as it stayed
+-- inside whatever freshness window the code used. A celebration that repeats
+-- is not a celebration.
+--
+-- `overlay_seen_at` holds the earned_at of the newest trophy that has already
+-- been shown to this member's overlay. The pop asks for anything newer, shows
+-- the newest one it finds, and moves the marker to it. One row read, one field
+-- written, and only when there is actually something to celebrate.
+--
+-- NULL means this member's overlay has never run. The code treats that as "from
+-- now on" rather than "everything ever", because the alternative is that the
+-- first time somebody adds the source it fires their most recent platinum from
+-- eight months ago at an audience wondering what is going on.
+--
+-- Run once against the live database:
+--   npx wrangler d1 execute platinum-intel --remote --file migrations/018-overlay-pop.sql
+
+ALTER TABLE members ADD COLUMN overlay_seen_at INTEGER;

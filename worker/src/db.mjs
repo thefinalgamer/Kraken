@@ -708,6 +708,25 @@ export const rivalRows = (env, accountIds) =>
       )
     : Promise.resolve([]);
 
+/**
+ * Their Twitch channel, or NULL to stop watching.
+ *
+ * Stored lowercased because that is what Twitch matches on, and because the
+ * uniqueness check below would otherwise let "Pelzio" and "pelzio" both exist.
+ */
+export const setTwitch = (env, accountId, login) =>
+  env.DB.prepare('UPDATE members SET twitch_login = ? WHERE psn_account_id = ?')
+    .bind(login ? String(login).toLowerCase() : null, accountId)
+    .run();
+
+/** Whoever has claimed this channel, if anybody. */
+export const memberByTwitch = (env, login) =>
+  first(
+    env,
+    'SELECT psn_account_id, psn_online_id FROM members WHERE twitch_login = ? COLLATE NOCASE',
+    [String(login ?? '').toLowerCase()],
+  );
+
 /** Save the list. One column, one row, no join table — see migrations/014. */
 export const setRivals = (env, discordId, json) =>
   env.DB.prepare('UPDATE members SET rivals = ? WHERE discord_id = ?')

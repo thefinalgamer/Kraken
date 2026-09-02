@@ -13,6 +13,7 @@
 import { verifyKey } from './verify.mjs';
 import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
+import { checkLive } from './twitch.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
   memberCard, boardBlocks, rivalBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
@@ -33,6 +34,26 @@ const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
 const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 8 };
 
 export default {
+  /**
+   * The five minute tick, and the only scheduled work in this Worker.
+   *
+   * It asks Twitch who is streaming and writes the answer. That is all it is
+   * allowed to do: everything heavy still runs on a GitHub Actions runner,
+   * because a Worker is capped at fifty outbound requests per invocation and a
+   * scan makes hundreds. One request covers the whole board.
+   *
+   * NOTHING HERE MAY THROW. A cron that fails is invisible until somebody goes
+   * looking, so the failure is caught, logged and swallowed. The live check is
+   * a convenience; the board does not depend on it.
+   */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      checkLive(env)
+        .then((summary) => console.log(summary))
+        .catch((err) => console.error('twitch check failed:', err?.message ?? err)),
+    );
+  },
+
   async fetch(request, env, ctx) {
     // Worker config arrives via the env binding, not process.env.
     configureEmoji(env);
@@ -117,6 +138,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'overlay':    return overlay(env, userId, {
       position: opt('position'), board: opt('board'),
     });
+    case 'twitch':     return twitch(env, userId, opt('channel'));
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
@@ -339,6 +361,102 @@ async function unlink(interaction, env, targetId) {
  * would be the same class of bug parseClosingDate exists to prevent, so it is
  * refused out loud.
  */
+/**
+ * Their Twitch channel. /twitch
+ *
+ * ONLY THEY CAN SET IT. A member telling the board they stream is the whole
+ * consent step for everything downstream: it is what turns on the faster
+ * trophy pop while they are on air, and it is what a "live now" strip would
+ * read from later. Nobody gets to switch that on for somebody else, which is
+ * why there is no member option on this command for mods.
+ */
+async function twitch(env, userId, channel) {
+  const me = await db.memberByDiscordId(env, userId);
+  if (!me) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  const raw = String(channel ?? '').trim();
+
+  if (!raw) {
+    if (!me.twitch_login) {
+      return reply(
+        [
+          container(
+            [
+              text(
+                '### No channel set\nRun `/twitch channel:yourname` and the overlay will react ' +
+                  'faster while you are live.\n' +
+                  '-# Nothing about you is posted anywhere. It is used to know when to watch ' +
+                  'for your trophies.',
+              ),
+            ],
+            COLOR.grey,
+          ),
+        ],
+        { ephemeral: true },
+      );
+    }
+    await db.setTwitch(env, me.psn_account_id, null);
+    return reply(
+      [
+        container(
+          [text(`### Channel removed\n**${md(me.twitch_login)}** is no longer watched.`)],
+          COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  /**
+   * A URL is what people actually paste, so take one. Everything after the last
+   * slash, minus a query string, lowercased. Twitch names are letters, numbers
+   * and underscores, 4 to 25 characters, so anything else is a typo or a link
+   * to something that is not a channel.
+   */
+  const login = raw
+    .replace(/^https?:\/\//i, '')
+    .replace(/^(www\.)?twitch\.tv\//i, '')
+    .split(/[/?#]/)[0]
+    .toLowerCase();
+
+  if (!/^[a-z0-9_]{4,25}$/.test(login)) {
+    return errorReply(
+      `**${md(raw)}** is not a Twitch channel name. Give me the bit after twitch.tv/, or the ` +
+        'whole link and I will take it apart.',
+    );
+  }
+
+  const taken = await db.memberByTwitch(env, login);
+  if (taken && taken.psn_account_id !== me.psn_account_id) {
+    return errorReply(
+      `**${md(login)}** is already set by somebody else on the board. If that is your channel, ` +
+        'say so in the server and a mod will sort it.',
+    );
+  }
+
+  await db.setTwitch(env, me.psn_account_id, login);
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `### Watching ${md(login)}\n` +
+              'While you are live, Kraken checks for your trophies far more often, so the pop ' +
+              'lands seconds after the trophy instead of when your update runs.\n\n' +
+              '-# Nothing is posted anywhere and nothing appears on the site. Run `/twitch` ' +
+              'with no channel to stop.',
+          ),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
 /**
  * Their own overlay links. /overlay
  *

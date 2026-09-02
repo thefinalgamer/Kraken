@@ -15,12 +15,24 @@ binding = "DB"
 database_name = "platinum-intel"
 database_id = "44d2a77b-cded-4a63-af05-dc43da8aaed6"
 
+# THE FIVE MINUTE TICK.
+#
+# One request to Twitch covers the whole board, so this costs 288 requests a day
+# whether nobody is streaming or four people are. It exists to gate something
+# expensive rather than to be a feature: knowing who is on air is what lets the
+# trophy pop ask PSN often for two people instead of rarely for seventy.
+#
+# Cloudflare's minimum is one minute and five is plenty. A stream that started
+# four minutes ago has not popped a trophy yet.
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 # Public, non-secret configuration. Secrets go in via `wrangler secret put`.
 
 # Set this to a Discord role id to gate /register during the soft launch.
 # Only members with the role can join the board; leave empty to open it up.
-HUNTER_ROLE_ID = ""
+HUNTER_ROLE_ID = "1538606682039648327"
 
 # The #leaderboard channel and the server it lives in. Only used to build the
 # "Open #leaderboard" link on /leaderboard, so the private peek can hand you
@@ -47,6 +59,13 @@ WORKER_BASE_URL = "https://platinum-intel.martinleewilkinson1992.workers.dev"
 #                             on that page too, or Discord refuses the flow.
 #   GITHUB_TOKEN            - fine-grained PAT with "Contents: read and write"
 #   GITHUB_REPO             - e.g. "martin/platinum-intel"
+#   TWITCH_CLIENT_ID        - from dev.twitch.tv/console/apps, "Register Your
+#                             Application". Category Application Integration,
+#                             OAuth redirect http://localhost (unused: this is
+#                             machine to machine and nobody signs in).
+#   TWITCH_CLIENT_SECRET    - same page. Without both of these the live check
+#                             does nothing at all and says so in the log, which
+#                             is the intended state until they are set.
 
 # Worker logs. Off by default, which means the first time something goes wrong
 # in production there is nothing to read — you turn it on, then have to

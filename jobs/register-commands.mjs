@@ -149,6 +149,23 @@ const commands = [
     ],
   },
   {
+    name: 'twitch',
+    description: 'Tell Kraken your Twitch channel so the overlay reacts while you are live',
+    options: [
+      {
+        /**
+         * NOT REQUIRED, because running it bare is how you turn it off. A
+         * separate /twitch remove would be a second command to learn for the
+         * one thing people do least often.
+         */
+        name: 'channel',
+        description: 'Your channel name or link. Leave empty to stop watching.',
+        type: 3,
+        required: false,
+      },
+    ],
+  },
+  {
     name: 'overlay',
     description: 'Your stream overlay: two browser sources for OBS',
     options: [

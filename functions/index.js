@@ -305,9 +305,19 @@ export async function onRequestGet({ env }) {
   return html(
     page({
       title: 'Kraken',
+      /**
+       * THIS IS THE UNFURL TEXT, so it is written for somebody who has not been
+       * here before: what the place is and how big it is. The count comes from
+       * the database on every render, which is why the card image itself
+       * carries no numbers.
+       *
+       * IT NAMES NOBODY. A line about a particular member went in here and came
+       * straight back out: putting somebody's name and a claim about them on the
+       * front of a website is theirs to agree to, not ours to decide.
+       */
       description:
-        `The trophy board for Platinum Intel. ${hunters} hunters scored on how hard ` +
-        'their trophies were, not how many they have.',
+        `${hunters} hunters, one Discord, and every trophy scored on how hard it was ` +
+        'rather than how many you have.',
       here: 'home',
       bare: true,
       body,

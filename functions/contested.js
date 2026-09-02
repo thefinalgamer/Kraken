@@ -266,7 +266,16 @@ export async function onRequestGet({ env, request }) {
     </footer>`;
 
   return html(
-    page({ title: 'Contested', active: 'contested', body }),
+    page({
+      title: 'Contested \u00b7 Kraken',
+      // `active` was the key here, and page() reads `here`, so the Contested
+      // link in the header never highlighted on its own page.
+      here: 'contested',
+      description:
+        'What the Platinum Intel hunters are collectively stuck on, who is closest to ' +
+        'cracking each one, and what it pays extra while nobody has.',
+      body,
+    }),
     // Five minutes, like every other list. The underlying numbers only move
     // when the nightly rescore runs.
     { maxAge: 300 },

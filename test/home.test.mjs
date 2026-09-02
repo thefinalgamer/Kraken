@@ -228,3 +228,28 @@ test('an empty server renders rather than crashing', async () => {
   assert.ok(out.includes('Nobody has finished a scan yet'));
   assert.ok(out.includes('Nothing contested right now'));
 });
+
+test('the link previews properly, and the card names nobody', async () => {
+  /**
+   * Everything else on that page is written for members. This one line is for
+   * somebody who followed a link out of a stream, and the unfurl is what they
+   * see before the page itself.
+   */
+  const { out } = await render();
+  const body = bodyOf(out);
+
+  /**
+   * AND IT NAMES NOBODY. A line about one member was added here and removed
+   * within the hour. Whose name is on the front of a website is that person's
+   * call, and nobody had asked him.
+   */
+  assert.ok(!body.includes('class="headline"'), 'no pitch line about a member');
+  assert.ok(!/in the world on/.test(out), 'and no claim about anybody in the unfurl either');
+
+  // The card. og:image MUST be absolute or the unfurler has nothing to resolve
+  // it against and shows a blank space where the picture goes.
+  assert.match(out, /<meta property="og:image" content="https:\/\/platinumintel\.co\.uk\/og\.png">/);
+  assert.match(out, /<meta name="twitter:card" content="summary_large_image">/, 'the wide card');
+  assert.match(out, /<meta property="og:description" content="[^"]+hunters[^"]+"/, 'with real counts');
+  assert.ok(!/content="\/og\.png"/.test(out), 'never a relative image');
+});

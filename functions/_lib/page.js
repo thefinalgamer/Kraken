@@ -1858,7 +1858,37 @@ export const navButtons = () =>
  *   as buttons in the middle of the page, and drawing the header as well would
  *   be the same four links twice on one screen.
  */
-export function page({ title, body, description = '', here = '', bare = false }) {
+/**
+ * THE UNFURL IS THE PITCH.
+ *
+ * Every time this domain is pasted into Discord, into a stream chat or into a
+ * message, the first thing a stranger sees is the preview card, not the site.
+ * It used to be whatever the crawler happened to scrape off the page. It is now
+ * a deliberate picture with a deliberate sentence under it, which matters most
+ * in exactly the situation the overlay was built for: somebody watching a
+ * stream, seeing the link go past in chat.
+ *
+ * summary_large_image is what turns it from a thumbnail beside two lines of
+ * grey text into the wide card people actually look at.
+ *
+ * The picture is public/og.png, built by tools/og-card.py, and it carries no
+ * numbers on purpose. "70 hunters" baked into a file that never changes would
+ * be wrong within a month. The counts go in the description, which every page
+ * builds fresh from the database.
+ */
+
+/**
+ * The canonical origin, for absolute URLs.
+ *
+ * og:image MUST be absolute. Discord, Twitter and every other unfurler fetch it
+ * out of band, with no page to resolve a relative path against, so "/og.png"
+ * silently produces a card with a blank space where the picture goes.
+ */
+export const SITE = 'https://platinumintel.co.uk';
+
+export function page({
+  title, body, description = '', here = '', bare = false, card = '/og.png',
+}) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1867,6 +1897,18 @@ export function page({ title, body, description = '', here = '', bare = false })
 <title>${esc(title)}</title>
 ${description ? `<meta name="description" content="${esc(description)}">` : ''}
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0c1618">
+<meta property="og:site_name" content="Platinum Intel">
+<meta property="og:type" content="website">
+<meta property="og:title" content="${esc(title)}">
+${description ? `<meta property="og:description" content="${esc(description)}">` : ''}
+<meta property="og:image" content="${esc(SITE)}${esc(card)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)}">
+${description ? `<meta name="twitter:description" content="${esc(description)}">` : ''}
+<meta name="twitter:image" content="${esc(SITE)}${esc(card)}">
 <link rel="icon" href="/Kraken.png" type="image/png">
 <link rel="apple-touch-icon" href="/Kraken.png">
 <style>${STYLES}</style>

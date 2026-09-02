@@ -660,6 +660,27 @@ async function backfillNames(psn, title, stats = null) {
 }
 
 /**
+ * The title as it should be stored.
+ *
+ * PSN SHIPS TRAILING WHITESPACE and we stored it verbatim. Uncharted 2 on PS3
+ * came down as "Uncharted 2: Among Thieves\u2122 " with a space on the end,
+ * and it broke JFL__Leon's /flag in a way nobody could see: the game dropdown
+ * offered it, he picked it, and the version and trophy dropdowns underneath
+ * came back empty. Discord trims what it sends, so the trimmed value no longer
+ * equalled the stored title, and every exact match on that title missed.
+ *
+ * It also quietly splits groups. The autocomplete groups by title, so one game
+ * with a stray space is two entries in the list, both looking identical, which
+ * is the same symptom the WWE stacks had for a completely different reason.
+ *
+ * Runs of whitespace collapse to one space as well, which catches the
+ * non-breaking spaces PSN uses in a handful of Japanese titles. `|| null`
+ * because an empty title must stay NULL rather than become the empty string,
+ * which the autocomplete already has a filter for.
+ */
+const cleanTitle = (s) => String(s ?? '').replace(/\s+/g, ' ').trim() || null;
+
+/**
  * Scan one game for one member, in a single PSN call.
  *
  * `getUserTrophiesEarnedForTitle` returns EVERY trophy in the title, whether
@@ -744,7 +765,7 @@ async function scanGame(
       [
         title.npCommunicationId,
         title.npServiceName ?? null,
-        title.trophyTitleName,
+        cleanTitle(title.trophyTitleName),
         title.trophyTitlePlatform ?? null,
         title.trophyTitleIconUrl ?? null,
         rated.length,
@@ -905,7 +926,7 @@ async function scanGame(
   const before = new Set(safeJson(was?.earned_ids, []));
   return {
     np_comm_id: title.npCommunicationId,
-    title: title.trophyTitleName,
+    title: cleanTitle(title.trophyTitleName),
     kind: !was ? 'new' : progress === 100 && was.progress !== 100 ? 'completed' : 'progress',
     trophies_gained: gained,
     new_trophy_ids: earnedIds.filter((id) => !before.has(id)),

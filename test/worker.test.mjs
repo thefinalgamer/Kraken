@@ -94,7 +94,12 @@ const spyEnv = (rows = []) => ({
       return {
         bind: (...args) => {
           lastArgs = args;
-          return { all: async () => ({ results: rows }) };
+          // `.first` as well as `.all`, because the resolvers behind the /flag
+          // dropdowns read one row at a time.
+          return {
+            all: async () => ({ results: rows }),
+            first: async () => rows[0] ?? null,
+          };
         },
       };
     },
@@ -261,8 +266,51 @@ test('the version and trophy pickers read the options already filled in', () => 
   assert.match(body, /FLAG_FIELDS\.has\(option\?\.name\)/, 'scoped to /flag');
   assert.match(body, /interaction\.data\.options\?\.find\(\(o\) => o\.name === name\)/,
     'reads sibling options');
-  assert.match(body, /db\.gameVersions\(env, title\)/, 'versions come from the chosen game');
+  assert.match(body, /editionsFor\(env, title\)/, 'versions come from the chosen game');
   assert.match(body, /db\.searchTrophies\(env, npCommId, focused/, 'trophies from the chosen edition');
+});
+
+test('the dropdowns resolve a game the same way the command does', async () => {
+  /**
+   * JFL__Leon, with the game sitting in the box and both dropdowns empty:
+   * "bot cant find any trophies or versions for uncharted 2 ps3".
+   *
+   * The pickers were STRICTER THAN THE COMMAND. `/flag` resolves its game with
+   * findGame(), which falls back to a LIKE and finds a title however it was
+   * typed; the version and trophy dropdowns matched `title = ?` exactly. So a
+   * game the command would flag without complaint answered "No options match
+   * your search" twice over, with nothing to say why.
+   *
+   * It bites on exactly the games a mod has to type by hand. A title only
+   * reaches the game dropdown if somebody here owns it, so anything old or
+   * obscure is typed, and typed is when the trademark sign and the capitals
+   * stop lining up.
+   */
+  const fn = SRC.slice(SRC.indexOf('async function editionsFor'), SRC.indexOf('async function handleAutocomplete'));
+  const code = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  assert.match(code, /const exact = await db\.gameVersions\(env, title\)/, 'exact first');
+  assert.match(code, /if \(exact\.length\) return exact/, 'and it wins when it finds anything');
+  assert.match(code, /db\.findGame\(env, title\)/, 'the command\'s own resolver is the fallback');
+  assert.match(
+    code,
+    /guess\?\.title \? db\.gameVersions\(env, guess\.title\)/,
+    'and the fallback re-reads every edition of the title it landed on',
+  );
+});
+
+test('the fallback resolver can find a title an exact match misses', async () => {
+  /**
+   * The half of the fix that is not shape. findGame carries a LIKE beside its
+   * equality, which is why it survives a title typed without its trademark
+   * sign, and it takes the SHORTEST match so "Uncharted 2" cannot quietly
+   * resolve to a longer game that merely contains those words.
+   */
+  await dbmod.findGame(spyEnv(), 'Uncharted 2: Among Thieves');
+  assert.match(lastSql, /title = \? COLLATE NOCASE/, 'exact is still tried');
+  assert.match(lastSql, /OR title LIKE \? COLLATE NOCASE/, 'and a LIKE catches the rest');
+  assert.match(lastSql, /ORDER BY LENGTH\(title\) ASC/, 'shortest match, not any match');
+  assert.equal(lastArgs[1], '%Uncharted 2: Among Thieves%');
 });
 
 test('a blank version flags the trophy across every edition, by name', () => {

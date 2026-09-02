@@ -1738,6 +1738,36 @@ async function rivals(env, viewerId, add, remove) {
   );
 }
 
+/**
+ * Every edition of the game somebody has typed into the `game` box.
+ *
+ * THE PICKERS WERE STRICTER THAN THE COMMAND, and that is the whole bug.
+ * `/flag` resolves its game with findGame(), which falls back to a LIKE, so it
+ * finds a title however it was typed. The version and trophy dropdowns matched
+ * `title = ?` exactly. So a mod could type a game the command would happily
+ * flag, and get "No options match your search" out of both dropdowns with no
+ * clue why.
+ *
+ * JFL__Leon on Uncharted 2, which is where this came from: "bot cant find any
+ * trophies or versions for uncharted 2 ps3". The box in his screenshot has the
+ * game in it. The dropdown underneath is empty.
+ *
+ * A title only reaches the game dropdown if somebody here owns it, so anything
+ * older or more obscure has to be typed by hand, and by hand is exactly when
+ * the trademark sign, the colon and the capitals stop matching. The exact
+ * lookup stays first because it is the common path and it cannot pick the
+ * wrong game; the fallback runs only when it finds nothing.
+ */
+async function editionsFor(env, title) {
+  const exact = await db.gameVersions(env, title);
+  if (exact.length) return exact;
+
+  // Same resolution the command will use, so the dropdown can never offer a
+  // different game from the one that ends up flagged.
+  const guess = await db.findGame(env, title);
+  return guess?.title ? db.gameVersions(env, guess.title) : [];
+}
+
 async function handleAutocomplete(interaction, env) {
   const option = interaction.data.options?.find((o) => o.focused);
 
@@ -1769,7 +1799,7 @@ async function handleAutocomplete(interaction, env) {
     if (!title) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
 
     if (option.name === 'version') {
-      const editions = await db.gameVersions(env, title);
+      const editions = await editionsFor(env, title);
       return {
         type: REPLY.AUTOCOMPLETE,
         data: {
@@ -1808,7 +1838,7 @@ async function handleAutocomplete(interaction, env) {
      * trophy's NAME across the rest.
      */
     const chosen = valueOf('version');
-    const editions = chosen ? null : await db.gameVersions(env, title);
+    const editions = chosen ? null : await editionsFor(env, title);
     const npCommId = chosen || editions?.[0]?.np_comm_id;
     if (!npCommId) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
 

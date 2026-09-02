@@ -608,7 +608,24 @@ export async function publishHome(stats, store) {
  * through Mondays is the point of it.
  */
 export async function postWeeklyDigest(blocks) {
-  const channel = env.DISCORD_UPDATES_CHANNEL_ID;
+  /**
+   * ITS OWN CHANNEL IF THERE IS ONE, #updates if there is not.
+   *
+   * The digest went to #updates because that is where the bot already posted,
+   * and it drowned: #updates carries a card every time anybody scans, so a
+   * card that arrives once a week sits under a fortnight of traffic by the
+   * time most people look.
+   *
+   * That matters more than it sounds, because the digest is not a
+   * notification, it is the ARCHIVE. Scrolling back through Mondays is the
+   * whole point of it, and you cannot scroll back through Mondays in a channel
+   * that gets forty messages a day.
+   *
+   * The fallback keeps it working with no configuration at all: set
+   * DISCORD_DIGEST_CHANNEL_ID and it moves, leave it unset and nothing
+   * changes. No deploy can break by half.
+   */
+  const channel = env.DISCORD_DIGEST_CHANNEL_ID || env.DISCORD_UPDATES_CHANNEL_ID;
   if (!channel || !blocks) return null;
   return rest(`/channels/${channel}/messages`, { body: message([blocks]) });
 }

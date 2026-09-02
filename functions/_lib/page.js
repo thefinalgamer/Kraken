@@ -1002,6 +1002,20 @@ table.contested .mult{color:var(--kraken);font-weight:650;white-space:nowrap}
    the breathing room the front page gives it by being in a panel. */
 .hero.plain + .lede{margin:0 0 22px}
 
+/* A game where NOTHING can be earned, rather than some of it.
+   Same warning shape, red instead of brass. Brass is the site's "careful" and
+   this is past careful: XDefiant's servers are off, all thirteen trophies are
+   gone, and the row for it looked exactly like a game missing four out of
+   fifty-two. The colour is the difference between a caution and a verdict. */
+p.warn.dead.whole{
+  border-color:rgba(229,52,44,.45);
+  background:linear-gradient(90deg,rgba(229,52,44,.14),rgba(229,52,44,.05) 60%,transparent);
+}
+p.warn.dead.whole .mk{color:#e5342c}
+p.warn.dead.whole b{color:#ff8e86}
+/* And the same in a list: brass means some of it, red means all of it. */
+.mk.dead.whole{color:#e5342c}
+
 /* ---- a trophy nobody can earn any more ----
    Amber, not red, and NOT struck through. The points still count for everybody
    who got there in time, so a style that reads as "this is worthless" would be

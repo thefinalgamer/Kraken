@@ -148,6 +148,7 @@ Under **Variables** → *New repository variable*, add:
 | `DISCORD_UPDATES_CHANNEL_ID` | your updates channel |
 | `DISCORD_LEADERBOARD_CHANNEL_ID` | your movement feed channel |
 | `DISCORD_OWNER_ID` | your own user ID |
+| `DISCORD_DIGEST_CHANNEL_ID` | *optional.* Where the Monday digest goes. Unset, it posts to the updates channel with everything else, which is where it gets lost: that channel takes a card every time anybody scans, and the digest is meant to be scrolled back through week by week. Give it a channel of its own. |
 
 ---
 

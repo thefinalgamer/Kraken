@@ -155,9 +155,16 @@ const gamesSql = (order, search) => `
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
          mg.points, mg.progress, mg.earned_total, mg.earned_platinum,
          mg.earned_gold, mg.earned_silver, mg.earned_bronze,
-         mg.last_played_at, mg.last_earned_at
+         mg.last_played_at, mg.last_earned_at,
+         -- Derived rather than stored, so it cannot drift from the trophies it
+         -- describes. Reads idx_trophies_dead, which is PARTIAL: dozens of rows
+         -- rather than a million, so it costs less than one page of games.
+         d.dead AS dead_trophies
     FROM member_games mg
     JOIN games g ON g.np_comm_id = mg.np_comm_id
+    LEFT JOIN (SELECT np_comm_id, COUNT(*) AS dead
+                 FROM trophies WHERE unobtainable = 1
+                GROUP BY np_comm_id) d ON d.np_comm_id = g.np_comm_id
    WHERE mg.psn_account_id = ?
      ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
    ORDER BY ${order}
@@ -477,9 +484,20 @@ function clockMarks(g) {
      * The note is still printed IN FULL on the game page itself, so a phone,
      * where `title` does nothing, is one tap from the whole sentence.
      */
+    /**
+     * RED WHEN ALL OF IT IS GONE, brass when only some is. In a list of forty
+     * games the colour is the only thing separating "skip four of these" from
+     * "do not start this at all", and JFL__Leon's point was that XDefiant and
+     * WWE 2K24 looked identical while one of them was entirely dead.
+     */
+    const whole =
+      Number(g.trophy_count) > 0 && Number(g.dead_trophies || 0) >= Number(g.trophy_count);
     return {
-      mark: `<span class="mk dead" title="${esc(
-        g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
+      mark: `<span class="mk dead${whole ? ' whole' : ''}" title="${esc(
+        g.unobtainable_note ||
+          (whole
+            ? 'Nothing in this game can be earned any more.'
+            : 'Some trophies in this game can no longer be earned.'),
       )}">&#9888;</span>`,
       note: '',
     };

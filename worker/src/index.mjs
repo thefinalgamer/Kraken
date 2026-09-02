@@ -366,6 +366,60 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
   const reference = edition ?? editions[0] ?? match;
   const scoped = Boolean(edition);
 
+  /**
+   * EVERY TROPHY, for a game that is wholly gone.
+   *
+   * XDefiant is the case that earned this: entirely online, servers closed June
+   * 2025, and the page said "some trophies here can no longer be earned" over a
+   * list where every row looked perfectly normal. Clicking into a dead game
+   * made it read as less serious than the row that got you there.
+   *
+   * Handled before the single-trophy path because there is no id to resolve and
+   * no name to match across stacks: it is every row in scope, full stop.
+   */
+  if (String(trophyId) === ALL_TROPHIES) {
+    const changed = await db.setAllTrophies(
+      env,
+      { title: match.title, npCommId: scoped ? reference.np_comm_id : null },
+      { on: Boolean(note), note: note || null, by: note ? userId : null },
+    );
+
+    await db.setUnobtainable(env, match.title, {
+      on: Boolean(note),
+      note: note || null,
+      by: note ? userId : null,
+      closesAt: null,
+      npCommId: scoped ? reference.np_comm_id : null,
+    });
+
+    const whereAll = scoped
+      ? `**${reference.title}** on **${reference.platform ?? 'PlayStation'}**`
+      : `**${match.title}**`;
+
+    return reply(
+      [
+        container(
+          [
+            text(
+              note
+                ? `### \u26a0\ufe0f ${match.title} is gone\n` +
+                  `All **${n(changed)}** trophies in ${whereAll} are flagged as no longer ` +
+                  `earnable.\n\n-# ${note}\n\n` +
+                  'The game now says nothing in it can be earned, rather than "some trophies", ' +
+                  'and every trophy carries the mark.\n' +
+                  '-# Nobody loses points for having earned them. Run `/flag` with the same ' +
+                  'game and no note to clear it.'
+                : `### Cleared\nAll **${n(changed)}** trophies in ${whereAll} are earnable ` +
+                  'again, and the game is completable.',
+            ),
+          ],
+          note ? COLOR.red : COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
   const row = await db.trophyRow(env, reference.np_comm_id, trophyId);
   if (!row) {
     return errorReply(
@@ -1523,6 +1577,15 @@ const MEMBER_FIELDS = new Set(['add', 'remove']);
 const FLAG_FIELDS = new Set(['version', 'trophy']);
 
 /**
+ * The sentinel the trophy dropdown hands back for "every trophy in this game".
+ *
+ * A star rather than a number, because every real value in that field is a
+ * trophy id and PSN ids are integers. Nothing a member could type collides
+ * with it, and nothing in the database can either.
+ */
+const ALL_TROPHIES = '*';
+
+/**
  * TWO LETTERS BEFORE WE ASK THE DATABASE.
  *
  * A focused-but-empty box already has a good answer — their own library — and
@@ -1749,15 +1812,26 @@ async function handleAutocomplete(interaction, env) {
     const npCommId = chosen || editions?.[0]?.np_comm_id;
     if (!npCommId) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
 
-    const rows = await db.searchTrophies(env, npCommId, focused, 25);
+    /**
+     * "Every trophy" sits at the top of the list a mod is already typing into,
+     * rather than being a sixth option on the command or, worse, what an empty
+     * field happens to mean. It is one click and it cannot be done by accident.
+     *
+     * Twenty-four trophies below it, because Discord's ceiling is twenty-five
+     * choices and this takes one of them.
+     */
+    const rows = await db.searchTrophies(env, npCommId, focused, 24);
     return {
       type: REPLY.AUTOCOMPLETE,
       data: {
-        choices: rows.map((t) => ({
-          name: `${t.unobtainable ? '⚠️ ' : ''}${t.name || `Trophy #${t.trophy_id}`} · ${t.type}`
-            .slice(0, 100),
-          value: String(t.trophy_id).slice(0, 100),
-        })),
+        choices: [
+          { name: '⚠️ Every trophy in this game', value: ALL_TROPHIES },
+          ...rows.map((t) => ({
+            name: `${t.unobtainable ? '⚠️ ' : ''}${t.name || `Trophy #${t.trophy_id}`} · ${t.type}`
+              .slice(0, 100),
+            value: String(t.trophy_id).slice(0, 100),
+          })),
+        ],
       },
     };
   }

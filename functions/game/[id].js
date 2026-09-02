@@ -206,7 +206,7 @@ function earnedSet(raw) {
  * around it and the shared version would grow a flag argument within a week.
  * If the marks ever change they change in shared/closing.mjs, which both read.
  */
-function clockBlock(g) {
+function clockBlock(g, trophies = []) {
   const state = closingState(g);
   if (state === 'closing') {
     const soon = isUrgent(g.closes_at);
@@ -219,9 +219,28 @@ function clockBlock(g) {
         until then.${g.unobtainable_note ? ` ${esc(g.unobtainable_note)}` : ''}</span></p>`;
   }
   if (state === 'dead') {
-    return `<p class="warn dead">
+    /**
+     * "SOME" IS A LIE ON A GAME THAT IS WHOLLY GONE.
+     *
+     * XDefiant is entirely online, its servers closed in June 2025, and this
+     * banner told people some of it still worked. JFL__Leon put the row and the
+     * page side by side and the page was the weaker of the two, which is the
+     * wrong way round: clicking in should make a dead game look MORE dead.
+     *
+     * The count is taken from the rows already in hand, so it costs nothing and
+     * cannot disagree with the list underneath it.
+     */
+    const dead = trophies.filter((t) => Number(t.unobtainable) === 1).length;
+    const total = trophies.length;
+    const whole = total > 0 && dead === total;
+
+    return `<p class="warn dead${whole ? ' whole' : ''}">
       <span class="mk">&#9888;</span>
-      <span><b>Some trophies here can no longer be earned.</b> ${esc(
+      <span><b>${
+        whole
+          ? 'Nothing here can be earned any more.'
+          : 'Some trophies here can no longer be earned.'
+      }</b> ${esc(
         g.unobtainable_note || 'A moderator flagged this game as no longer completable.',
       )}</span></p>`;
   }
@@ -647,7 +666,7 @@ export async function onRequestGet({ params, env, request }) {
       </div>
     </section>
 
-    ${clockBlock(g)}
+    ${clockBlock(g, trophies)}
 
     <div class="cups">
       ${cup('p', cabinet.platinum, 'Platinum')}

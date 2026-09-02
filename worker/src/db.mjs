@@ -413,6 +413,37 @@ export const searchTrophies = (env, npCommId, query, limit = 25) => {
 };
 
 /**
+ * Flag or clear EVERY trophy in a title, or in one edition of it.
+ *
+ * For a game that is wholly gone. JFL__Leon's argument, with XDefiant as the
+ * proof: it is entirely online, the servers closed in June 2025, and the page
+ * said "SOME trophies here can no longer be earned" over a trophy list that
+ * looked completely ordinary. Clicking into a dead game made it look less
+ * serious rather than more.
+ *
+ * NOT WHAT A BLANK TROPHY FIELD MEANS, deliberately. Leaving it blank is what a
+ * mod does when they mean "this game has a problem and I am about to name which
+ * trophies" — inFAMOUS 2 is 4 of 52. Making blank mean "all" would have that
+ * mod marking 48 good trophies dead with no way back but unflagging them one at
+ * a time. It is an explicit pick in the dropdown instead.
+ */
+export async function setAllTrophies(env, { title, npCommId = null }, { on, note, by }) {
+  const res = await env.DB.prepare(
+    `UPDATE trophies
+        SET unobtainable = ?, unobtainable_note = ?, flagged_by = ?, flagged_at = ?
+      WHERE ${
+        npCommId
+          ? 'np_comm_id = ?'
+          : 'np_comm_id IN (SELECT np_comm_id FROM games WHERE title = ? COLLATE NOCASE)'
+      }`,
+  )
+    .bind(on ? 1 : 0, on ? note ?? null : null, on ? by ?? null : null, on ? Date.now() : null,
+          npCommId ?? title)
+    .run();
+  return res?.meta?.changes ?? 0;
+}
+
+/**
  * Clear every trophy flag on a title, or on one edition of it.
  *
  * WHY THIS EXISTS. `/flag <game>` with nothing else says "Flag cleared" and

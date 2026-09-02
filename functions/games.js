@@ -62,11 +62,24 @@ const DEFAULT_SORT = 'owned';
  * list called "what we play" — and they arrive with no icon and no owner, so
  * they render as a grey band with a name in it.
  */
+/**
+ * `dead_trophies` is what tells a wholly-gone game from a partly-broken one.
+ *
+ * DERIVED, NOT STORED. A column would need a migration and could drift out of
+ * step with the trophies it describes; this counts them, so it cannot. The
+ * subquery reads `idx_trophies_dead`, which is PARTIAL: it holds only rows
+ * where unobtainable = 1, so it walks dozens rather than a million.
+ *
+ * LEFT JOIN, so a game with nothing flagged still appears, with a null count.
+ */
 const listSql = (order, search) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.trophy_count,
          g.max_points, g.estimated, g.unobtainable, g.unobtainable_note,
-         g.closes_at, g.local_started
+         g.closes_at, g.local_started, d.dead AS dead_trophies
     FROM games g
+    LEFT JOIN (SELECT np_comm_id, COUNT(*) AS dead
+                 FROM trophies WHERE unobtainable = 1
+                GROUP BY np_comm_id) d ON d.np_comm_id = g.np_comm_id
    WHERE g.local_started > 0
      ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
    ORDER BY ${order}
@@ -110,9 +123,20 @@ function clockMarks(g) {
      * The note is still printed IN FULL on the game page itself, so a phone,
      * where `title` does nothing, is one tap from the whole sentence.
      */
+    /**
+     * RED WHEN ALL OF IT IS GONE, brass when only some is. In a list of forty
+     * games the colour is the only thing separating "skip four of these" from
+     * "do not start this at all", and JFL__Leon's point was that XDefiant and
+     * WWE 2K24 looked identical while one of them was entirely dead.
+     */
+    const whole =
+      Number(g.trophy_count) > 0 && Number(g.dead_trophies || 0) >= Number(g.trophy_count);
     return {
-      mark: `<span class="mk dead" title="${esc(
-        g.unobtainable_note || 'Some trophies in this game can no longer be earned.',
+      mark: `<span class="mk dead${whole ? ' whole' : ''}" title="${esc(
+        g.unobtainable_note ||
+          (whole
+            ? 'Nothing in this game can be earned any more.'
+            : 'Some trophies in this game can no longer be earned.'),
       )}">&#9888;</span>`,
       note: '',
     };

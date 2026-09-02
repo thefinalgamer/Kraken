@@ -339,7 +339,7 @@ test('flagging a trophy never touches points', () => {
   const calls = [...fn.matchAll(/db\.(\w+)\(/g)].map((m) => m[1]).sort();
   assert.deepEqual(
     [...new Set(calls)],
-    ['deadCountsByEdition', 'gameVersions', 'setTrophyUnobtainable',
+    ['deadCountsByEdition', 'gameVersions', 'setAllTrophies', 'setTrophyUnobtainable',
      'setTrophyUnobtainableByName', 'setUnobtainable', 'trophyRow'],
     'flag writes and lookups only — nothing here can move a score',
   );

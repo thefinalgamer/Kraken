@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bodyOf } from './helpers.mjs';
+import { readFile } from 'node:fs/promises';
 
 /**
  * The game page, rendered against fake rows.
@@ -573,4 +574,50 @@ test('the game page still prints the mod note in full, which is the phone answer
 
   assert.ok(body.includes('4 Trophies Unobtainable'), 'the mod\'s words, in full');
   assert.match(body, /class="warn dead"/, 'as a proper banner, not a tooltip');
+});
+
+test('a wholly dead game says so, rather than "some trophies"', async () => {
+  /**
+   * XDefiant is entirely online, its servers closed in June 2025, and the page
+   * said "Some trophies here can no longer be earned" over a trophy list where
+   * every row looked perfectly ordinary. JFL__Leon put the row and the page
+   * side by side and the page was the weaker of the two, which is backwards:
+   * clicking into a dead game should make it look MORE dead, not less.
+   */
+  const allDead = TROPHIES.map((t) => ({
+    ...t, unobtainable: 1, unobtainable_note: 'Servers closed on 4 June 2025',
+  }));
+  const { out } = await render({
+    game: { ...GAME, unobtainable: 1, unobtainable_note: 'The servers closed on 4 June 2025.' },
+    trophies: allDead,
+  });
+  const body = bodyOf(out);
+
+  assert.match(body, /class="warn dead whole"/, 'the banner knows the difference');
+  assert.ok(body.includes('Nothing here can be earned any more.'), 'and says it plainly');
+  assert.ok(!body.includes('Some trophies here'), 'the understatement is gone');
+});
+
+test('a partly broken game keeps the softer wording', async () => {
+  // The distinction is the whole point. inFAMOUS 2 is 4 of 52, and telling
+  // people nothing in it works would be as wrong as the other way round.
+  const some = TROPHIES.map((t, i) =>
+    i === 0 ? { ...t, unobtainable: 1, unobtainable_note: 'Event ended' } : t);
+  const { out } = await render({
+    game: { ...GAME, unobtainable: 1, unobtainable_note: '4 trophies unobtainable.' },
+    trophies: some,
+  });
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('Some trophies here can no longer be earned.'));
+  assert.ok(!body.includes('class="warn dead whole"'), 'not the red treatment');
+});
+
+test('the count comes from the rows on the page, not a second query', async () => {
+  // Anything else could disagree with the list printed underneath it, which is
+  // the one place a reader can check the claim.
+  const src = await readFile(new URL('../functions/game/[id].js', import.meta.url), 'utf8');
+  const fn = src.slice(src.indexOf('function clockBlock'), src.indexOf('export async function'));
+  assert.match(fn, /trophies\.filter\(\(t\) => Number\(t\.unobtainable\) === 1\)\.length/);
+  assert.ok(!/db|prepare|SELECT/.test(fn), 'and asks the database nothing');
 });

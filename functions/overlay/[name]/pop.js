@@ -71,7 +71,18 @@ const NEWEST = `
    ORDER BY mt.earned_at DESC
    LIMIT 1`;
 
-/** Where the frames live, and how many there are. See tools/trophy-frames.py. */
+/**
+ * Where the frames live, and how many there are. See tools/trophy-frames.py.
+ *
+ * NOT UNDER /overlay/. They were, and they were invisible, because a Pages
+ * Function beats a static file on the same path: a request for
+ * /overlay/gold.png went to the /overlay/<name> route, which looked for a
+ * hunter called "gold.png", found nobody and served an empty bar. The image
+ * never existed as far as the browser was concerned, so the pop had a hole
+ * where the trophy goes.
+ *
+ * Anything static this feature needs lives OUTSIDE the route's own prefix.
+ */
 const FRAMES = 36;
 const FRAME = 104;
 const METALS = { platinum: 'plat', gold: 'gold', silver: 'silver', bronze: 'bronze' };
@@ -177,7 +188,7 @@ function card({ metal, name, game, points, climb, demo }) {
   const slug = METALS[metal] ?? 'bronze';
   return `<div class="pop${demo ? ' demo' : ''}" style="--metal:var(--${slug === 'plat' ? 'plat' : slug})">
     <span class="box">
-      <span class="cup" style="background-image:url(/overlay/${slug}.png)"></span>
+      <span class="cup" style="background-image:url(/trophy/${slug}.png)"></span>
     </span>
     <span class="body">
       <span>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { bodyOf } from './helpers.mjs';
 import { displayBanked } from '../shared/scoring.mjs';
 
@@ -69,7 +69,7 @@ test('it shows a trophy earned two minutes ago', async () => {
   assert.match(body, /Indiana Jones/, 'and which game it came from');
   const paid = displayBanked(TROPHY.points, MEMBER.completion);
   assert.match(body, new RegExp(`\\+${paid.toLocaleString('en-GB')}`), 'banked, not raw');
-  assert.match(body, /overlay\/gold\.png/, 'with the gold frames');
+  assert.match(body, /trophy\/gold\.png/, 'with the gold frames');
 });
 
 test('a trophy pops once and never again', async () => {
@@ -148,14 +148,14 @@ test('test mode loops, says it is a test, and touches nothing', async () => {
   const body = bodyOf(out);
   assert.match(body, /class="pop demo"/, 'looping');
   assert.match(body, /Test trophy/i, 'and honest about what it is');
-  assert.match(body, /overlay\/plat\.png/, 'in the metal asked for');
+  assert.match(body, /trophy\/plat\.png/, 'in the metal asked for');
   assert.ok(!out.includes('http-equiv="refresh"'), 'no reload fighting the loop');
   assert.deepEqual(w, [], 'a test must not move anybody real marker');
 });
 
 test('a junk metal in test mode falls back rather than 404ing the image', async () => {
   const body = bodyOf((await render({}, '?test=../../etc/passwd')).out);
-  assert.match(body, /overlay\/gold\.png/, 'whitelisted, never interpolated');
+  assert.match(body, /trophy\/gold\.png/, 'whitelisted, never interpolated');
   assert.ok(!body.includes('passwd'), 'and nothing from the query reaches the markup');
 });
 
@@ -184,7 +184,7 @@ test('a database without the trophy log renders empty instead of erroring', asyn
 
 test('the frames it points at are actually committed', async () => {
   for (const metal of ['plat', 'gold', 'silver', 'bronze']) {
-    const buf = await readFile(new URL(`../public/overlay/${metal}.png`, import.meta.url));
+    const buf = await readFile(new URL(`../public/trophy/${metal}.png`, import.meta.url));
     assert.ok(buf.length > 10000, `${metal}.png looks empty`);
     // 36 frames of 104px, so the strip is 3744 wide. The PNG header carries the
     // dimensions at a fixed offset, which is enough to catch a half-written or
@@ -196,4 +196,37 @@ test('the frames it points at are actually committed', async () => {
   const gen = await readFile(new URL('../tools/trophy-frames.py', import.meta.url), 'utf8');
   assert.match(gen, /FRAMES = 36/, 'and the generator still agrees');
   assert.match(gen, /SIZE  = 104/);
+});
+
+test('nothing static is hidden underneath a dynamic route', async () => {
+  /**
+   * THE BUG THIS EXISTS FOR, and it cost an evening.
+   *
+   * The trophy frames were committed to public/overlay/. A Pages Function
+   * beats a static file on the same path, so a request for /overlay/gold.png
+   * went to the /overlay/<name> route, which looked for a hunter called
+   * "gold.png", found nobody, and served an empty bar. Martin loaded it in
+   * Chrome and got a black page whose tab said "overlay", which is the whole
+   * diagnosis in one word: it was not a missing image, it was the wrong
+   * handler answering.
+   *
+   * The rule: if functions/<x>/ takes a dynamic segment, then public/<x>/ is
+   * unreachable and must not exist. This walks both trees rather than checking
+   * the one directory that caught us.
+   */
+  const dynamic = [];
+  for (const dir of await readdir('functions', { withFileTypes: true })) {
+    if (!dir.isDirectory() || dir.name.startsWith('_')) continue;
+    const inside = await readdir(`functions/${dir.name}`);
+    if (inside.some((f) => f.startsWith('['))) dynamic.push(dir.name);
+  }
+  assert.ok(dynamic.includes('overlay'), 'the walk found the route that caused this');
+
+  for (const name of dynamic) {
+    const hidden = await stat(`public/${name}`).then(() => true, () => false);
+    assert.ok(
+      !hidden,
+      `public/${name}/ can never be served: functions/${name}/ answers that path first`,
+    );
+  }
 });

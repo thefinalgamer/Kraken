@@ -1,7 +1,7 @@
 """
 The trophy frames for the stream overlay's pop.
 
-RUN THIS ONLY TO REGENERATE public/overlay/*.png. The frames are committed, so
+RUN THIS ONLY TO REGENERATE public/trophy/*.png. The frames are committed, so
 nothing at build or request time depends on Python being installed. It exists
 so the strips can be rebuilt if the shape or the lighting ever needs changing,
 rather than being four mystery images nobody can reproduce.
@@ -231,5 +231,5 @@ for name, (base, spec) in METALS.items():
     strip = Image.new('RGBA', (SIZE * FRAMES, SIZE), (0, 0, 0, 0))
     for i in range(FRAMES):
         strip.paste(render(2 * np.pi * i / FRAMES, base, spec), (i * SIZE, 0))
-    strip.save(f'public/overlay/{name}.png')
+    strip.save(f'public/trophy/{name}.png')
     print(name, 'done')

@@ -9,6 +9,11 @@ Allow: /$
 Allow: /leaderboard$
 Disallow: /hunter/
 Disallow: /game/
+# The overlay is a browser source for OBS. It is one line of numbers with no
+# links out of it, so there is nothing for a crawler to find, and it refreshes
+# itself every sixty seconds, which is exactly the shape of thing a crawler
+# should not be holding open.
+Disallow: /overlay/
 
 # The bulk scrapers get nothing. No search value to us, real cost to us.
 User-agent: GPTBot

@@ -187,7 +187,63 @@ const LIVE = `
      AND twitch_login IS NOT NULL
      AND live_checked_at > ?
    ORDER BY live_since DESC
-   LIMIT 3`;
+   LIMIT 12`;
+
+/**
+ * Three across, the rest of them waiting behind it.
+ *
+ * Twenty people live at once is the best night this server will ever have, and
+ * showing three with the rest silently dropped is a bug that only appears on
+ * exactly that night. Stacking ten cards down the page is the other failure:
+ * they are 16:9 stills, so the leaderboard would end up below the fold.
+ *
+ * So it is the shelf everybody already knows how to use. Three visible, the
+ * next one peeking past the edge so it is obvious there is more, and it drags.
+ *
+ * ZERO JAVASCRIPT, like every other page here. Scroll snapping handles the
+ * dragging and the wheel, and the dots underneath are ordinary anchors: a link
+ * to an element inside a scrolling box scrolls that box, which is browser
+ * behaviour older than most of the libraries that reimplement it.
+ *
+ * NEWEST FIRST, NOT BIGGEST. Sorting by audience would pin the same person to
+ * the front forever and make this a second leaderboard, which is the one thing
+ * it must not be. A stream that just started is the news.
+ */
+const LIVE_PER_VIEW = 3;
+
+/**
+ * Who has a channel but is not on right now.
+ *
+ * THE EMPTY STATE IS THE POINT OF THIS QUERY. A "Live now" heading over
+ * nothing is a dead zone, and hiding the section entirely means a visitor on a
+ * quiet Tuesday never learns that people here stream at all. Naming the
+ * regulars answers "come back when" without anybody having to say it.
+ *
+ * Reads the partial index from migration 019, so it is a handful of rows
+ * whatever the board grows to. Ordered by position because with nobody live
+ * there is no news to order by, and a stable list is better than a random one.
+ */
+const CHANNELS = `
+  SELECT psn_online_id, avatar_url, twitch_login
+    FROM members
+   WHERE twitch_login IS NOT NULL
+     AND live_since IS NULL
+     AND rank IS NOT NULL
+   ORDER BY rank ASC
+   LIMIT 25`;
+
+/**
+ * Names shown before it turns into a count.
+ *
+ * Eight is about a line and a half. Seventy pins would be a wall, and the cap
+ * has to live here rather than in the query so the page can say how many are
+ * behind it: the query reads a few more than it shows for exactly that.
+ *
+ * Twenty five is where the reading stops. If this board ever has more than
+ * twenty five streamers the number will say "24 more" and be wrong in a
+ * direction nobody minds.
+ */
+const CHANNELS_SHOWN = 8;
 
 
 /**
@@ -208,10 +264,38 @@ const LIVE = `
  *
  * Nobody appears here without having run /twitch themselves.
  */
-function liveStrip(rows) {
-  if (!rows.length) return '';
+function liveStrip(rows, channels = []) {
+  /**
+   * NOTHING AT ALL only when nobody on the board has connected a channel.
+   * Otherwise the section stays, because a visitor on a quiet Tuesday should
+   * still find out that people here stream, and because a heading that appears
+   * and disappears is one nobody learns to look for.
+   */
+  if (!rows.length) {
+    if (!channels.length) return '';
+    return `<section class="live off">
+      <h2><span class="dot" aria-hidden="true"></span>Live now</h2>
+      <div class="lvempty">
+        <p class="lvnone">Nobody is streaming at the moment.</p>
+        <div class="lvwho">${channels
+          .slice(0, CHANNELS_SHOWN)
+          .map(
+            (m) => `<a href="https://twitch.tv/${esc(encodeURIComponent(m.twitch_login))}"
+              target="_blank" rel="noopener noreferrer">
+              ${avatar(m.avatar_url, 22)}<span>${esc(m.psn_online_id)}</span>
+            </a>`,
+          )
+          .join('')}${
+          channels.length > CHANNELS_SHOWN
+            ? `<span class="lvrest">and ${n(channels.length - CHANNELS_SHOWN)} more</span>`
+            : ''
+        }</div>
+        <p class="lvhint">These lot stream. They turn up here the moment they go on.</p>
+      </div>
+    </section>`;
+  }
 
-  const card = (m) => {
+  const card = (m, i) => {
     const url = `https://twitch.tv/${encodeURIComponent(m.twitch_login)}`;
     const mins = Math.max(0, Math.floor((Date.now() - Number(m.live_since || 0)) / 60000));
     const hours = Math.floor(mins / 60);
@@ -226,7 +310,7 @@ function liveStrip(rows) {
      */
     const showThumb = m.live_thumb && Number(m.live_mature) !== 1;
 
-    return `<a class="lv" href="${esc(url)}" target="_blank" rel="noopener noreferrer">
+    return `<a class="lv" id="lv${i}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">
       <span class="shot">
         ${
           showThumb
@@ -260,14 +344,35 @@ function liveStrip(rows) {
     </a>`;
   };
 
+  /**
+   * One dot per group of three, each an anchor to that group's first card.
+   * Drawn only when there is somewhere to go, so the usual night with one
+   * person live carries no furniture at all.
+   */
+  const pages = Math.ceil(rows.length / LIVE_PER_VIEW);
+  const dots = pages > 1
+    ? `<nav class="lvdots" aria-label="More live streams">${Array.from(
+        { length: pages },
+        (_, p) => `<a href="#lv${p * LIVE_PER_VIEW}" aria-label="Streams from ${
+          p * LIVE_PER_VIEW + 1
+        }"></a>`,
+      ).join('')}</nav>`
+    : '';
+
   return `<section class="live">
-    <h2><span class="dot" aria-hidden="true"></span>Live now</h2>
-    <div class="lvs">${rows.map(card).join('')}</div>
+    <h2>
+      <span class="dot" aria-hidden="true"></span>Live now
+      ${rows.length > LIVE_PER_VIEW ? `<span class="count">${n(rows.length)}</span>` : ''}
+    </h2>
+    <div class="lvwrap">
+      <div class="lvs">${rows.map(card).join('')}</div>
+    </div>
+    ${dots}
   </section>`;
 }
 
 export async function onRequestGet({ env }) {
-  const [totals, top, contested, finishedRows, startedRows, liveRows] = await Promise.all([
+  const [totals, top, contested, finishedRows, startedRows, liveRows, channelRows] = await Promise.all([
     env.DB.prepare(TOTALS).first(),
     env.DB.prepare(TOP).all(),
     env.DB.prepare(CONTESTED).all(),
@@ -279,6 +384,7 @@ export async function onRequestGet({ env }) {
      * flags have: one un-run migration disables one strip, not the front page.
      */
     env.DB.prepare(LIVE).bind(Date.now() - LIVE_STALE_MS).all().catch(() => ({ results: [] })),
+    env.DB.prepare(CHANNELS).all().catch(() => ({ results: [] })),
   ]);
 
   const finished = perUpdate(finishedRows?.results);
@@ -302,7 +408,7 @@ export async function onRequestGet({ env }) {
       <nav class="doornav">${navButtons()}</nav>
     </section>
 
-    ${liveStrip(liveRows?.results ?? [])}
+    ${liveStrip(liveRows?.results ?? [], channelRows?.results ?? [])}
 
     <dl class="totals">
       ${stat('Hunters', n(hunters))}

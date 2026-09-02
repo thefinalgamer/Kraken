@@ -1269,7 +1269,76 @@ p.warn.dead.whole b{color:#ff8e86}
   70%{box-shadow:0 0 0 7px rgba(224,100,95,0)}
   100%{box-shadow:0 0 0 0 rgba(224,100,95,0)}
 }
-.lvs{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(268px,1fr))}
+/* THE SHELF.
+   Three across, the next one peeking past the right edge so it is obvious there
+   is more, and it drags. Snapping is what makes a sideways scroller feel like a
+   shelf rather than a runaway div.
+
+   overflow-x:auto PROMOTES THE OTHER AXIS to auto as well, which is exactly the
+   bug that turned the games table into a scroll box when a popup opened inside
+   it. Nothing here is taller than the row and the lift on hover is paid for
+   with padding, so there is never anything to scroll vertically. */
+.lvwrap{position:relative;margin:0 -2px}
+.lvs{
+  display:grid;grid-auto-flow:column;
+  /* Three across MINUS a sliver, so the fourth card is visibly waiting at the
+     edge. Exactly three would fill the width and the shelf would look like it
+     ends there, which is the whole thing this is meant to avoid. */
+  grid-auto-columns:calc((100% - 2 * 12px - 52px) / 3);
+  gap:12px;padding:4px 2px 6px;
+  overflow-x:auto;overscroll-behavior-x:contain;
+  scroll-snap-type:x mandatory;scroll-padding-left:2px;
+  scrollbar-width:none;
+}
+.lvs::-webkit-scrollbar{display:none}
+.lv{scroll-snap-align:start}
+/* The edge fade, which is the whole "there is more behind this" signal. It sits
+   over the shelf and must never eat a click meant for the card under it. */
+.lvwrap::after{
+  content:"";position:absolute;top:0;right:-2px;bottom:6px;width:56px;
+  pointer-events:none;
+  background:linear-gradient(90deg,rgba(12,22,24,0),var(--ground));
+}
+@media (max-width:760px){
+  .lvs{grid-auto-columns:86%}
+}
+.lvdots{display:flex;gap:6px;justify-content:center;margin:8px 0 0}
+.lvdots a{
+  width:22px;height:4px;border-radius:99px;background:var(--rule);
+  transition:background .16s ease;
+}
+.lvdots a:hover,.lvdots a:focus-visible{background:var(--soft)}
+
+/* THE QUIET STATE.
+   The dot stops pulsing and goes grey, because a red live light over "nobody is
+   streaming" is the kind of small lie that makes people stop trusting the rest
+   of the page. Naming the regulars turns an empty box into an answer to "come
+   back when". */
+.live.off .dot{background:var(--rule);animation:none}
+.lvempty{
+  border:1px solid var(--edge);border-radius:12px;background:var(--panel);
+  padding:14px 16px;
+}
+.lvnone{margin:0;color:var(--soft);font-size:14px}
+.lvwho{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 0}
+.lvwho a{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:5px 11px 5px 5px;border-radius:99px;
+  border:1px solid var(--rule);background:var(--ground);
+  text-decoration:none;font-size:13px;font-weight:600;
+}
+.lvwho a:hover{border-color:var(--faint)}
+.lvwho img{border-radius:50%;flex:none}
+.lvrest{
+  display:inline-flex;align-items:center;padding:5px 11px;border-radius:99px;
+  color:var(--faint);font-size:12.5px;border:1px dashed var(--rule);
+}
+.lvhint{margin:10px 0 0;color:var(--faint);font-size:12.5px}
+.live h2 .count{
+  margin-left:2px;padding:1px 7px;border-radius:99px;
+  background:rgba(224,100,95,.16);border:1px solid rgba(224,100,95,.4);
+  color:var(--down);font-size:10.5px;letter-spacing:.04em;
+}
 .lv{
   display:block;text-decoration:none;border-radius:12px;overflow:hidden;
   border:1px solid var(--edge);background:var(--panel);
@@ -1323,6 +1392,7 @@ p.warn.dead.whole b{color:#ff8e86}
   font-variant-numeric:tabular-nums;line-height:1.15;
 }
 .lv .pos .pts{display:block;color:var(--faint);font-weight:400;font-size:11px}
+
 .cta{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:6px 0 0}
 .btn{
   display:inline-block;padding:10px 20px;border-radius:9px;text-decoration:none;

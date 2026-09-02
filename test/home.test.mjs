@@ -74,6 +74,7 @@ const fakeEnv = (o = {}) => ({
         // would hand it rows with no twitch_login on them and the strip would
         // render nonsense while every assertion still passed.
         if (sql.includes('live_since IS NOT NULL')) return o.live ?? [];
+        if (sql.includes('live_since IS NULL')) return o.channels ?? [];
         return o.top ?? TOP;
       };
       const answer = (kind) => ({
@@ -267,14 +268,45 @@ const LIVE = [
     live_viewers: 12, live_thumb: 'https://static-cdn.jtvnw.net/y-640x360.jpg', live_mature: 0 },
 ];
 
-test('the live strip is not there when nobody is streaming', async () => {
+test('with nobody live, the section names who to expect instead of vanishing', async () => {
   /**
-   * Seventy members and maybe three who stream. An always-on panel would be an
-   * empty box almost every hour of the week, and a dead zone at the top of the
-   * front page is worse than no feature at all.
+   * A "Live now" heading over nothing is a dead zone, but hiding the whole
+   * section means somebody visiting on a quiet Tuesday never learns that people
+   * here stream at all. Naming the regulars answers "come back when" without
+   * anybody having to write it.
    */
+  const channels = [
+    { psn_online_id: 'Pelzio', avatar_url: null, twitch_login: 'pelzio' },
+    { psn_online_id: 'JFL__Leon', avatar_url: null, twitch_login: 'jfl__leon' },
+  ];
+  const body = bodyOf((await render({ channels })).out);
+
+  assert.match(body, /class="live off"/, 'the section stays');
+  assert.match(body, /Nobody is streaming/);
+  assert.match(body, /twitch\.tv\/pelzio/, 'with a way to find them');
+  assert.ok(!body.includes('class="lv"'), 'but no cards for streams that are not happening');
+});
+
+test('seventy channels do not become seventy pins', async () => {
+  /**
+   * Martin, looking ahead: "what if 70 streamers sign up and thats 70 pins".
+   * Eight names is a line and a half; the rest become a number, and the query
+   * reads a few more than it shows so the number can exist at all.
+   */
+  const many = Array.from({ length: 20 }, (_, i) => ({
+    psn_online_id: `hunter${i}`, avatar_url: null, twitch_login: `hunter${i}`,
+  }));
+  const body = bodyOf((await render({ channels: many })).out);
+
+  const pins = [...body.matchAll(/class="lvwho"[\s\S]*?<\/div>/g)][0][0];
+  assert.equal([...pins.matchAll(/twitch\.tv\//g)].length, 8, 'eight names, not twenty');
+  assert.match(body, /and 12 more/, 'and the rest are a count');
+});
+
+test('and it disappears completely when nobody has connected a channel', async () => {
+  // Which is the state of the board until people start running /twitch.
   const body = bodyOf((await render()).out);
-  assert.ok(!body.includes('class="live"'), 'no empty box');
+  assert.ok(!body.includes('class="live'), 'no empty box');
   assert.ok(!/Live now/.test(body), 'and no heading over nothing');
 });
 

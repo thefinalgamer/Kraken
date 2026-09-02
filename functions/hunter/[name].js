@@ -21,7 +21,7 @@
 
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
-  closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar,
+  closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -494,10 +494,7 @@ function clockMarks(g) {
       Number(g.trophy_count) > 0 && Number(g.dead_trophies || 0) >= Number(g.trophy_count);
     return {
       mark: `<span class="mk dead${whole ? ' whole' : ''}" title="${esc(
-        g.unobtainable_note ||
-          (whole
-            ? 'Nothing in this game can be earned any more.'
-            : 'Some trophies in this game can no longer be earned.'),
+        deadTitle(g),
       )}">&#9888;</span>`,
       note: '',
     };

@@ -193,11 +193,64 @@ test('the unobtainable note rides the symbol, and never becomes a popup again', 
    * pretended away: the game page prints the note in full, guarded by its own
    * test in game.test.mjs. What must never come back is (2).
    */
-  assert.match(body, /class="mk dead" title="Servers closed"/, 'the note is on the symbol');
+  assert.match(
+    body,
+    /class="mk dead" title="Some trophies in this game can no longer be earned.\nServers closed"/,
+    'the count leads, the mod keeps the second line',
+  );
   assert.ok(!body.includes('class="gnote"'), 'and no longer a line that pushes the table around');
   assert.ok(!body.includes('flagwrap'), 'no popup');
   assert.ok(!body.includes('flagnote'), 'and nothing positioned over the table');
   assert.ok(body.includes('&#9888;'), 'the mark is still beside the title');
+});
+
+test('a wholly dead game says so before it says why', async () => {
+  /**
+   * Martin put two rows side by side. GTA V, flagged trophy by trophy, hovered
+   * into "27 trophies can no longer be earned." Fall Guys, flagged with "every
+   * trophy", hovered into the moderator's paragraph about a free-to-play
+   * re-release in May 2022, and you had to read all of it to learn that the
+   * whole game was gone. Both are dead; only one of them opened with it.
+   *
+   * The lead sentence is now DERIVED from the counts, so it is the same shape
+   * whichever way the flag got there, and the moderator's words follow it.
+   */
+  const dead = [{
+    ...GAMES[1],
+    title: 'Fall Guys',
+    trophy_count: 35,
+    dead_trophies: 35,
+    unobtainable_note: 'Replaced with a free-to-play version and the old servers were cut off.',
+  }];
+  const { out } = await render('JFL__Leon', '', { games: dead });
+  const body = bodyOf(out);
+
+  assert.match(
+    body,
+    /title="All 35 trophies in this game can no longer be earned.\nReplaced with a free-to-play/,
+    'the count first, then the reason',
+  );
+  assert.match(body, /class="mk dead whole"/, 'and it is the red mark, not the brass one');
+});
+
+test('a generated count is not printed twice', async () => {
+  /**
+   * Flagging trophies one at a time writes the game a note that is itself a
+   * count, which is where the good version of this sentence came from. Leading
+   * with a derived count and then appending that stored one would read
+   * "27 trophies can no longer be earned. 27 trophies can no longer be earned."
+   */
+  const dead = [{
+    ...GAMES[1],
+    title: 'Grand Theft Auto V',
+    trophy_count: 59,
+    dead_trophies: 27,
+    unobtainable_note: '27 trophies can no longer be earned.',
+  }];
+  const body = bodyOf((await render('JFL__Leon', '', { games: dead })).out);
+
+  assert.match(body, /title="27 trophies can no longer be earned."/, 'said once');
+  assert.ok(!body.includes('earned.\n27 trophies'), 'and not echoed underneath itself');
 });
 
 test('points read as earned out of the full completion, like the backlog does', async () => {

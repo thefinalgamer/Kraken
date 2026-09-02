@@ -19,7 +19,7 @@
  */
 
 import {
-  page, html, esc, n, crumb, closingState, closingLabel, isUrgent,
+  page, html, esc, n, crumb, closingState, closingLabel, isUrgent, deadTitle,
 } from './_lib/page.js';
 
 const PER_PAGE = 50;
@@ -133,10 +133,7 @@ function clockMarks(g) {
       Number(g.trophy_count) > 0 && Number(g.dead_trophies || 0) >= Number(g.trophy_count);
     return {
       mark: `<span class="mk dead${whole ? ' whole' : ''}" title="${esc(
-        g.unobtainable_note ||
-          (whole
-            ? 'Nothing in this game can be earned any more.'
-            : 'Some trophies in this game can no longer be earned.'),
+        deadTitle(g),
       )}">&#9888;</span>`,
       note: '',
     };

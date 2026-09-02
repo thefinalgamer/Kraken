@@ -221,6 +221,45 @@ export const isUrgent = (closesAt, now = Date.now()) => {
 };
 
 /**
+ * The sentence behind the warning triangle in a list.
+ *
+ * TWO GAMES, TWO COMPLETELY DIFFERENT TOOLTIPS, and that was the bug. GTA V
+ * was flagged trophy by trophy, so the rollup wrote itself a note and the row
+ * read "27 trophies can no longer be earned." Fall Guys was flagged with
+ * "every trophy", so the stored note was the moderator's own sentence and the
+ * row hovered into a paragraph about a free-to-play re-release in May 2022.
+ * Both games are dead; only one of them said so in the first four words.
+ *
+ * The count is DERIVED here rather than read out of the note, so the lead
+ * sentence is the same shape however the flag got there, and the moderator's
+ * words follow on a second line when they add something the count does not
+ * already say. That second line is why the whole-game path stores their
+ * sentence at all, and it is still printed in full on the game page.
+ *
+ * `\n` in a title attribute is a real line break in every browser that shows
+ * titles at all. Phones show none of this, which is why the game page carries
+ * the same information as text.
+ */
+const GENERATED_NOTE = /can no longer be earned|has unobtainable trophies/i;
+
+export function deadTitle(g) {
+  const total = Number(g.trophy_count) || 0;
+  const dead = Number(g.dead_trophies || 0);
+  const whole = total > 0 && dead >= total;
+
+  const lead = whole
+    ? `All ${total} troph${total === 1 ? 'y' : 'ies'} in this game can no longer be earned.`
+    : dead > 0
+      ? `${dead} troph${dead === 1 ? 'y' : 'ies'} can no longer be earned.`
+      : 'Some trophies in this game can no longer be earned.';
+
+  // A note that is itself a generated count adds nothing but a second copy of
+  // the line above it.
+  const note = String(g.unobtainable_note ?? '').trim();
+  return note && !GENERATED_NOTE.test(note) ? `${lead}\n${note}` : lead;
+}
+
+/**
  * A d20. TWENTY TRIANGLES IN ACTUAL THREE DIMENSIONS.
  *
  * The first version was ten flat polygons in an SVG, shaded to LOOK like a

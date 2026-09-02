@@ -182,19 +182,33 @@ test('a database without the trophy log renders empty instead of erroring', asyn
   assert.ok(isEmpty(out));
 });
 
+test('the turn runs fast enough not to read as a stutter', async () => {
+  /**
+   * Martin: "the trophy spin is a tad slow so it looks like its stuttering a
+   * bit". He was right, and the number says why: thirty six frames over six
+   * seconds is six a second. Frames per second is what matters here, not
+   * either number on its own, so this asserts the product rather than the
+   * duration somebody might tune in isolation.
+   */
+  const { out } = await render({}, '?test=gold');
+  const [, secs, frames] = /animation:turn ([\d.]+)s steps\((\d+)\)/.exec(out) ?? [];
+  const fps = Number(frames) / Number(secs);
+  assert.ok(fps >= 15, `${fps.toFixed(1)} frames a second reads as stepping, not turning`);
+});
+
 test('the frames it points at are actually committed', async () => {
   for (const metal of ['plat', 'gold', 'silver', 'bronze']) {
     const buf = await readFile(new URL(`../public/trophy/${metal}.png`, import.meta.url));
     assert.ok(buf.length > 10000, `${metal}.png looks empty`);
-    // 36 frames of 104px, so the strip is 3744 wide. The PNG header carries the
+    // 72 frames of 104px, so the strip is 7488 wide. The PNG header carries the
     // dimensions at a fixed offset, which is enough to catch a half-written or
     // resized strip without a decoder.
-    assert.equal(buf.readUInt32BE(16), 104 * 36, `${metal}.png is not 36 frames`);
+    assert.equal(buf.readUInt32BE(16), 104 * 72, `${metal}.png is not 72 frames`);
     assert.equal(buf.readUInt32BE(20), 104, `${metal}.png is not 104 tall`);
   }
 
   const gen = await readFile(new URL('../tools/trophy-frames.py', import.meta.url), 'utf8');
-  assert.match(gen, /FRAMES = 36/, 'and the generator still agrees');
+  assert.match(gen, /FRAMES = 72/, 'and the generator still agrees');
   assert.match(gen, /SIZE  = 104/);
 });
 

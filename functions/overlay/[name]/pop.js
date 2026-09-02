@@ -83,7 +83,7 @@ const NEWEST = `
  *
  * Anything static this feature needs lives OUTSIDE the route's own prefix.
  */
-const FRAMES = 36;
+const FRAMES = 72;
 const FRAME = 104;
 const METALS = { platinum: 'plat', gold: 'gold', silver: 'silver', bronze: 'bronze' };
 
@@ -141,7 +141,10 @@ body{
 .cup{
   width:${FRAME}px;height:${FRAME}px;background-repeat:no-repeat;
   background-size:${FRAME * FRAMES}px ${FRAME}px;
-  animation:turn 6s steps(${FRAMES}) infinite;
+  /* TWENTY FRAMES A SECOND. It was thirty six frames over six seconds, which
+     is six a second, and it read as a stutter rather than a turn. Frame rate is
+     count times speed, so both changed: twice the frames in half the time. */
+  animation:turn 3.6s steps(${FRAMES}) infinite;
 }
 @keyframes turn{ to{ background-position:-${FRAME * FRAMES}px 0 } }
 .body{display:flex;align-items:center;gap:18px;padding:16px 18px;min-width:0}

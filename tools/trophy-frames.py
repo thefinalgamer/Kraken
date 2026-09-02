@@ -9,9 +9,16 @@ rather than being four mystery images nobody can reproduce.
     pip install numpy pillow
     python3 tools/trophy-frames.py
 
-Output: one strip per metal, 36 frames of a full turn, 104px square each, with
+Output: one strip per metal, 72 frames of a full turn, 104px square each, with
 alpha. The overlay steps through them with CSS, so a browser source plays a
 real 3D turn without a library, a canvas or a single line of JavaScript.
+
+SEVENTY TWO, NOT THIRTY SIX. Thirty six frames over a six second turn is six
+frames a second, and Martin called it straight away: "the trophy spin is a tad
+slow so it looks like its stuttering a bit". Frame rate is the product of frame
+COUNT and turn SPEED, so both moved: twice the frames, half the time, which is
+twenty a second instead of six. The strips roughly double to about 110KB each,
+which is nothing for a file a browser source fetches once and then reuses.
 
 WHY NOT CSS 3D. The first attempt stacked sixteen flat copies of a trophy icon
 a fraction apart in Z and spun them. Two problems, and they are both fatal.
@@ -26,7 +33,7 @@ from PIL import Image
 SEG   = 44          # segments around the lathe
 SS    = 3           # supersample factor
 SIZE  = 104         # final frame size
-FRAMES = 36
+FRAMES = 72
 
 # ---------------------------------------------------------------- geometry --
 

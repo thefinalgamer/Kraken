@@ -165,13 +165,120 @@ function topRow(m) {
   </li>`;
 }
 
+/**
+ * Who is on air, from the last Twitch check.
+ *
+ * `live_checked_at` is half the answer. `live_since` on its own would be a lie
+ * the moment the five minute cron stopped: a stream that ended while the check
+ * was broken would sit on the front page all week. A live answer that nobody
+ * has confirmed for fifteen minutes is treated as no answer, which is the same
+ * rule the overlay uses.
+ *
+ * Ordered by who went on most recently, never by points. This strip is not a
+ * second leaderboard.
+ */
+const LIVE_STALE_MS = 15 * 60 * 1000;
+
+const LIVE = `
+  SELECT psn_online_id, avatar_url, twitch_login, rank, points,
+         live_since, live_game, live_viewers, live_thumb, live_mature
+    FROM members
+   WHERE live_since IS NOT NULL
+     AND twitch_login IS NOT NULL
+     AND live_checked_at > ?
+   ORDER BY live_since DESC
+   LIMIT 3`;
+
+
+/**
+ * Who is on air, as cards rather than a list.
+ *
+ * IT WAS A LIST AND THE LIST WAS THE PROBLEM. A name and a dot is a fact about
+ * a person; this is what is on their screen right now, how many people are
+ * watching it, how long they have been at it, and where they sit on the board.
+ * Martin, on the first version: "kinda lack lust, kinda beneath me, we have
+ * done better".
+ *
+ * ALL OF IT COMES FROM THE SAME TWITCH RESPONSE the live check already makes,
+ * so a card costs no more requests than the line did.
+ *
+ * RENDERED ONLY WHEN SOMEBODY IS LIVE. Seventy members and maybe three who
+ * stream means an always-on panel would be an empty box most hours of the week,
+ * and a dead zone at the top of a page is worse than no feature.
+ *
+ * Nobody appears here without having run /twitch themselves.
+ */
+function liveStrip(rows) {
+  if (!rows.length) return '';
+
+  const card = (m) => {
+    const url = `https://twitch.tv/${encodeURIComponent(m.twitch_login)}`;
+    const mins = Math.max(0, Math.floor((Date.now() - Number(m.live_since || 0)) / 60000));
+    const hours = Math.floor(mins / 60);
+    const uptime = hours ? `${hours}h ${mins % 60}m` : `${mins}m`;
+
+    /**
+     * NO PICTURE FOR A MATURE STREAM, and no picture is not the same as no
+     * card. This is a frame of somebody else's broadcast hotlinked onto the
+     * front of the site; Twitch's own flag is the only warning available, and
+     * the honest response to it is to print the words and leave the picture
+     * out rather than to hide that they are live.
+     */
+    const showThumb = m.live_thumb && Number(m.live_mature) !== 1;
+
+    return `<a class="lv" href="${esc(url)}" target="_blank" rel="noopener noreferrer">
+      <span class="shot">
+        ${
+          showThumb
+            ? `<img src="${esc(m.live_thumb)}" alt="" loading="lazy" width="640" height="360">`
+            : '<span class="noshot"></span>'
+        }
+        <span class="tag"><span class="dot" aria-hidden="true"></span>LIVE</span>
+        ${
+          m.live_viewers != null
+            ? `<span class="watching">${n(m.live_viewers)} watching</span>`
+            : ''
+        }
+        <span class="up">${esc(uptime)}</span>
+      </span>
+      <span class="meta">
+        ${avatar(m.avatar_url, 34)}
+        <span class="txt">
+          <span class="nm">${esc(m.psn_online_id)}</span>
+          <span class="gm">${m.live_game ? esc(m.live_game) : 'Streaming now'}</span>
+        </span>
+        ${
+          /**
+           * The one thing Twitch cannot put on this card. A stranger sees a
+           * stream; a member sees the person sitting second on the board.
+           */
+          m.rank != null
+            ? `<span class="pos">${ordinal(m.rank)}<span class="pts">${n(m.points)}</span></span>`
+            : ''
+        }
+      </span>
+    </a>`;
+  };
+
+  return `<section class="live">
+    <h2><span class="dot" aria-hidden="true"></span>Live now</h2>
+    <div class="lvs">${rows.map(card).join('')}</div>
+  </section>`;
+}
+
 export async function onRequestGet({ env }) {
-  const [totals, top, contested, finishedRows, startedRows] = await Promise.all([
+  const [totals, top, contested, finishedRows, startedRows, liveRows] = await Promise.all([
     env.DB.prepare(TOTALS).first(),
     env.DB.prepare(TOP).all(),
     env.DB.prepare(CONTESTED).all(),
     env.DB.prepare(feedSql('completed')).bind('completed').all(),
     env.DB.prepare(feedSql('new')).bind('new').all(),
+    /**
+     * Wrapped, because the twitch columns arrive in migration 019 and this page
+     * must not go down on a database that has not run it yet. Same seatbelt the
+     * flags have: one un-run migration disables one strip, not the front page.
+     */
+    env.DB.prepare(LIVE).bind(Date.now() - LIVE_STALE_MS).all().catch(() => ({ results: [] })),
   ]);
 
   const finished = perUpdate(finishedRows?.results);
@@ -194,6 +301,8 @@ export async function onRequestGet({ env }) {
       </p>
       <nav class="doornav">${navButtons()}</nav>
     </section>
+
+    ${liveStrip(liveRows?.results ?? [])}
 
     <dl class="totals">
       ${stat('Hunters', n(hunters))}

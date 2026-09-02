@@ -89,7 +89,23 @@ async function liveNow(env, logins) {
       // state Twitch has invented since, and neither is somebody at a console.
       if (s.type && s.type !== 'live') continue;
       const at = Date.parse(s.started_at);
-      live.set(String(s.user_login).toLowerCase(), Number.isFinite(at) ? at : Date.now());
+      live.set(String(s.user_login).toLowerCase(), {
+        since: Number.isFinite(at) ? at : Date.now(),
+        // Everything below arrives in this same response, so carrying it costs
+        // nothing. "Leon is live" is a fact; a card showing what is on his
+        // screen, what he is playing and who is watching is a reason to click.
+        game: typeof s.game_name === 'string' && s.game_name.trim() ? s.game_name.trim() : null,
+        viewers: Number.isFinite(Number(s.viewer_count)) ? Number(s.viewer_count) : null,
+        /**
+         * The thumbnail comes as a template with {width} and {height} in it.
+         * Sized here rather than on the page so the site never has to know the
+         * shape of a Twitch URL, and only the finished address is stored.
+         */
+        thumb: typeof s.thumbnail_url === 'string' && s.thumbnail_url.startsWith('https://')
+          ? s.thumbnail_url.replace('{width}', '640').replace('{height}', '360')
+          : null,
+        mature: s.is_mature ? 1 : 0,
+      });
     }
   }
 
@@ -112,7 +128,7 @@ export async function checkLive(env) {
 
   const { results: rows = [] } = await env.DB
     .prepare(
-      `SELECT psn_account_id, twitch_login, live_since FROM members
+      `SELECT psn_account_id, twitch_login, live_since, live_game FROM members
         WHERE twitch_login IS NOT NULL AND TRIM(twitch_login) <> ''`,
     )
     .all();
@@ -138,18 +154,33 @@ export async function checkLive(env) {
   const writes = [];
 
   for (const r of rows) {
-    const at = live.get(String(r.twitch_login).toLowerCase()) ?? null;
-    const was = r.live_since == null ? null : Number(r.live_since);
+    const on = live.get(String(r.twitch_login).toLowerCase()) ?? null;
+    const at = on?.since ?? null;
+    const game = on?.game ?? null;
+
+    /**
+     * A live stream is written EVERY time, because the viewer count and the
+     * thumbnail both move while nothing else does. An off stream is written
+     * only when it was on last time, so a board where nobody is streaming
+     * costs one timestamp per member and nothing else.
+     */
+    const wasOn = r.live_since != null;
 
     writes.push(
-      at === was
+      !on && !wasOn
         ? env.DB.prepare('UPDATE members SET live_checked_at = ? WHERE psn_account_id = ?')
             .bind(now, r.psn_account_id)
         : env.DB
             .prepare(
-              'UPDATE members SET live_since = ?, live_checked_at = ? WHERE psn_account_id = ?',
+              `UPDATE members
+                  SET live_since = ?, live_game = ?, live_viewers = ?, live_thumb = ?,
+                      live_mature = ?, live_checked_at = ?
+                WHERE psn_account_id = ?`,
             )
-            .bind(at, now, r.psn_account_id),
+            .bind(
+              at, game, on?.viewers ?? null, on?.thumb ?? null, on?.mature ?? null,
+              now, r.psn_account_id,
+            ),
     );
   }
 

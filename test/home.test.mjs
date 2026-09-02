@@ -70,6 +70,10 @@ const fakeEnv = (o = {}) => ({
           return kind === 'new' ? (o.started ?? STARTED) : (o.finished ?? FINISHED);
         }
         if (sql.includes('JOIN trophies')) return o.contested ?? CONTESTED;
+        // The live strip. Routed explicitly, because falling through to TOP
+        // would hand it rows with no twitch_login on them and the strip would
+        // render nonsense while every assertion still passed.
+        if (sql.includes('live_since IS NOT NULL')) return o.live ?? [];
         return o.top ?? TOP;
       };
       const answer = (kind) => ({
@@ -252,4 +256,101 @@ test('the link previews properly, and the card names nobody', async () => {
   assert.match(out, /<meta name="twitter:card" content="summary_large_image">/, 'the wide card');
   assert.match(out, /<meta property="og:description" content="[^"]+hunters[^"]+"/, 'with real counts');
   assert.ok(!/content="\/og\.png"/.test(out), 'never a relative image');
+});
+
+const LIVE = [
+  { psn_online_id: 'Pelzio', avatar_url: null, twitch_login: 'pelzio', rank: 2, points: 748220,
+    live_since: Date.now() - 135 * 60000, live_game: 'Elden Ring', live_viewers: 37,
+    live_thumb: 'https://static-cdn.jtvnw.net/x-640x360.jpg', live_mature: 0 },
+  { psn_online_id: 'JFL__Leon', avatar_url: 'https://x.test/l.png', twitch_login: 'jfl__leon',
+    rank: 5, points: 412880, live_since: Date.now() - 5 * 60000, live_game: null,
+    live_viewers: 12, live_thumb: 'https://static-cdn.jtvnw.net/y-640x360.jpg', live_mature: 0 },
+];
+
+test('the live strip is not there when nobody is streaming', async () => {
+  /**
+   * Seventy members and maybe three who stream. An always-on panel would be an
+   * empty box almost every hour of the week, and a dead zone at the top of the
+   * front page is worse than no feature at all.
+   */
+  const body = bodyOf((await render()).out);
+  assert.ok(!body.includes('class="live"'), 'no empty box');
+  assert.ok(!/Live now/.test(body), 'and no heading over nothing');
+});
+
+test('a live stream is a card, not a line', async () => {
+  /**
+   * The first version was a name and a dot, and it read as an afterthought next
+   * to the trophy cards. Martin: "kinda lack lust, kinda beneath me, we have
+   * done better". Everything asserted here arrives in the same Twitch response
+   * the live check already makes, so the card costs no extra requests.
+   */
+  const body = bodyOf((await render({ live: LIVE })).out);
+
+  assert.match(body, /class="live"/);
+  assert.match(body, /<img src="https:\/\/static-cdn\.jtvnw\.net\/x-640x360\.jpg"/,
+    'what is actually on their screen');
+  assert.match(body, /37 watching/, 'how many are there');
+  assert.match(body, /2h 15m/, 'and how long they have been on');
+  assert.match(body, /Elden Ring/, 'what they are playing');
+  assert.match(body, /href="https:\/\/twitch\.tv\/pelzio"/, 'straight to their channel');
+  assert.match(body, /rel="noopener noreferrer"/, 'no window.opener handle back to us');
+
+  // The one thing Twitch could never put on this card.
+  assert.match(body, /class="pos">2nd/, 'where they sit on the board');
+  assert.match(body, /748,220/);
+
+  // A stream with no game set still renders rather than showing an empty line.
+  assert.match(body, /Streaming now/);
+});
+
+test('a mature stream keeps its name and loses its picture', async () => {
+  /**
+   * The thumbnail is a frame of somebody else's broadcast hotlinked onto the
+   * front of this site. Twitch's own flag is the only warning available, and
+   * the honest answer to it is to print the words without the picture rather
+   * than to hide that they are live.
+   */
+  const body = bodyOf(
+    (await render({ live: [{ ...LIVE[0], live_mature: 1 }] })).out,
+  );
+  assert.ok(!body.includes('<img src="https://static-cdn.jtvnw.net'), 'no still');
+  assert.match(body, /class="noshot"/, 'a plain tile in its place');
+  assert.match(body, /Pelzio/, 'and they are still shown as live');
+});
+
+test('a live answer nobody has confirmed lately is not shown', async () => {
+  /**
+   * `live_since` on its own would be a lie the moment the five minute cron
+   * stopped: a stream that ended while the check was broken would sit on the
+   * front page all week. The query only takes rows checked in the last fifteen
+   * minutes, and this pins that the bound cutoff is real.
+   */
+  const src = await (await import('node:fs/promises'))
+    .readFile(new URL('../functions/index.js', import.meta.url), 'utf8');
+  assert.match(src, /live_checked_at > \?/, 'the freshness cutoff is in the query');
+  assert.match(src, /LIVE_STALE_MS = 15 \* 60 \* 1000/);
+  assert.match(src, /bind\(Date\.now\(\) - LIVE_STALE_MS\)/, 'and it is what gets bound');
+});
+
+test('the strip survives a database that has not run migration 019', async () => {
+  // One un-run migration disables one strip, never the front page.
+  const env = {
+    DB: {
+      prepare(sql) {
+        const answer = () => ({
+          first: async () => ({ hunters: 64, points: 1, platinum: 1, projects: 1, completed: 1 }),
+          all: async () => {
+            if (sql.includes('live_since IS NOT NULL')) throw new Error('no such column');
+            return { results: [] };
+          },
+        });
+        return { ...answer(), bind: () => answer() };
+      },
+    },
+  };
+  const res = await mod.onRequestGet({ env });
+  assert.equal(res.status, 200);
+  const out = await res.text();
+  assert.ok(!bodyOf(out).includes('class="live"'));
 });

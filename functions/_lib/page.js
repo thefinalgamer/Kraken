@@ -1248,6 +1248,81 @@ p.warn.dead.whole b{color:#ff8e86}
 .hero.home h1{font-size:clamp(28px,4.8vw,44px);line-height:1.14;margin:0;max-width:18ch}
 .hero.home h1 span{color:var(--kraken)}
 .lede{margin:0;max-width:62ch;color:var(--soft);font-size:15.5px;line-height:1.6}
+
+/* LIVE NOW.
+   Cards, not a list. It was a list first and it read as an afterthought next to
+   the trophy cards and the deck: a name and a dot is a fact about a person,
+   while a still of what is on their screen with the viewer count on it is the
+   thing itself. Only drawn when somebody actually is live, so it never sits
+   empty at the top of the page. */
+.live{width:100%;margin:4px 0 8px}
+.live h2{
+  display:flex;align-items:center;gap:8px;margin:0 0 10px;
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);font-weight:700;
+}
+.live .dot{
+  width:8px;height:8px;border-radius:50%;background:var(--down);flex:none;
+  box-shadow:0 0 0 0 rgba(224,100,95,.55);animation:pulse 2.4s ease-out infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(224,100,95,.5)}
+  70%{box-shadow:0 0 0 7px rgba(224,100,95,0)}
+  100%{box-shadow:0 0 0 0 rgba(224,100,95,0)}
+}
+.lvs{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(268px,1fr))}
+.lv{
+  display:block;text-decoration:none;border-radius:12px;overflow:hidden;
+  border:1px solid var(--edge);background:var(--panel);
+  transition:border-color .16s ease, transform .16s ease;
+}
+.lv:hover{border-color:var(--faint);transform:translateY(-2px)}
+.lv .shot{
+  position:relative;display:block;aspect-ratio:16/9;overflow:hidden;background:var(--deep);
+}
+/* The still, and the slow drift across it.
+   A frozen frame looks like a broken video; two per cent of movement over
+   twenty seconds reads as alive without ever pulling focus from the page. */
+.lv .shot img{
+  width:100%;height:100%;object-fit:cover;display:block;
+  animation:driftshot 24s ease-in-out infinite alternate;
+}
+@keyframes driftshot{ from{transform:scale(1.02) translate3d(0,0,0)} to{transform:scale(1.08) translate3d(-1.5%,-1%,0)} }
+.lv .noshot{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(120% 120% at 20% 15%, rgba(32,184,153,.18), transparent 60%),
+    linear-gradient(160deg,#14262a,#0a1416);
+}
+.lv .shot::after{
+  content:"";position:absolute;inset:auto 0 0 0;height:62%;
+  background:linear-gradient(180deg,rgba(8,16,15,0),rgba(8,16,15,.86));
+}
+.lv .tag{
+  position:absolute;top:9px;left:9px;z-index:2;
+  display:inline-flex;align-items:center;gap:6px;
+  padding:3px 8px;border-radius:5px;background:var(--down);
+  color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.1em;
+}
+.lv .tag .dot{width:5px;height:5px;background:#fff;animation:none;box-shadow:none}
+.lv .watching{
+  position:absolute;top:9px;right:9px;z-index:2;
+  padding:3px 8px;border-radius:5px;background:rgba(8,16,15,.72);
+  color:var(--ink);font-size:11px;font-variant-numeric:tabular-nums;
+}
+.lv .up{
+  position:absolute;bottom:8px;right:10px;z-index:2;
+  color:var(--ink);font-size:11.5px;font-variant-numeric:tabular-nums;opacity:.85;
+}
+.lv .meta{display:flex;align-items:center;gap:10px;padding:10px 12px;min-width:0}
+.lv .meta img{border-radius:50%;flex:none}
+.lv .txt{min-width:0;display:flex;flex-direction:column;flex:1}
+.lv .nm{font-weight:700;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv .gm{color:var(--faint);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv .pos{
+  flex:none;text-align:right;color:var(--brass);font-weight:800;font-size:14px;
+  font-variant-numeric:tabular-nums;line-height:1.15;
+}
+.lv .pos .pts{display:block;color:var(--faint);font-weight:400;font-size:11px}
 .cta{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:6px 0 0}
 .btn{
   display:inline-block;padding:10px 20px;border-radius:9px;text-decoration:none;

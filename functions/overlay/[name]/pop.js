@@ -26,14 +26,19 @@ import { esc, n } from '../../_lib/page.js';
 import { displayBanked } from '../../../shared/scoring.mjs';
 
 /**
- * TWENTY SECONDS, not sixty.
+ * TEN SECONDS, and the number is doing two jobs.
  *
- * The bar can be a minute stale without anybody noticing a number. A
- * celebration cannot: a pop that turns up a minute after the trophy is a pop
- * arriving during a different sentence. Twenty is the compromise between that
- * and hammering the database on behalf of an empty box.
+ * It is how often the card can appear, and it is also the heartbeat that drives
+ * the live poll: every refresh rings the Worker, which checks PSN if that
+ * member is streaming and if ten seconds have passed. So the overlay being on
+ * screen is what makes the polling happen, and closing OBS is what stops it.
+ * Nothing runs at three in the morning for somebody who is asleep.
+ *
+ * The cost is one request every ten seconds per person actually streaming,
+ * which is a rounding error against Cloudflare's daily allowance, and the work
+ * behind it is gated four separate ways in live.mjs.
  */
-const REFRESH = 20;
+const REFRESH = 10;
 
 /**
  * Nothing older than half an hour is worth announcing.
@@ -218,7 +223,7 @@ function card({ metal, name, game, points, climb, demo }) {
   </div>`;
 }
 
-export async function onRequestGet({ env, request, params }) {
+export async function onRequestGet({ env, request, params, waitUntil }) {
   const url = new URL(request.url);
   const name = decodeURIComponent(params.name ?? '');
 
@@ -257,6 +262,27 @@ export async function onRequestGet({ env, request, params }) {
 
   const member = await env.DB.prepare(MEMBER).bind(name).first().catch(() => null);
   if (!member) return nothing();
+
+  /**
+   * RING THE BELL, DO NOT WAIT FOR THE DOOR.
+   *
+   * This asks the Worker to check PSN for new trophies. The page does not wait
+   * for the answer and could not use it if it did: whatever the poll writes is
+   * read by the next refresh, ten seconds from now. A page that waited on Sony
+   * would be a browser source that goes blank whenever Sony is slow.
+   *
+   * The Worker decides whether to do anything at all, because that is where
+   * the credential and the brakes live. From here it is one fire and forget
+   * request that nobody looks at.
+   */
+  const worker = env.WORKER_BASE_URL;
+  if (worker && typeof waitUntil === 'function') {
+    waitUntil(
+      fetch(`${worker}/poll/${encodeURIComponent(member.psn_online_id)}`, {
+        headers: { 'user-agent': 'kraken-overlay' },
+      }).catch(() => {}),
+    );
+  }
 
   const now = Date.now();
 

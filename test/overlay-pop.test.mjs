@@ -116,7 +116,7 @@ test('nothing to show means an empty page, never a leftover card', async () => {
   const { out, res } = await render({ trophy: null });
   assert.ok(isEmpty(out));
   assert.match(res.headers.get('cache-control'), /no-store/, 'and it asks again next time');
-  assert.match(out, /<meta http-equiv="refresh" content="20">/, 'still repainting');
+  assert.match(out, /<meta http-equiv="refresh" content="10">/, 'still repainting');
 });
 
 test('the card removes itself rather than sitting there until the refresh', async () => {

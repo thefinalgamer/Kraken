@@ -66,6 +66,21 @@ WORKER_BASE_URL = "https://platinum-intel.martinleewilkinson1992.workers.dev"
 #   TWITCH_CLIENT_SECRET    - same page. Without both of these the live check
 #                             does nothing at all and says so in the log, which
 #                             is the intended state until they are set.
+#   PSN_NPSSO               - the same NPSSO cookie the scan uses, from a
+#                             logged-in browser session. THIS ONE IS THE
+#                             DANGEROUS ONE: it is the board's PSN access, and
+#                             it is here so a trophy can pop on a stream in ten
+#                             seconds instead of at the next /update.
+#
+#                             Everything behind it is gated four ways in
+#                             worker/src/live.mjs: only while Twitch says the
+#                             member is live, at most once every ten seconds per
+#                             member, under a board-wide ceiling of thirty calls
+#                             a minute, and it switches the whole feature off
+#                             for fifteen minutes the moment Sony returns a 429.
+#
+#                             Leave it unset and the live poll does not exist.
+#                             Everything else carries on working.
 
 # Worker logs. Off by default, which means the first time something goes wrong
 # in production there is nothing to read — you turn it on, then have to

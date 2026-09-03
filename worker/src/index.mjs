@@ -14,6 +14,7 @@ import { verifyKey } from './verify.mjs';
 import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
 import { checkLive } from './twitch.mjs';
+import { pollMember } from './live.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
   memberCard, boardBlocks, rivalBlocks, contestedBlocks, configureEmoji, selectMenu, COLOR, STYLE, n, pct,
@@ -65,6 +66,33 @@ export default {
       const path = new URL(request.url).pathname;
       if (path === '/auth/psn') return oauth.handleStart(request, env);
       if (path === '/auth/callback') return oauth.handleCallback(request, env, ctx, dispatchScan);
+
+      /**
+       * The live poll's doorbell. GET /poll/<psn online id>
+       *
+       * The overlay rings it and hangs up: the response is immediate and the
+       * work happens in waitUntil, so a browser source never waits on Sony and
+       * never goes blank because Sony was slow. Whatever the poll writes is
+       * picked up by the overlay's next refresh, ten seconds later.
+       *
+       * NO AUTHENTICATION, ON PURPOSE, and it is safe because the brakes are
+       * on the other side: pollMember refuses unless Twitch says that member is
+       * live, refuses again unless ten seconds have passed since the last one,
+       * and stops entirely once the board's minute budget is spent. Somebody
+       * hammering this URL achieves a row read and nothing else.
+       */
+      if (path.startsWith('/poll/')) {
+        const who = decodeURIComponent(path.slice('/poll/'.length));
+        ctx.waitUntil(
+          db.memberByOnlineId(env, who)
+            .then((m) => (m ? pollMember(env, m) : 'poll: no such hunter'))
+            .then((summary) => console.log(summary))
+            .catch((err) => console.error('poll failed:', err?.message ?? err)),
+        );
+        return new Response('ok', {
+          headers: { 'cache-control': 'no-store', 'access-control-allow-origin': '*' },
+        });
+      }
       return new Response('Kraken is alive.', { status: 200 });
     }
 

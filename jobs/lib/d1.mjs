@@ -17,22 +17,63 @@ export class D1 {
     this.apiToken = apiToken;
   }
 
-  async query(sql, params = []) {
-    const res = await fetch(this.url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ sql, params }),
-    });
+  /**
+   * A 429 IS NOT A FAILURE, IT IS A QUEUE.
+   *
+   * The backfill died mid run with "D1 query failed (429): internal error", and
+   * a 429 is Cloudflare asking to be talked to more slowly rather than telling
+   * us the query was wrong. Throwing on it killed a job that was most of the
+   * way through a 26,000 game catalogue and lost the lot.
+   *
+   * 500s from D1 are in the same bucket. They are intermittent and they clear
+   * on the next attempt; the one thing that never helps is giving up on the
+   * first one.
+   *
+   * Everything else, a broken statement, a bad token, a column that does not
+   * exist, still throws immediately. Retrying a syntax error is just a slower
+   * way to fail.
+   */
+  static RETRY_ON = new Set([429, 500, 502, 503, 504]);
 
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || body.success === false) {
+  static ATTEMPTS = 5;
+
+  async query(sql, params = []) {
+    let wait = 400;
+
+    for (let attempt = 1; ; attempt += 1) {
+      const res = await fetch(this.url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sql, params }),
+      }).catch((err) => ({ ok: false, status: 0, statusText: err.message, json: async () => ({}) }));
+
+      const body = await res.json().catch(() => ({}));
+
+      if (res.ok && body.success !== false) return body.result?.[0]?.results ?? [];
+
       const detail = body.errors?.map((e) => e.message).join('; ') || res.statusText;
-      throw new Error(`D1 query failed (${res.status}): ${detail}\nSQL: ${sql.slice(0, 200)}`);
+      const retryable = D1.RETRY_ON.has(res.status) || res.status === 0;
+
+      if (!retryable || attempt >= D1.ATTEMPTS) {
+        throw new Error(
+          `D1 query failed (${res.status}) after ${attempt} ` +
+            `attempt${attempt === 1 ? '' : 's'}: ${detail}\nSQL: ${sql.slice(0, 200)}`,
+        );
+      }
+
+      /**
+       * Doubling, with a little noise on it. Several jobs can be pushing at the
+       * same database at once, and a fixed backoff means they all come back at
+       * the same instant and collide again.
+       */
+      const jitter = Math.floor(Math.random() * 250);
+      console.warn(`  D1 ${res.status}, retrying in ${wait + jitter}ms (attempt ${attempt})`);
+      await new Promise((r) => setTimeout(r, wait + jitter));
+      wait = Math.min(wait * 2, 8000);
     }
-    return body.result?.[0]?.results ?? [];
   }
 
   /**

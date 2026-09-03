@@ -178,6 +178,36 @@ export async function pollMember(env, member) {
       .run()
       .catch(() => {});
 
+    /**
+     * ANYTHING EARNED SINCE THEY WENT LIVE WAS EARNED ON STREAM.
+     *
+     * THE BUG THIS FIXES. The flag used to be set only on rows this poll
+     * inserted itself, which missed almost everything: a trophy the nightly
+     * scan wrote when their update ran, a trophy earned in the first minutes
+     * before the poll noticed, anything at all outside the twenty minute
+     * window. Leon streamed a whole session of 2XKO and not one trophy came
+     * out purple.
+     *
+     * `live_since` is Twitch's own stream start, so this is not a guess. It
+     * runs on every poll rather than once, so it heals: whatever wrote the row
+     * and whenever it arrived, it gets marked within ten seconds.
+     *
+     * Reads idx_member_trophies_recent, scoped to one member and one evening,
+     * and only touches rows that are not already flagged.
+     */
+    const since = Number(member.live_since) || 0;
+    if (since > 0) {
+      await env.DB.prepare(
+        `UPDATE member_trophies SET on_stream = 1
+          WHERE psn_account_id = ?
+            AND earned_at >= ?
+            AND COALESCE(on_stream, 0) = 0`,
+      )
+        .bind(member.psn_account_id, since)
+        .run()
+        .catch(() => {});
+    }
+
     if (!moved) return 'poll: nothing new';
 
     const trophies = await earnedForTitle(

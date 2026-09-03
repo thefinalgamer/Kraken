@@ -110,8 +110,10 @@ test('an old trophy in the same game is left to the scan', async () => {
    */
   const { env, writes } = harness();
   await pollMember(env, LIVE_MEMBER);
+  // Scoped to the INSERT: the sweep that marks on_stream also mentions this
+  // table, and counting it here made this read like the filter had broken.
   const ids = writes
-    .filter((w) => w.sql.includes('member_trophies'))
+    .filter((w) => w.sql.includes('INSERT INTO member_trophies'))
     .map((w) => w.args[2]);
   assert.deepEqual(ids, [11], 'the five hour old one is not written');
 });
@@ -224,7 +226,7 @@ test('the write cannot fight the scan for the same row', async () => {
    */
   const { env, writes } = harness();
   await pollMember(env, LIVE_MEMBER);
-  const insert = writes.find((w) => w.sql.includes('member_trophies'));
+  const insert = writes.find((w) => w.sql.includes('INSERT INTO member_trophies'));
   assert.match(insert.sql, /ON CONFLICT\(psn_account_id, np_comm_id, trophy_id\)/);
   assert.match(insert.sql, /DO UPDATE SET on_stream = 1/);
 });
@@ -271,4 +273,37 @@ test('the doorbell is fire and forget, and the brakes are on the far side', () =
    * rather than becoming another thing to set in another dashboard.
    */
   assert.match(pop, /env\.WORKER_BASE_URL \|\| 'https:\/\//, 'it has an address without being told one');
+});
+
+
+test('everything earned since they went live gets marked, however it arrived', async () => {
+  /**
+   * THE BUG THIS EXISTS FOR. The flag was set only on rows the poll inserted
+   * itself, which missed almost everything: trophies the nightly scan wrote
+   * when an update ran, trophies earned in the first minutes before the poll
+   * noticed, anything outside the twenty minute window. Leon streamed a whole
+   * session of 2XKO and not one trophy came out purple.
+   *
+   * `live_since` is Twitch's own stream start, so "since they went live" is not
+   * a guess, and running it on every poll means it heals rather than depending
+   * on catching the moment.
+   */
+  const { env, writes } = harness();
+  await pollMember(env, LIVE_MEMBER);
+
+  const sweep = writes.find((w) => w.sql.includes('UPDATE member_trophies SET on_stream'));
+  assert.ok(sweep, 'the sweep runs');
+  assert.deepEqual(sweep.args, ['acct-1', LIVE_MEMBER.live_since], 'this member, this stream');
+  assert.match(sweep.sql, /COALESCE\(on_stream, 0\) = 0/, 'and it leaves marked rows alone');
+});
+
+test('the sweep runs even on a quiet look, not only when a trophy lands', async () => {
+  // A trophy written by the scan mid stream would otherwise wait for the member
+  // to earn another one before anything noticed it.
+  const { env, writes } = harness({ known: [{ np_comm_id: 'NPWR_A', earned_total: 42 }] });
+  assert.equal(await pollMember(env, LIVE_MEMBER), 'poll: nothing new');
+  assert.ok(
+    writes.some((w) => w.sql.includes('UPDATE member_trophies SET on_stream')),
+    'still swept',
+  );
 });

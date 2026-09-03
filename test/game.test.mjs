@@ -59,6 +59,7 @@ let lastTrophySql = '';
 const fakeEnv = ({
   game = GAME, byTitle = null, trophies = TROPHIES, owners = OWNERS,
   groups = [], viewer = null, noGroupColumn = false, noFlagColumn = false,
+  onStream = [], noStreamColumn = false,
 } = {}) => ({
   DB: {
     prepare(sql) {
@@ -76,6 +77,17 @@ const fakeEnv = ({
           };
         }
         return { bind: () => ({ all: async () => ({ results: trophies }) }) };
+      }
+      if (sql.includes('FROM member_trophies')) {
+        // Stands in for D1 rejecting on_stream before migration 024.
+        return {
+          bind: () => ({
+            all: async () => {
+              if (noStreamColumn) throw new Error('no such column: on_stream');
+              return { results: onStream };
+            },
+          }),
+        };
       }
       if (sql.includes('FROM trophy_groups')) {
         return { bind: () => ({ all: async () => ({ results: groups }) }) };
@@ -620,4 +632,41 @@ test('the count comes from the rows on the page, not a second query', async () =
   const fn = src.slice(src.indexOf('function clockBlock'), src.indexOf('export async function'));
   assert.match(fn, /trophies\.filter\(\(t\) => Number\(t\.unobtainable\) === 1\)\.length/);
   assert.ok(!/db|prepare|SELECT/.test(fn), 'and asks the database nothing');
+});
+
+
+test('a trophy earned in front of an audience is marked, and says who', async () => {
+  /**
+   * `on_stream` is set by the live poll and only by the live poll, which cannot
+   * run unless Twitch says the member is on air. So this is not "earned by
+   * somebody who streams", it is "earned while people were watching", which is
+   * a different and much better fact, and nothing else on the internet records
+   * it.
+   */
+  const { out } = await render({
+    onStream: [{ trophy_id: 2, at: Date.now() - 3600000, who: 'JFL__Leon' }],
+  });
+  const body = bodyOf(out);
+
+  assert.match(body, /class="livemark"/, 'the mark is there');
+  assert.match(body, /Earned live by JFL__Leon/);
+  assert.match(body, /class="tc [^"]*onair/, 'and the card carries the purple edge');
+
+  // Exactly one of them. The other trophies are ordinary.
+  assert.equal([...body.matchAll(/class="livemark"/g)].length, 1);
+});
+
+test('no live marks at all when nobody has earned one on stream', async () => {
+  const body = bodyOf((await render()).out);
+  assert.ok(!body.includes('class="livemark"'));
+  assert.ok(!/class="tc [^"]*onair/.test(body));
+});
+
+test('the page survives a database without migration 024', async () => {
+  // One un-run migration costs one detail, never a page. Same seatbelt as the
+  // trophy flags and the live strip.
+  const { res, out } = await render({ noStreamColumn: true });
+  assert.equal(res.status, 200);
+  assert.ok(!bodyOf(out).includes('class="livemark"'));
+  assert.match(bodyOf(out), /Bloodborne/, 'and the game still renders');
 });

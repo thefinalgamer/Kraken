@@ -34,12 +34,13 @@ const PLAYING = {
 let lastPlayingSql = '';
 let lastPlayingBind = [];
 
-const fakeEnv = ({ member = MEMBER, playing = PLAYING, total = 70, ahead = null } = {}) => ({
+const fakeEnv = ({ member = MEMBER, playing = PLAYING, total = 70, ahead = null, onStream = 0 } = {}) => ({
   DB: {
     prepare(sql) {
       return {
         bind: (...args) => ({
           first: async () => {
+            if (sql.includes('FROM member_trophies')) return { c: onStream };
             // The rank lookup and the member lookup are both FROM members, so
             // the stub has to tell them apart by what they select.
             if (sql.includes('SELECT rank, points')) return ahead;
@@ -475,4 +476,44 @@ test('the live note never writes to the scan\'s own numbers', async () => {
   assert.match(live, /UPDATE members SET live_play/, 'the note goes on the member row');
   assert.ok(!/UPDATE member_games/.test(live), 'and nothing here touches the scan\'s record');
   assert.ok(!/INSERT INTO member_games/.test(live));
+});
+
+
+test('the bar shows how much of it happened tonight', async () => {
+  /**
+   * Martin: "if someone has earned a trophy on stream show the bar gold/and
+   * purple that way we can see what % we have earned on stream".
+   *
+   * Purple is the one colour on this bar that belongs to Twitch rather than to
+   * PlayStation, which is exactly the point: it is the part of the game that
+   * an audience watched happen.
+   */
+  const live = { ...MEMBER, live_since: Date.now() - 3600000, live_checked_at: Date.now() - 20000 };
+  const body = bodyOf((await render({ member: live, onStream: 6 })).out);
+
+  assert.match(body, /class="live" style="width:13\.95%"/, 'six of the forty three earned');
+  assert.match(body, /\+6 live/, 'and it says how many in words too');
+
+  // The total width is still the percentage printed beside it. Only the split
+  // inside it is by count.
+  assert.match(body, /width:90\.00%/);
+  assert.match(body, /90\.00%<\/span>/);
+});
+
+test('no purple when nothing landed tonight, and none when they are off air', async () => {
+  const live = { ...MEMBER, live_since: Date.now() - 3600000, live_checked_at: Date.now() - 20000 };
+  const quiet = bodyOf((await render({ member: live, onStream: 0 })).out);
+  assert.ok(!quiet.includes('class="live"'), 'a stream with no trophies yet is just the bar');
+  assert.ok(!quiet.includes('live</span>'), 'and no count either');
+
+  // Off air there is no "tonight" to count at all.
+  const off = bodyOf((await render({ onStream: 9 })).out);
+  assert.ok(!off.includes('class="live"'));
+});
+
+test('the boost pill says what it is', async () => {
+  // "x1.13 7 stuck" was an explanation nobody had room for. Bare "x1.13" meant
+  // nothing to a stranger. One word does both jobs.
+  const body = bodyOf((await render()).out);
+  assert.match(body, /class="mult">&times;[\d.]+ <small>boost<\/small>/);
 });

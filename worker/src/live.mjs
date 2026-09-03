@@ -202,12 +202,26 @@ export async function pollMember(env, member) {
      * there first wins and the other one is a no-op, which is why this needs no
      * coordination with a job running on a completely different machine.
      */
+    /**
+     * `on_stream = 1`, and this is the only place it is ever set.
+     *
+     * This function does not run unless Twitch says the member is on air, so a
+     * trophy it writes was earned in front of an audience by definition. The
+     * nightly scan writes the same table and leaves the flag alone, because it
+     * has no idea whether anybody was watching.
+     *
+     * ON CONFLICT rather than OR IGNORE now: the scan may have got there first
+     * with the same row, in which case the row is right but the flag is
+     * missing, and this is the only chance to add it.
+     */
     await env.DB.batch(
       rows.map((t) =>
         env.DB.prepare(
-          `INSERT OR IGNORE INTO member_trophies
-             (psn_account_id, np_comm_id, trophy_id, earned_at)
-           VALUES (?, ?, ?, ?)`,
+          `INSERT INTO member_trophies
+             (psn_account_id, np_comm_id, trophy_id, earned_at, on_stream)
+           VALUES (?, ?, ?, ?, 1)
+           ON CONFLICT(psn_account_id, np_comm_id, trophy_id)
+             DO UPDATE SET on_stream = 1`,
         ).bind(member.psn_account_id, moved.npCommunicationId, t.id, t.at),
       ),
     );

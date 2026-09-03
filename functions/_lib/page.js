@@ -397,6 +397,9 @@ const STYLES = `
      #7d939a is 5.18:1 and still sits clearly behind --soft (6.67) and
      --ink (14.25), so the three-step hierarchy survives the fix. */
   --kraken:#20b899; --brass:#d8ab3e; --rule:#16272b;
+  /* Tonight. Used only for things that happened in front of an audience, which
+     is why it is nowhere else on the site. */
+  --live:#b07dff;
   --up:#4ec98a; --down:#e0645f;
 }
 *{box-sizing:border-box}
@@ -1074,6 +1077,24 @@ p.warn.dead.whole b{color:#ff8e86}
    next, sitting on the trophy rather than in a note on the game, because a game
    note cannot tell you which one to skip. */
 .tc.dead .tcin{box-shadow:inset 3px 0 0 var(--brass)}
+
+/* EARNED LIVE ON STREAM.
+   Purple is not in this site's palette anywhere else, and that is deliberate:
+   every other colour on a trophy card is about the trophy (its metal, its
+   rarity, whether it is dead) and this one is about the night somebody got it.
+   Twitch owns the colour in everybody's head already, so it needs no legend.
+
+   A LEFT EDGE, matching how a dead trophy is marked, rather than a wash across
+   the card: the card is already carrying a metal, a rarity band and a points
+   figure, and a purple background would be arguing with all three. */
+.tc.onair::before{border-left-color:var(--live)}
+.tc.onair .tcin{box-shadow:inset 3px 0 0 var(--live)}
+.livemark{
+  display:inline-flex;align-items:center;gap:5px;margin-top:5px;
+  font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  color:var(--live);border:1px solid rgba(176,125,255,.42);
+  background:rgba(176,125,255,.12);border-radius:99px;padding:2px 9px;
+}
 .deadmark{
   display:block;margin-top:4px;font-size:11.5px;line-height:1.35;color:var(--brass);
 }

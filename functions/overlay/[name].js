@@ -47,7 +47,8 @@ const REFRESH = 60;
 
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, rank, points, completion,
-         platinum, gold, silver, bronze, projects, completed, live_play
+         platinum, gold, silver, bronze, projects, completed, live_play,
+         live_since, live_checked_at
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -108,6 +109,22 @@ const ONE_GAME = `
  * they are still on the game they finished last night.
  */
 const LIVE_PLAY_MS = 15 * 60 * 1000;
+
+/**
+ * How many of this game's trophies landed during THIS stream.
+ *
+ * A COUNT, and one of the very few on this project. The usual objection is
+ * scale: counting over `games` reads a 26,000 row table to print a number
+ * nobody asked for. This reads a handful of rows through
+ * idx_member_trophies_recent, scoped to one member, one game and one evening,
+ * and there is no stored figure to print instead because "since they went
+ * live" is a window that only exists while they are live.
+ */
+const ON_STREAM = `
+  SELECT COUNT(*) AS c FROM member_trophies
+   WHERE psn_account_id = ?
+     AND np_comm_id = ?
+     AND earned_at >= ?`;
 
 /** Ranked members, for the "of 70". Stored, never counted per request. */
 const TOTAL = `
@@ -173,6 +190,10 @@ const STYLES = `
   --ink:#ffffff; --soft:#eaf2f0; --faint:#d3dedb;
   --accent:#20b899; --brass:#f0c357;
   --plat:#a9cdff; --gold:#f2c65a; --silver:#dbe3e6; --bronze:#e0a06a;
+  /* PURPLE MEANS TONIGHT. It is the one colour on this bar that belongs to
+     Twitch rather than to PlayStation, which is the point: everything in it was
+     earned while people were watching. */
+  --live:#b07dff;
   --pad-cut:#0b1416;
 }
 *{box-sizing:border-box}
@@ -215,6 +236,18 @@ body{
 .track{width:4.6em;height:.36em;border-radius:99px;background:rgba(255,255,255,.24);
   overflow:hidden;flex:none}
 .fill{display:block;height:100%;border-radius:99px;background:var(--accent)}
+/* The share of the filled bar that happened on stream, laid over the end of it.
+   The bar's total width still equals the percentage printed beside it; this
+   only says how much of that was tonight. */
+.fill .live{
+  position:absolute;right:0;top:0;bottom:0;border-radius:99px;background:var(--live);
+  box-shadow:0 0 6px rgba(176,125,255,.75);
+}
+.track{position:relative}
+.fill{position:relative}
+.onstream{
+  color:var(--live);font-weight:800;font-variant-numeric:tabular-nums;font-size:.86em;
+}
 .ic{width:1em;height:1em;flex:none;opacity:.92}
 .ic.pad{width:1.35em;height:1.35em;opacity:1}
 .ic svg{width:100%;height:100%;display:block}
@@ -238,6 +271,8 @@ body{
    question anybody looks at their own rank to answer. */
 .gap{color:var(--ink);font-size:.82em;font-variant-numeric:tabular-nums;opacity:.92}
 .gap b{color:var(--brass);font-weight:800}
+.mult small{font-weight:700;font-size:.78em;letter-spacing:.06em;text-transform:uppercase;
+  opacity:.92;margin-left:.35em}
 .mult{display:inline-flex;align-items:center;padding:.15em .55em;border-radius:99px;
   background:rgba(240,195,87,.18);border:1px solid rgba(240,195,87,.5);
   color:var(--brass);font-weight:800;font-variant-numeric:tabular-nums;font-size:.95em}
@@ -265,10 +300,18 @@ function multiplierChip(g) {
    * thing chat asks about anyway. The number is the hook; the streamer is the
    * answer.
    */
-  return `<span class="seg"><span class="mult">&times;${mult.toFixed(2)}</span></span>`;
+  /**
+   * ONE WORD, NOT SEVEN. It read "x1.13 7 stuck", which was an explanation
+   * nobody had room for; then it read "x1.13", which meant nothing at all to
+   * somebody watching. "Boost" says what it does to a stranger and still fits
+   * inside the pill.
+   */
+  return `<span class="seg"><span class="mult">&times;${mult.toFixed(
+    2,
+  )} <small>boost</small></span></span>`;
 }
 
-function leftZone(g, { points = '' } = {}) {
+function leftZone(g, { points = '', onStream = 0 } = {}) {
   if (!g) {
     return `<span class="zone"><span class="miss">Nothing scanned yet</span></span>`;
   }
@@ -312,6 +355,18 @@ function leftZone(g, { points = '' } = {}) {
     .map(([cls, v]) => `<span class="${cls}">${CUP}${n(v)}</span>`)
     .join('');
 
+  /**
+   * The purple tail: the share of the FILLED bar that landed tonight.
+   *
+   * Trophy counts, not the weighted percentage, so it is an approximation of a
+   * weighted thing. That is honest enough because the bar's total width still
+   * equals the number printed beside it; only the split inside it is by count.
+   * Getting this exactly right would mean re-deriving PSN's own weighting, and
+   * being wrong about THAT would move the number people read.
+   */
+  const live = Math.max(0, Number(onStream) || 0);
+  const share = got > 0 ? Math.min(1, live / got) : 0;
+
   return `<span class="zone">
     <span class="seg">
       ${
@@ -326,8 +381,13 @@ function leftZone(g, { points = '' } = {}) {
     <span class="seg">
       <span class="ic">${CUP}</span>
       <span class="num">${n(got)}/${n(total)}</span>
-      <span class="track"><i class="fill" style="width:${progress.toFixed(2)}%;background:${fill}"></i></span>
+      <span class="track"><i class="fill" style="width:${progress.toFixed(
+        2,
+      )}%;background:${fill}">${
+    share > 0 ? `<i class="live" style="width:${(share * 100).toFixed(2)}%"></i>` : ''
+  }</i></span>
       <span class="pctv">${progress.toFixed(2)}%</span>
+      ${live > 0 ? `<span class="onstream">+${n(live)} live</span>` : ''}
     </span>
     ${cups ? `<span class="seg"><span class="cups gcups">${cups}</span></span>` : ''}
     <span class="seg hold">
@@ -501,12 +561,31 @@ export async function onRequestGet({ env, request, params }) {
       }
     : playing;
 
+  /**
+   * Only while they are actually on air. Off stream there is no "tonight" to
+   * count, and the query is skipped rather than returning a zero nobody asked
+   * for.
+   */
+  const streaming = Number(member.live_since) > 0
+    && Date.now() - (Number(member.live_checked_at) || 0) < LIVE_PLAY_MS;
+
+  const onStream = streaming && shown?.np_comm_id
+    ? Number(
+        (
+          await env.DB.prepare(ON_STREAM)
+            .bind(member.psn_account_id, shown.np_comm_id, Number(member.live_since))
+            .first()
+            .catch(() => null)
+        )?.c,
+      ) || 0
+    : 0;
+
   const ahead = Number(member.rank) > 1
     ? await env.DB.prepare(AHEAD).bind(Number(member.rank) - 1).first().catch(() => null)
     : null;
 
   const body = `<div class="bar ${pos}">
-    ${leftZone(shown, { points: showMid ? gamePoints(member, shown) : '' })}
+    ${leftZone(shown, { points: showMid ? gamePoints(member, shown) : '', onStream })}
     ${showMid ? midZone(member, shown, totals?.c ?? 0, ahead) : '<span class="spacer"></span>'}
     ${rightZone(member)}
   </div>`;

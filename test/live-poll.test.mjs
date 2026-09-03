@@ -98,7 +98,7 @@ test('a live member with a new trophy gets it written within seconds', async () 
   assert.match(out, /1 recent in inFAMOUS 2/);
   assert.equal(psnCalls(calls).length, 2, 'the cheap call, then one game');
 
-  const inserts = writes.filter((w) => w.sql.includes('INSERT OR IGNORE INTO member_trophies'));
+  const inserts = writes.filter((w) => w.sql.includes('INSERT INTO member_trophies'));
   assert.equal(inserts.length, 1, 'only the trophy earned half a minute ago');
   assert.deepEqual(inserts[0].args.slice(0, 3), ['acct-1', 'NPWR_A', 11]);
 });
@@ -214,14 +214,33 @@ test('a game whose count has not moved costs one call, not two', async () => {
 test('the write cannot fight the scan for the same row', async () => {
   /**
    * The nightly scan writes this table from the other direction, on a different
-   * machine. INSERT OR IGNORE against the log's own primary key means whichever
-   * gets there first wins and the other is a no-op, so the two need no
-   * coordination at all.
+   * machine, so the two must never need to coordinate.
+   *
+   * It was INSERT OR IGNORE, which was fine until the on_stream flag existed:
+   * if the scan happened to write the row first, the row would be correct and
+   * the flag would be missing forever, and this is the only code that knows
+   * anybody was watching. ON CONFLICT keeps the collision harmless AND sets the
+   * flag either way.
    */
   const { env, writes } = harness();
   await pollMember(env, LIVE_MEMBER);
   const insert = writes.find((w) => w.sql.includes('member_trophies'));
-  assert.match(insert.sql, /INSERT OR IGNORE/);
+  assert.match(insert.sql, /ON CONFLICT\(psn_account_id, np_comm_id, trophy_id\)/);
+  assert.match(insert.sql, /DO UPDATE SET on_stream = 1/);
+});
+
+test('only the poll can say a trophy was earned on air', async () => {
+  // The scan writes the same table and has no idea whether anybody was
+  // watching, so it must never set this flag.
+  const scan = readFileSync(
+    fileURLToPath(new URL('../jobs/scan.mjs', import.meta.url)), 'utf8',
+  );
+  assert.ok(!/on_stream/.test(scan), 'the scan does not touch it');
+
+  const live = readFileSync(
+    fileURLToPath(new URL('../worker/src/live.mjs', import.meta.url)), 'utf8',
+  );
+  assert.match(live, /on_stream/, 'and the poll is where it comes from');
 });
 
 test('the doorbell is fire and forget, and the brakes are on the far side', () => {

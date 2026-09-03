@@ -76,6 +76,26 @@ const GAME_COLS = `np_comm_id, title, platform, icon_url, trophy_count, has_plat
 const GAME = `SELECT ${GAME_COLS} FROM games WHERE np_comm_id = ? LIMIT 1`;
 
 /**
+ * Which trophies in this game were earned in front of an audience.
+ *
+ * `on_stream` is set by the live poll and only by the live poll, which cannot
+ * run unless Twitch says the member is on air. So this is not "earned by
+ * somebody who streams", it is "earned while people were watching", which is a
+ * different and much better fact.
+ *
+ * ONE ROW PER TROPHY, and the name of whoever did it first. Reads the partial
+ * index from migration 024, so it touches only flagged rows: a handful, growing
+ * one at a time, live.
+ */
+const ON_STREAM = `
+  SELECT mt.trophy_id, MIN(mt.earned_at) AS at,
+         (SELECT m.psn_online_id FROM members m
+           WHERE m.psn_account_id = mt.psn_account_id) AS who
+    FROM member_trophies mt
+   WHERE mt.np_comm_id = ? AND mt.on_stream = 1
+   GROUP BY mt.trophy_id`;
+
+/**
  * The fallback, for URLs typed by hand.
  *
  * `NPWR07110_00` is unguessable, so /game/Bloodborne is what anybody types and
@@ -262,7 +282,7 @@ function clockBlock(g, trophies = []) {
  * a game you have not played, which is the entire risk. Somebody determined to
  * read it through the blur has, by definition, decided to.
  */
-function trophyCard(t, { localTotal, earned }) {
+function trophyCard(t, { localTotal, earned, live }) {
   const b = band(t.earned_rate);
   const metal = METALS[String(t.type)] || 'b';
   const secret = Number(t.hidden) === 1;
@@ -280,9 +300,19 @@ function trophyCard(t, { localTotal, earned }) {
    */
   const dead = Number(t.unobtainable) === 1;
 
+  /**
+   * EARNED IN FRONT OF AN AUDIENCE.
+   *
+   * Purple, which on this site means nothing else and on Twitch means exactly
+   * one thing. It is the only mark on a trophy card that is about a moment
+   * rather than about the trophy: the rarity, the points and the count are all
+   * facts about the game, and this is a fact about the night somebody got it.
+   */
+  const onAir = live?.get(Number(t.trophy_id)) ?? null;
+
   return `<li class="tc m-${metal}${secret ? ' secret' : ''}${got ? ' got' : ''}${
     dead ? ' dead' : ''
-  }">
+  }${onAir ? ' onair' : ''}">
     <span class="tcin">
       ${
         t.icon_url
@@ -295,6 +325,15 @@ function trophyCard(t, { localTotal, earned }) {
           ${t.detail ? `<span class="tdet">${esc(t.detail)}</span>` : ''}
         </span>
         ${secret ? '<span class="secretmark">Secret</span>' : ''}
+        ${
+          onAir
+            ? `<span class="livemark" title="${esc(
+                `${onAir.who ?? 'Somebody here'} earned this live on stream`,
+              )}">&#9679; Earned live${
+                onAir.who ? ` by ${esc(onAir.who)}` : ''
+              }</span>`
+            : ''
+        }
         ${
           dead
             ? `<span class="deadmark" title="${esc(
@@ -475,10 +514,19 @@ export async function onRequestGet({ params, env, request }) {
     }
   }
 
-  const [{ results: owners = [] }, viewer] = await Promise.all([
+  const [{ results: owners = [] }, viewer, { results: onStream = [] }] = await Promise.all([
     env.DB.prepare(OWNERS).bind(g.np_comm_id).all(),
     as ? env.DB.prepare(VIEWER).bind(as, g.np_comm_id).first() : Promise.resolve(null),
+    /**
+     * Wrapped, because `on_stream` arrives in migration 024 and a game page
+     * must not go down on a database that has not run it. Same seatbelt as the
+     * flags and the live strip: one un-run migration costs one detail, never a
+     * page.
+     */
+    env.DB.prepare(ON_STREAM).bind(g.np_comm_id).all().catch(() => ({ results: [] })),
   ]);
+
+  const live = new Map(onStream.map((r) => [Number(r.trophy_id), r]));
 
   const earned = viewer ? earnedSet(viewer.earned_ids) : null;
 
@@ -572,7 +620,7 @@ export async function onRequestGet({ params, env, request }) {
 
   const list = (rows) =>
     `<ol class="tlist${earned ? ' viewing' : ''}">${rows
-      .map((t) => trophyCard(t, { localTotal: here, earned }))
+      .map((t) => trophyCard(t, { localTotal: here, earned, live }))
       .join('')}</ol>`;
 
   const trophyBlock = !trophies.length

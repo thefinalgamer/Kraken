@@ -243,4 +243,13 @@ test('the doorbell is fire and forget, and the brakes are on the far side', () =
   );
   assert.match(pop, /waitUntil\(\s*fetch\(`\$\{worker\}\/poll\//, 'the page never awaits it');
   assert.match(pop, /const REFRESH = 10;/, 'and the heartbeat is ten seconds');
+
+  /**
+   * PAGES AND THE WORKER HAVE DIFFERENT ENVIRONMENTS. WORKER_BASE_URL is
+   * declared in wrangler.toml, which configures the Worker; this file runs on
+   * Pages and never sees it, so in production it was undefined and the
+   * doorbell rang nowhere. The address is public, so it defaults in code
+   * rather than becoming another thing to set in another dashboard.
+   */
+  assert.match(pop, /env\.WORKER_BASE_URL \|\| 'https:\/\//, 'it has an address without being told one');
 });

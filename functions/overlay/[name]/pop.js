@@ -275,7 +275,17 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
    * the credential and the brakes live. From here it is one fire and forget
    * request that nobody looks at.
    */
-  const worker = env.WORKER_BASE_URL;
+  /**
+   * THE PAGES SIDE AND THE WORKER SIDE HAVE DIFFERENT ENVIRONMENTS, and that
+   * caught this out. `WORKER_BASE_URL` is declared in wrangler.toml, which
+   * configures the Worker; this file runs on Pages, which never sees it. The
+   * variable was simply undefined in production and the doorbell rang nowhere.
+   *
+   * The address is public and non-secret, so it defaults here rather than
+   * becoming another thing to set in another dashboard. The override still
+   * works for anybody running a copy of this somewhere else.
+   */
+  const worker = env.WORKER_BASE_URL || 'https://platinum-intel.martinleewilkinson1992.workers.dev';
   if (worker && typeof waitUntil === 'function') {
     waitUntil(
       fetch(`${worker}/poll/${encodeURIComponent(member.psn_online_id)}`, {

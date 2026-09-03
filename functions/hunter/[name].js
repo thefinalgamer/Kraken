@@ -150,6 +150,21 @@ const UPDATES = `
  * LIKE is escaped: a member typing "100%" would otherwise match everything,
  * because % is LIKE's own wildcard.
  */
+/**
+ * Trophies this member earned in front of an audience, per game.
+ *
+ * ONE QUERY FOR THE WHOLE PAGE, keyed on the member, which is the leading
+ * column of the log's primary key, so it reads their rows and nobody else's.
+ * The log only goes back as far as migration 016 and only fills while people
+ * stream, so this is hundreds of rows at most rather than a history of
+ * everything.
+ */
+const ON_STREAM = `
+  SELECT np_comm_id, COUNT(*) AS live
+    FROM member_trophies
+   WHERE psn_account_id = ? AND on_stream = 1
+   GROUP BY np_comm_id`;
+
 const gamesSql = (order, search) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
@@ -503,7 +518,7 @@ function clockMarks(g) {
   return { mark: '', note: '' };
 }
 
-function gameRow(g, who, completion) {
+function gameRow(g, who, completion, live = 0) {
   const marks = clockMarks(g);
   const done = Number(g.progress) === 100;
 
@@ -600,8 +615,27 @@ function gameRow(g, who, completion) {
     </td>
     <td class="num prog" data-v="${width}">
       <span class="${done ? 'done' : ''}">${width}%</span>
-      <span class="track"><span class="fill ${shade}" style="width:${width}%"></span></span>
-      <span class="tcount">${n(g.earned_total)} / ${n(g.trophy_count)}</span>
+      <span class="track"><span class="fill ${shade}" style="width:${width}%">${
+    /**
+     * The share of the filled bar that was earned in front of an audience.
+     *
+     * By trophy count, laid over the end of the fill, so the bar's total width
+     * still equals the percentage above it and only the split inside is
+     * approximate. Same rule as the overlay, and the same reason: getting the
+     * split exactly right would mean re-deriving PSN's own weighting, and being
+     * wrong about that would move the number people read.
+     */
+    live > 0 && Number(g.earned_total) > 0
+      ? `<span class="onair" style="width:${(
+          Math.min(1, live / Number(g.earned_total)) * 100
+        ).toFixed(2)}%"></span>`
+      : ''
+  }</span></span>
+      <span class="tcount">${n(g.earned_total)} / ${n(g.trophy_count)}${
+    live > 0
+      ? `<span class="livecount" title="${n(live)} earned live on stream">${n(live)} live</span>`
+      : ''
+  }</span>
     </td>
     <td class="num pts" data-v="${got}" title="${
       max ? `${n(left)} points left to earn` : 'No trophy in this game is hard for anybody'
@@ -689,6 +723,17 @@ export async function onRequestGet({ params, env, request }) {
 
   const hasNext = fetched.length > PER_PAGE;
   const games = fetched.slice(0, PER_PAGE);
+
+  /**
+   * Wrapped, because `on_stream` arrives in migration 024. One un-run migration
+   * costs the purple, never the page.
+   */
+  const { results: liveRows = [] } = await env.DB.prepare(ON_STREAM)
+    .bind(m.psn_account_id)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const onStream = new Map(liveRows.map((r) => [r.np_comm_id, Number(r.live) || 0]));
 
   // History rides the first page only, and never a search. Somebody on page 6
   // of their library is reading the table; it would be the same figures every
@@ -1022,7 +1067,11 @@ export async function onRequestGet({ params, env, request }) {
                  <th class="num" title="Earned out of what a full completion pays">Points</th>
                  <th class="bar"></th>
                </tr></thead>
-               <tbody>${games.map((g) => gameRow(g, m.psn_online_id, m.completion)).join('')}</tbody>
+               <tbody>${games
+                 .map((g) =>
+                   gameRow(g, m.psn_online_id, m.completion, onStream.get(g.np_comm_id) ?? 0),
+                 )
+                 .join('')}</tbody>
              </table>
            </div>
            ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext)}`

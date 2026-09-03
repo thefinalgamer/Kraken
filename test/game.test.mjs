@@ -649,7 +649,14 @@ test('a trophy earned in front of an audience is marked, and says who', async ()
   const body = bodyOf(out);
 
   assert.match(body, /class="livemark"/, 'the mark is there');
-  assert.match(body, /Earned live by JFL__Leon/);
+  /**
+   * THE BADGE IS TWO WORDS. It read "EARNED LIVE BY JFL__LEON" across every
+   * card it touched, on a page usually already filtered to that hunter, which
+   * is a lot of shouting to say something the reader knows. The name lives in
+   * the tooltip now, for somebody browsing the game cold.
+   */
+  assert.match(body, /class="livemark"[^>]*>&#9679; Live<\/span>/);
+  assert.match(body, /title="JFL__Leon earned this live on stream"/);
   assert.match(body, /class="tc [^"]*onair/, 'and the card carries the purple edge');
 
   // Exactly one of them. The other trophies are ordinary.

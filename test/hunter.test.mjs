@@ -69,7 +69,8 @@ let lastGamesSql = '';
 let lastBind = [];
 let lastRivalBind = [];
 
-const fakeEnv = ({ member = MEMBER, games = GAMES, updates = UPDATES, rivals = [] } = {}) => ({
+const fakeEnv = ({
+  onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [] } = {}) => ({
   DB: {
     prepare(sql) {
       const answer = (args) => {
@@ -84,6 +85,15 @@ const fakeEnv = ({ member = MEMBER, games = GAMES, updates = UPDATES, rivals = [
         }
         if (sql.includes('FROM updates')) {
           return { first: async () => updates[0], all: async () => ({ results: updates }) };
+        }
+        /**
+         * The live counts read the trophy log, and they run AFTER the library
+         * query. Letting them fall through here overwrote `lastGamesSql`, and
+         * five sort and paging tests started failing with a complaint about a
+         * query that had nothing to do with sorting.
+         */
+        if (sql.includes('FROM member_trophies')) {
+          return { all: async () => ({ results: onStream }) };
         }
         lastGamesSql = sql;
         lastBind = args;

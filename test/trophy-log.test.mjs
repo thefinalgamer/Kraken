@@ -72,16 +72,29 @@ test('a rescan keeps the date it first recorded', () => {
   assert.match(block, /INSERT OR IGNORE INTO member_trophies/);
 });
 
-test('nothing renders from the log yet, and that is deliberate', async () => {
+test('the site reads the log for what it can show, and not for what it cannot', async () => {
   /**
-   * A placeholder sitting empty on seventy profiles is worse than no strip. The
-   * page will render it once there are rows to render, which is why no site
-   * code touches this table today. If that changes, this test should be the
-   * thing that gets deleted along with it.
+   * THIS TEST USED TO SAY THE OPPOSITE. When the log was first written there was
+   * nothing to render from it, and a placeholder sitting empty on seventy
+   * profiles would have been worse than no strip at all, so the guard was "no
+   * site code touches this table". It said to delete it when that changed.
+   *
+   * It changed: the live poll fills the log within seconds now, and two things
+   * read it. The hunter page counts how many of a game's trophies were earned
+   * in front of an audience, and the game page marks which ones. Both are about
+   * `on_stream`, which only exists because somebody was streaming.
+   *
+   * What still is NOT built is the recent-trophy strip, and the reason is
+   * unchanged: it needs weeks of history to look like anything.
    */
-  const page = await readFile(new URL('../functions/_lib/page.js', import.meta.url), 'utf8');
   const hunter = await readFile(new URL('../functions/hunter/[name].js', import.meta.url), 'utf8');
-  for (const [name, src] of [['page.js', page], ['hunter', hunter]]) {
-    assert.ok(!src.includes('member_trophies'), `${name} reads the log before it has anything in it`);
+  const game = await readFile(new URL('../functions/game/[id].js', import.meta.url), 'utf8');
+
+  for (const [name, src] of [['hunter', hunter], ['game', game]]) {
+    assert.match(src, /FROM member_trophies/, `${name} reads the log`);
+    assert.match(src, /on_stream = 1/, `${name} reads it for the live marks specifically`);
   }
+
+  // The strip would look like this, and does not exist.
+  assert.ok(!/earned_at DESC[\s\S]{0,80}LIMIT (9|10)/.test(hunter), 'no recent strip yet');
 });

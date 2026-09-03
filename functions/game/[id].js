@@ -326,12 +326,17 @@ function trophyCard(t, { localTotal, earned, live }) {
         </span>
         ${secret ? '<span class="secretmark">Secret</span>' : ''}
         ${
+          /**
+           * THE NAME CAME OFF. It read "EARNED LIVE BY JFL__LEON" and Martin
+           * cut it: on a page already filtered to one hunter it says something
+           * the reader knows, in the widest possible way, on every card it
+           * touches. The name survives in the tooltip for the case where it is
+           * genuinely news, which is somebody browsing the game cold.
+           */
           onAir
             ? `<span class="livemark" title="${esc(
                 `${onAir.who ?? 'Somebody here'} earned this live on stream`,
-              )}">&#9679; Earned live${
-                onAir.who ? ` by ${esc(onAir.who)}` : ''
-              }</span>`
+              )}">&#9679; Live</span>`
             : ''
         }
         ${

@@ -629,7 +629,17 @@ tr.sh-none td.bar{background:var(--rule)}
    trophy earned, and green once the whole game is done. */
 td.prog{min-width:112px}
 .track{display:block;height:4px;border-radius:99px;background:var(--rule);margin-top:5px;overflow:hidden}
-.fill{display:block;height:100%;border-radius:99px}
+.fill{display:block;height:100%;border-radius:99px;position:relative}
+.track{position:relative}
+/* Earned in front of an audience, on the end of the fill. Purple is used
+   nowhere else on this site, so it needs no legend. */
+.fill .onair{
+  position:absolute;right:0;top:0;bottom:0;border-radius:99px;background:var(--live);
+}
+.livecount{
+  display:block;margin-top:2px;color:var(--live);font-size:11px;font-weight:700;
+  letter-spacing:.02em;
+}
 .fill.b{background:#e08a4a} .fill.s{background:#c9ccd1}
 .fill.g{background:#f0c419} .fill.p{background:#7fd6f5}
 .fill.ok{background:var(--up)}

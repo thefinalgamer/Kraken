@@ -1,0 +1,22 @@
+-- What they are playing and how far in, as of seconds ago.
+--
+-- The live poll already receives this from PSN on every look: which game was
+-- touched last, its progress, and the earned counts per metal. Until now it
+-- threw all of that away and kept only the new trophies.
+--
+-- WHY NOT WRITE member_games. That was the obvious answer and it is a trap. The
+-- scan decides whether to re-fetch a game by comparing its stored earned count
+-- against PSN's; writing a fresh count there would make the scan think it had
+-- already seen those trophies, skip the game, and never award the points. The
+-- bar would be right for an evening and somebody's score would be wrong
+-- forever.
+--
+-- So this is a separate, display-only note. One JSON blob, never joined on,
+-- never scored from, ignored entirely once it is a few minutes old. If it is
+-- ever wrong the worst case is a stale line on an overlay, and the money
+-- numbers are still the scan's alone.
+--
+-- Run once against the live database:
+--   npx wrangler d1 execute platinum-intel --remote --file migrations/023-live-play.sql
+
+ALTER TABLE members ADD COLUMN live_play TEXT;

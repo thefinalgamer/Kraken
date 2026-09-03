@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { bodyOf } from './helpers.mjs';
 import { localMultiplier } from '../shared/scoring.mjs';
 import { displayBanked } from '../shared/scoring.mjs';
@@ -406,4 +408,71 @@ test('the controller ring is the green one', async () => {
   // Martin picked the console card icon for the ring, and the ring is the part
   // that makes it read at a glance.
   assert.match((await render()).out, /<circle[^>]*stroke="var\(--accent\)"/);
+});
+
+
+test('a fresh live note beats the scan, but only for the counts', async () => {
+  /**
+   * Leon popped a trophy, the card appeared, and the bar still said 10 of 18.
+   * The poll was writing the trophy log and nothing else, so the counts stayed
+   * on whatever his last update knew.
+   *
+   * The live note fixes the COUNTS and deliberately does not touch the POINTS.
+   * Points are the rescore's to decide; an overlay guessing at them would be
+   * the one place on this project where a number is invented rather than
+   * printed.
+   */
+  const live = JSON.stringify({
+    id: 'NPWR_INDY', at: Date.now() - 4000,
+    progress: 61, platinum: 0, gold: 2, silver: 3, bronze: 6,
+  });
+  const body = bodyOf((await render({ member: { ...MEMBER, live_play: live } })).out);
+
+  assert.match(body, />11\/46</, 'the counts are the poll\'s, seconds old');
+  assert.match(body, /61\.00%/, 'and so is the progress');
+  assert.match(body, /width:61\.00%/);
+
+  // The price list is untouched: still the scan's banked figure.
+  const got = displayBanked(PLAYING.points, MEMBER.completion);
+  assert.match(body, new RegExp(got.toLocaleString('en-GB')), 'points stay the scan\'s');
+});
+
+test('a stale live note is ignored and the scan takes over again', async () => {
+  /**
+   * The poll only writes while somebody is streaming with the overlay up, so
+   * the note stops the moment they stop. Fifteen minutes later the bar goes
+   * back to what the scan knows rather than insisting forever that they are
+   * still on last night's game.
+   */
+  const stale = JSON.stringify({
+    id: 'NPWR_INDY', at: Date.now() - 40 * 60000,
+    progress: 61, platinum: 0, gold: 2, silver: 3, bronze: 6,
+  });
+  const body = bodyOf((await render({ member: { ...MEMBER, live_play: stale } })).out);
+  assert.match(body, />43\/46</, 'back to the stored counts');
+  assert.match(body, /90\.00%/);
+});
+
+test('a live note that is not valid JSON is simply no note', async () => {
+  // There is no version of a broken blob that is worth an exception on
+  // somebody's stream.
+  const { res, out } = await render({ member: { ...MEMBER, live_play: '{not json' } });
+  assert.equal(res.status, 200);
+  assert.match(bodyOf(out), />43\/46</);
+});
+
+test('the live note never writes to the scan\'s own numbers', async () => {
+  /**
+   * THE TRAP THIS AVOIDS. Writing fresh counts into `member_games` was the
+   * obvious fix and it would have been quietly catastrophic: the scan decides
+   * whether to re-fetch a game by comparing its stored count against PSN's, so
+   * an updated count there would make it skip the game and never award the
+   * points. Right for an evening, wrong forever.
+   */
+  const live = readFileSync(
+    fileURLToPath(new URL('../worker/src/live.mjs', import.meta.url)), 'utf8',
+  );
+  assert.match(live, /UPDATE members SET live_play/, 'the note goes on the member row');
+  assert.ok(!/UPDATE member_games/.test(live), 'and nothing here touches the scan\'s record');
+  assert.ok(!/INSERT INTO member_games/.test(live));
 });

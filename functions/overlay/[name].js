@@ -47,7 +47,7 @@ const REFRESH = 60;
 
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, rank, points, completion,
-         platinum, gold, silver, bronze, projects, completed
+         platinum, gold, silver, bronze, projects, completed, live_play
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -77,6 +77,37 @@ const PLAYING = `
    WHERE mg.psn_account_id = ?
    ORDER BY COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC
    LIMIT 1`;
+
+/**
+ * One named game, for when the live poll knows better than the scan does.
+ *
+ * LEFT JOIN, because somebody can be twenty minutes into a game the scan has
+ * never seen. The row still renders: the title and the cover come from `games`,
+ * and the numbers come from the poll rather than from `member_games`.
+ */
+const ONE_GAME = `
+  SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.trophy_count,
+         g.max_points, g.local_started, g.unobtainable,
+         mg.points, mg.progress, mg.earned_total,
+         mg.earned_platinum, mg.earned_gold, mg.earned_silver, mg.earned_bronze,
+         (SELECT t.local_earned FROM trophies t
+           WHERE t.np_comm_id = g.np_comm_id AND t.type = 'platinum'
+           LIMIT 1) AS plat_local
+    FROM games g
+    LEFT JOIN member_games mg
+      ON mg.np_comm_id = g.np_comm_id AND mg.psn_account_id = ?
+   WHERE g.np_comm_id = ?
+   LIMIT 1`;
+
+/**
+ * How long a live note is trusted.
+ *
+ * The poll only runs while somebody is streaming with the overlay up, so the
+ * moment they stop, this stops being written. Fifteen minutes later the bar
+ * quietly goes back to what the scan knows, rather than insisting forever that
+ * they are still on the game they finished last night.
+ */
+const LIVE_PLAY_MS = 15 * 60 * 1000;
 
 /** Ranked members, for the "of 70". Stored, never counted per request. */
 const TOTAL = `
@@ -423,23 +454,60 @@ export async function onRequestGet({ env, request, params }) {
     });
   }
 
+  /**
+   * THE LIVE NOTE WINS WHEN IT IS FRESH.
+   *
+   * `live_play` is written by the poll every few seconds while they stream: the
+   * game they last touched and PSN's own counts for it. The scan's row is the
+   * fallback and stays the source of every number that turns into points.
+   *
+   * A note that fails to parse is a note that never existed. This is an
+   * overlay on somebody's stream and there is no version of a broken JSON blob
+   * that is worth an exception.
+   */
+  let live = null;
+  try {
+    const parsed = JSON.parse(member.live_play || 'null');
+    if (parsed?.id && Date.now() - Number(parsed.at) < LIVE_PLAY_MS) live = parsed;
+  } catch {
+    live = null;
+  }
+
   const [playing, totals] = await Promise.all([
-    env.DB.prepare(PLAYING).bind(member.psn_account_id).first(),
+    live
+      ? env.DB.prepare(ONE_GAME).bind(member.psn_account_id, live.id).first().catch(() => null)
+      : env.DB.prepare(PLAYING).bind(member.psn_account_id).first(),
     env.DB.prepare(TOTAL).first(),
   ]);
 
   /**
-   * One row, and only when there is a place above them to want. Wrapped like
-   * everything else here: a bar on somebody's stream does not get to fall over
-   * because a query did.
+   * The scan's row, wearing the poll's numbers.
+   *
+   * Everything that is a COUNT comes from the live note, because it is seconds
+   * old and the stored one is from their last update. Everything that is a
+   * PRICE stays exactly as the scan left it: points are the rescore's to
+   * decide, and an overlay guessing at them would be the one place on this
+   * whole project where a number is invented rather than printed.
    */
+  const shown = playing && live
+    ? {
+        ...playing,
+        progress: live.progress,
+        earned_total: live.platinum + live.gold + live.silver + live.bronze,
+        earned_platinum: live.platinum,
+        earned_gold: live.gold,
+        earned_silver: live.silver,
+        earned_bronze: live.bronze,
+      }
+    : playing;
+
   const ahead = Number(member.rank) > 1
     ? await env.DB.prepare(AHEAD).bind(Number(member.rank) - 1).first().catch(() => null)
     : null;
 
   const body = `<div class="bar ${pos}">
-    ${leftZone(playing, { points: showMid ? gamePoints(member, playing) : '' })}
-    ${showMid ? midZone(member, playing, totals?.c ?? 0, ahead) : '<span class="spacer"></span>'}
+    ${leftZone(shown, { points: showMid ? gamePoints(member, shown) : '' })}
+    ${showMid ? midZone(member, shown, totals?.c ?? 0, ahead) : '<span class="spacer"></span>'}
     ${rightZone(member)}
   </div>`;
 

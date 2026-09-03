@@ -146,6 +146,38 @@ export async function pollMember(env, member) {
       return total > (stored.get(t.npCommunicationId) ?? -1);
     });
 
+    /**
+     * WRITE WHAT THEY ARE PLAYING, whether or not a trophy moved.
+     *
+     * The first title in that list is the game they last touched, and PSN's own
+     * counts come with it. Keeping it is what lets the bar follow somebody
+     * changing disc rather than waiting for their next update, and it costs
+     * nothing: the call has already been made and paid for.
+     *
+     * DISPLAY ONLY, and deliberately not `member_games`. The scan decides
+     * whether to re-fetch a game by comparing its stored count against PSN's,
+     * so a fresh count written there would make it skip the game and never
+     * award the points. A wrong line on an overlay is a shrug; a wrong score is
+     * forever.
+     */
+    const top = titles[0];
+    const e = top?.earnedTrophies ?? {};
+    await env.DB.prepare('UPDATE members SET live_play = ? WHERE psn_account_id = ?')
+      .bind(
+        JSON.stringify({
+          id: top?.npCommunicationId ?? null,
+          at: now,
+          progress: Number(top?.progress) || 0,
+          platinum: Number(e.platinum) || 0,
+          gold: Number(e.gold) || 0,
+          silver: Number(e.silver) || 0,
+          bronze: Number(e.bronze) || 0,
+        }),
+        member.psn_account_id,
+      )
+      .run()
+      .catch(() => {});
+
     if (!moved) return 'poll: nothing new';
 
     const trophies = await earnedForTitle(

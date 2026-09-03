@@ -363,3 +363,47 @@ test('the games icon is a controller, not three rectangles', async () => {
   assert.match(out, /class="ic pad"/);
   assert.ok(!out.includes('<rect x="3" y="4"'), 'the old stacked bars are gone');
 });
+
+test('the bar wears the best metal earned in the game so far', async () => {
+  /**
+   * Martin: "if we earn bronze have bronze once it earns silver turn to that
+   * gold turn to that like we do". Bronze while it is only bronzes, and up
+   * from there as better ones land.
+   *
+   * NOT SEGMENTS, deliberately. Bands by trophy type cannot be honest here:
+   * PSN's progress percentage is weighted and the trophy counts are not, so
+   * the bands would add up to a different width than the percentage printed
+   * beside them.
+   */
+  const withCups = (cups) => render({ playing: { ...PLAYING, ...cups } });
+  const fillOf = (out) => /class="fill"[^>]*background:([^"]+)"/.exec(bodyOf(out))?.[1];
+
+  assert.equal(
+    fillOf((await withCups({ earned_platinum: 0, earned_gold: 0, earned_silver: 0, earned_bronze: 9 })).out),
+    'var(--bronze)',
+  );
+  assert.equal(
+    fillOf((await withCups({ earned_platinum: 0, earned_gold: 0, earned_silver: 2, earned_bronze: 9 })).out),
+    'var(--silver)',
+  );
+  assert.equal(
+    fillOf((await withCups({ earned_platinum: 0, earned_gold: 1, earned_silver: 2, earned_bronze: 9 })).out),
+    'var(--gold)',
+  );
+  assert.equal(
+    fillOf((await withCups({ earned_platinum: 1, earned_gold: 1, earned_silver: 2, earned_bronze: 9 })).out),
+    'var(--plat)',
+    'the platinum outranks everything under it',
+  );
+  assert.equal(
+    fillOf((await withCups({ earned_platinum: 0, earned_gold: 0, earned_silver: 0, earned_bronze: 0 })).out),
+    'var(--accent)',
+    'and a game with nothing earned yet is not painted bronze',
+  );
+});
+
+test('the controller ring is the green one', async () => {
+  // Martin picked the console card icon for the ring, and the ring is the part
+  // that makes it read at a glance.
+  assert.match((await render()).out, /<circle[^>]*stroke="var\(--accent\)"/);
+});

@@ -116,7 +116,7 @@ const CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
  * and ring around it i think it would make a much better icon".
  */
 const PAD = `<svg viewBox="0 0 24 24" aria-hidden="true">
-  <circle cx="12" cy="12" r="10.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+  <circle cx="12" cy="12" r="10.2" fill="none" stroke="var(--accent)" stroke-width="1.9"/>
   <path fill="currentColor" fill-rule="evenodd" d="M8.5 9.4h7c1.8 0 3.2 1.5 3.35 3.3l.2 2.2
     c.1 1.05-.65 1.9-1.65 1.9-.5 0-1-.22-1.32-.62l-1.2-1.48H9.12l-1.2 1.48
     c-.32.4-.82.62-1.32.62-1 0-1.75-.85-1.65-1.9l.2-2.2C5.3 10.9 6.7 9.4 8.5 9.4z
@@ -253,12 +253,30 @@ function leftZone(g, { points = '' } = {}) {
    * rather than printed: a game with no platinum should not show a blank
    * platinum, and half the bar's width goes on noughts otherwise.
    */
-  const cups = [
-    ['c-plat', g.earned_platinum],
-    ['c-gold', g.earned_gold],
-    ['c-silv', g.earned_silver],
-    ['c-bron', g.earned_bronze],
-  ]
+  const metals = [
+    ['c-plat', g.earned_platinum, 'var(--plat)'],
+    ['c-gold', g.earned_gold, 'var(--gold)'],
+    ['c-silv', g.earned_silver, 'var(--silver)'],
+    ['c-bron', g.earned_bronze, 'var(--bronze)'],
+  ];
+
+  /**
+   * THE BAR WEARS THE BEST METAL IN THE GAME SO FAR.
+   *
+   * Bronze while it is only bronzes, silver when a silver lands, gold after
+   * that, and the pale blue of a platinum once the platinum is in. Martin: "if
+   * we earn bronze have bronze once it earns silver turn to that gold turn to
+   * that like we do".
+   *
+   * NOT SEGMENTS. Splitting the bar into coloured bands by trophy type was the
+   * obvious reading and it cannot be honest: PSN's progress percentage is
+   * weighted and the trophy counts are not, so the bands would add up to a
+   * different width than the number printed beside them. One colour says the
+   * same thing and cannot disagree with itself.
+   */
+  const fill = metals.find(([, v]) => Number(v) > 0)?.[2] ?? 'var(--accent)';
+
+  const cups = metals
     .filter(([, v]) => Number(v) > 0)
     .map(([cls, v]) => `<span class="${cls}">${CUP}${n(v)}</span>`)
     .join('');
@@ -277,7 +295,7 @@ function leftZone(g, { points = '' } = {}) {
     <span class="seg">
       <span class="ic">${CUP}</span>
       <span class="num">${n(got)}/${n(total)}</span>
-      <span class="track"><i class="fill" style="width:${progress.toFixed(2)}%"></i></span>
+      <span class="track"><i class="fill" style="width:${progress.toFixed(2)}%;background:${fill}"></i></span>
       <span class="pctv">${progress.toFixed(2)}%</span>
     </span>
     ${cups ? `<span class="seg"><span class="cups gcups">${cups}</span></span>` : ''}

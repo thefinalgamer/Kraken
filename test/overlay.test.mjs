@@ -32,12 +32,15 @@ const PLAYING = {
 let lastPlayingSql = '';
 let lastPlayingBind = [];
 
-const fakeEnv = ({ member = MEMBER, playing = PLAYING, total = 70 } = {}) => ({
+const fakeEnv = ({ member = MEMBER, playing = PLAYING, total = 70, ahead = null } = {}) => ({
   DB: {
     prepare(sql) {
       return {
         bind: (...args) => ({
           first: async () => {
+            // The rank lookup and the member lookup are both FROM members, so
+            // the stub has to tell them apart by what they select.
+            if (sql.includes('SELECT rank, points')) return ahead;
             if (sql.includes('FROM members')) return member;
             lastPlayingSql = sql;
             lastPlayingBind = args;
@@ -143,7 +146,12 @@ test('the multiplier only appears when it is doing something', async () => {
   const mult = localMultiplier(3, 9);
   assert.ok(mult > 1.005, 'the fixture is a live multiplier');
   assert.match(busy, new RegExp(`&times;${mult.toFixed(2)}`), 'and it is printed');
-  assert.match(busy, /6 stuck/, 'with the reason beside it');
+  /**
+   * THE NUMBER ALONE. It printed "x1.13 7 stuck" and Martin cut the tail:
+   * seven words of explanation on a bar with no room to spare, for something
+   * chat asks about anyway. The number is the hook, the streamer is the answer.
+   */
+  assert.ok(!/stuck/.test(busy), 'and nothing explaining it');
 
   // Everybody who owns it has finished it, so the chip is noise.
   const settled = bodyOf(
@@ -189,7 +197,10 @@ test('a name nobody has shows nothing at all, and is not cached', async () => {
    */
   const { res, out } = await render({ member: null });
   assert.equal(res.status, 404);
-  assert.equal(bodyOf(out).replace(/<\/style>|<\/head>|<body>|<\/body>|<\/html>|\s/g, ''), '');
+  // Two stylesheets now: the sheet, then the one line carrying the size dial.
+  const empty = out.slice(out.lastIndexOf('</style>'))
+    .replace(/<\/style>|<\/head>|<body>|<\/body>|<\/html>|\s/g, '');
+  assert.equal(empty, '', 'nothing between body and the end of the document');
   assert.match(res.headers.get('cache-control'), /no-store/, 'a typo must not stick');
 });
 
@@ -261,4 +272,94 @@ test('the ordinal is right, including the teens', async () => {
     const body = bodyOf((await render({ member: { ...MEMBER, rank } })).out);
     assert.match(body, new RegExp(`>${rank}<sup>${mark}</sup>`), `${rank}${mark}`);
   }
+});
+
+test('the size dial is a dial, and it is clamped', async () => {
+  /**
+   * "text is very small" came back from more than one person, and no single
+   * number fixes it: people stream at 1080 and at 1440 with layouts of every
+   * size. The bar is sized in em off one root value, so this is one parameter
+   * rather than a redesign. Clamped, because a URL handed to a streamer must
+   * not be able to draw a bar taller than their game.
+   */
+  assert.match((await render()).out, /--s:1\}/, 'normal by default');
+  assert.match((await render({}, '?scale=125')).out, /--s:1\.25\}/);
+  assert.match((await render({}, '?scale=900')).out, /--s:2\}/, 'clamped at the top');
+  assert.match((await render({}, '?scale=10')).out, /--s:0\.7\}/, 'and at the bottom');
+  assert.match((await render({}, '?scale=nonsense')).out, /--s:1\}/, 'junk falls back');
+});
+
+test('nothing on the bar is grey', async () => {
+  /**
+   * Martin: "the gray text is almost impossible to see with backgrounds so keep
+   * it white". The site's palette does not transfer here, because a page has a
+   * dark surface behind it and this has whatever the game is doing. Hierarchy
+   * is carried by weight and size, and every scrap of text sits on its own
+   * shadow so it never depends on the panel behind it.
+   */
+  const { out } = await render();
+  const vars = out.slice(out.indexOf(':root{'), out.indexOf('}', out.indexOf(':root{')));
+  assert.match(vars, /--ink:#ffffff/);
+  assert.match(vars, /--soft:#eaf2f0/, 'the second tier is still nearly white');
+  assert.match(out, /text-shadow:0 1px 2px rgba\(0,0,0,\.9\)/, 'and it carries its own edge');
+});
+
+test('the four metals show for the game on screen', async () => {
+  // The board has always shown a person's cabinet; nothing showed the same
+  // breakdown for the thing they are actually playing.
+  const body = bodyOf((await render({
+    playing: {
+      ...PLAYING, earned_platinum: 0, earned_gold: 3, earned_silver: 8, earned_bronze: 32,
+    },
+  })).out);
+
+  // Scoped to the GAME's cups. The account cabinet on the right always carries
+  // a platinum count, so checking the whole document for "c-plat" would be
+  // asserting against the wrong half of the bar.
+  const i = body.indexOf('class="cups gcups"');
+  assert.ok(i > 0, 'the game cups are drawn');
+  const gcups = body.slice(i, body.indexOf('</span>', body.indexOf('</span>', i) + 1));
+
+  assert.match(gcups, /class="c-gold">.*?3/s);
+  assert.ok(/class="c-bron"/.test(body.slice(i)), 'and the bronzes');
+  // A game with no platinum earned must not print a blank platinum: half the
+  // width of the bar would go on noughts.
+  assert.ok(!/class="c-plat"/.test(gcups), 'zeroes are left out');
+});
+
+test('the gap to the next place is shown, and only when there is one', async () => {
+  /**
+   * "32nd of 71" says where you are and nothing about whether 31st is forty
+   * points away or four thousand, which is the only question anybody looks at
+   * their own rank to answer.
+   */
+  const body = bodyOf((await render({ ahead: { rank: 1, points: 152000 } })).out);
+  assert.match(body, /class="gap"/);
+  assert.match(body, /3,780<\/b> to 1st/, 'the difference of two stored numbers');
+
+  // First place has nobody to chase, and must not be told they need 0 to 0th.
+  const first = bodyOf((await render({ member: { ...MEMBER, rank: 1 } })).out);
+  assert.ok(!first.includes('class="gap"'));
+});
+
+test('the game points sit on the left but belong to the middle', async () => {
+  /**
+   * Martin: "could we have the game points ... on the left hand side next to
+   * the time, still count it as the middle section so if people hide our side
+   * of things it hides". So position and ownership are different things here,
+   * and the switch has to respect ownership.
+   */
+  const on = bodyOf((await render()).out);
+  const left = on.indexOf('class="pts"');
+  const mid = on.indexOf('class="zone mid"');
+  assert.ok(left > 0 && left < mid, 'printed before the middle zone starts');
+
+  const off = bodyOf((await render({}, '?mid=0')).out);
+  assert.ok(!off.includes('class="pts"'), 'and it goes when the middle goes');
+});
+
+test('the games icon is a controller, not three rectangles', async () => {
+  const { out } = await render();
+  assert.match(out, /class="ic pad"/);
+  assert.ok(!out.includes('<rect x="3" y="4"'), 'the old stacked bars are gone');
 });

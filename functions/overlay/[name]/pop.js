@@ -95,14 +95,17 @@ const ordinalMark = (v) => {
 
 const STYLES = `
 :root{
-  --ink:#e6efec; --soft:#93a8a6; --faint:#7d939a; --up:#4ec98a; --brass:#d8ab3e;
-  --plat:#8fbcff; --gold:#e0b544; --silver:#c3ccd0; --bronze:#c8814a;
+  /* WHITE, like the bar. Same reason: this sits over whatever the game is
+     doing, not over a page, and grey text vanishes into a bright scene. */
+  --ink:#ffffff; --soft:#eaf2f0; --faint:#d3dedb; --up:#6ee6a8; --brass:#f0c357;
+  --plat:#a9cdff; --gold:#f2c65a; --silver:#dbe3e6; --bronze:#e0a06a;
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:transparent;overflow:hidden}
 body{
   font:13.5px/1.4 "Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   color:var(--ink);-webkit-font-smoothing:antialiased;user-select:none;
+  text-shadow:0 1px 2px rgba(0,0,0,.85);
 }
 .pop{
   position:fixed;left:0;top:0;
@@ -148,12 +151,12 @@ body{
 }
 @keyframes turn{ to{ background-position:-${FRAME * FRAMES}px 0 } }
 .body{display:flex;align-items:center;gap:18px;padding:16px 18px;min-width:0}
-.name{font-weight:700;font-size:17px;max-width:26ch;overflow:hidden;text-overflow:ellipsis;
+.name{font-weight:700;font-size:18px;max-width:26ch;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap}
-.game{color:var(--soft);font-size:12px;margin-top:2px;max-width:26ch;overflow:hidden;
+.game{color:var(--soft);font-size:13px;margin-top:2px;max-width:26ch;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .gain{text-align:right;padding-left:16px;border-left:1px solid rgba(230,239,236,.12)}
-.gain b{display:block;color:var(--up);font-size:18px;font-variant-numeric:tabular-nums;
+.gain b{display:block;color:var(--up);font-size:19px;font-variant-numeric:tabular-nums;
   line-height:1.15}
 .gain span{display:block;color:var(--faint);font-size:10.5px;letter-spacing:.1em;
   text-transform:uppercase}

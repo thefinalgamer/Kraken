@@ -128,7 +128,8 @@ export async function checkLive(env) {
 
   const { results: rows = [] } = await env.DB
     .prepare(
-      `SELECT psn_account_id, twitch_login, live_since, live_game FROM members
+      `SELECT psn_account_id, twitch_login, live_since, live_game,
+              last_stream_start, last_stream_end FROM members
         WHERE twitch_login IS NOT NULL AND TRIM(twitch_login) <> ''`,
     )
     .all();
@@ -166,6 +167,18 @@ export async function checkLive(env) {
      */
     const wasOn = r.live_since != null;
 
+    /**
+     * REMEMBER THE WINDOW WHEN A STREAM ENDS.
+     *
+     * `live_since` is about right now and goes null the moment they are off,
+     * which is useless for what happens next: somebody streams for four hours,
+     * goes off, and THEN runs /update. The scan writes those trophies with the
+     * stream long over and nothing is left to say anybody was watching.
+     *
+     * So the window is kept, and swept for a while afterwards.
+     */
+    const justEnded = wasOn && !on;
+
     writes.push(
       !on && !wasOn
         ? env.DB.prepare('UPDATE members SET live_checked_at = ? WHERE psn_account_id = ?')
@@ -174,17 +187,53 @@ export async function checkLive(env) {
             .prepare(
               `UPDATE members
                   SET live_since = ?, live_game = ?, live_viewers = ?, live_thumb = ?,
-                      live_mature = ?, live_checked_at = ?
-                WHERE psn_account_id = ?`,
+                      live_mature = ?, live_checked_at = ?` +
+                (justEnded ? ', last_stream_start = ?, last_stream_end = ?' : '') +
+                ' WHERE psn_account_id = ?',
             )
             .bind(
-              at, game, on?.viewers ?? null, on?.thumb ?? null, on?.mature ?? null,
-              now, r.psn_account_id,
+              at, game, on?.viewers ?? null, on?.thumb ?? null, on?.mature ?? null, now,
+              ...(justEnded ? [Number(r.live_since), now] : []),
+              r.psn_account_id,
             ),
     );
   }
 
   await env.DB.batch(writes);
+
+  /**
+   * THE CATCH-UP SWEEP.
+   *
+   * Marks anything earned inside a stream window that has finished in the last
+   * twelve hours. The poll already does this while somebody is on air; this is
+   * for the rows that only turn up afterwards, when they finally run /update.
+   *
+   * A little slack past the end of the stream, because a trophy that popped in
+   * the last minute of a broadcast has an `earned_at` fractionally after the
+   * moment Twitch noticed the stream stop.
+   *
+   * Only rows that are not already flagged, only members who actually streamed
+   * recently, and it runs at most once every five minutes for the whole board.
+   */
+  const twelveHours = now - 12 * 60 * 60 * 1000;
+  const recent = rows.filter(
+    (r) => Number(r.last_stream_end) > twelveHours && Number(r.last_stream_start) > 0,
+  );
+
+  if (recent.length) {
+    await env.DB.batch(
+      recent.map((r) =>
+        env.DB.prepare(
+          `UPDATE member_trophies SET on_stream = 1
+            WHERE psn_account_id = ?
+              AND earned_at >= ?
+              AND earned_at <= ?
+              AND COALESCE(on_stream, 0) = 0`,
+        ).bind(r.psn_account_id, Number(r.last_stream_start), Number(r.last_stream_end) + 120000),
+      ),
+    ).catch(() => {});
+  }
+
   return `twitch: ${live.size} live of ${rows.length} watched`;
 }
 

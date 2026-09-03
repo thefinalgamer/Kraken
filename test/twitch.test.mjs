@@ -218,3 +218,73 @@ test('only the member themselves can set their channel', () => {
   const block = cmds.slice(cmds.indexOf("name: 'twitch'"), cmds.indexOf("name: 'overlay'"));
   assert.ok(!block.includes("name: 'member'"), 'and none registered either');
 });
+
+test('the end of a stream is remembered, not just forgotten', async () => {
+  /**
+   * `live_since` is about right now and goes null the moment somebody is off,
+   * which is useless for what happens next: they stream for four hours, go off,
+   * and THEN run /update. The scan writes those trophies with the stream long
+   * over and nothing is left to say anybody was watching.
+   */
+  const { env, writes } = harness({ streams: [] });
+  await checkLive(env);
+
+  // a2 was live in the fixture and is not any more.
+  const ended = writes.find(
+    (w) => w.sql.includes('last_stream_start') && w.args.at(-1) === 'a2',
+  );
+  assert.ok(ended, 'the window is written when the stream stops');
+  assert.equal(ended.args[6], 1000, 'from when it started');
+  assert.ok(ended.args[7] > Date.now() - 5000, 'to now');
+});
+
+test('a stream that is still running does not get an end written', async () => {
+  const { env, writes } = harness({ streams: [live('jfl__leon')] });
+  await checkLive(env);
+  assert.ok(
+    !writes.some((w) => w.sql.includes('last_stream_start') && w.args.at(-1) === 'a2'),
+    'nothing is closed while it is open',
+  );
+});
+
+test('trophies that arrive after the stream still get marked', async () => {
+  /**
+   * THE CATCH-UP SWEEP. The poll marks things while somebody is on air; this is
+   * for the rows that only turn up afterwards. It runs on the five minute tick
+   * for anybody whose stream finished in the last twelve hours.
+   */
+  const now = Date.now();
+  const { env, writes } = harness({
+    members: [{
+      psn_account_id: 'a9', twitch_login: 'pelzio', live_since: null, live_game: null,
+      last_stream_start: now - 4 * 60 * 60000,
+      last_stream_end: now - 30 * 60000,
+    }],
+    streams: [],
+  });
+  await checkLive(env);
+
+  const sweep = writes.find((w) => w.sql.includes('UPDATE member_trophies SET on_stream'));
+  assert.ok(sweep, 'the window is swept');
+  assert.equal(sweep.args[0], 'a9');
+  assert.equal(sweep.args[1], now - 4 * 60 * 60000, 'from the start of that stream');
+  assert.ok(
+    sweep.args[2] > Number(now - 30 * 60000),
+    'to a little past the end, because a trophy in the last minute lands after Twitch notices',
+  );
+  assert.match(sweep.sql, /COALESCE\(on_stream, 0\) = 0/, 'and it leaves marked rows alone');
+});
+
+test('a stream from last week is not swept forever', async () => {
+  const now = Date.now();
+  const { env, writes } = harness({
+    members: [{
+      psn_account_id: 'a9', twitch_login: 'pelzio', live_since: null, live_game: null,
+      last_stream_start: now - 7 * 86400000,
+      last_stream_end: now - 7 * 86400000 + 3600000,
+    }],
+    streams: [],
+  });
+  await checkLive(env);
+  assert.ok(!writes.some((w) => w.sql.includes('UPDATE member_trophies')), 'twelve hours is the limit');
+});

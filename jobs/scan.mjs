@@ -888,15 +888,43 @@ async function scanGame(
         (previouslyHad ? !previouslyHad.has(t.id) : t.earnedAt >= floor),
     );
 
+    /**
+     * CHUNKED, AND IT WAS NOT, WHICH COST A MEMBER THE WHOLE FEATURE.
+     *
+     * This built one statement with four bound parameters per trophy. D1
+     * rejects any statement past its parameter ceiling, so at four per row the
+     * limit is twenty-two trophies, and the whole insert failed the moment
+     * somebody had a decent session. Not partially. All of it.
+     *
+     * IT FAILED IN SILENCE, which is why it lasted. The catch below exists so a
+     * decoration cannot take a nightly scan down, and it did its job perfectly:
+     * the error went to a line in an Actions log nobody reads, the scan carried
+     * on, and every other number on the board stayed correct.
+     *
+     * WHO IT HIT, and why it looked like something else entirely. JFL__Leon
+     * earns trophies one or two at a time through the live poll, so he was
+     * always under the limit and his purple worked. YT-WilkoX put 47 trophies
+     * into ASTRO BOT in one session: 188 parameters, rejected, every time. He
+     * had ZERO rows in the trophy log, ever, so nothing could be marked as
+     * earned on stream and the streaming board would never have seen him.
+     *
+     * Martin found it by streaming from a PS5 and asking why his brother had no
+     * purple. Three wrong theories in, the query that settled it returned no
+     * rows at all rather than unflagged ones.
+     */
     if (fresh.length) {
       // OR IGNORE, because a rescan of the same game re-offers trophies that
       // are already logged and their recorded date is the one to keep.
-      await db.run(
-        'INSERT OR IGNORE INTO member_trophies ' +
-          '(psn_account_id, np_comm_id, trophy_id, earned_at) VALUES ' +
-          fresh.map(() => '(?,?,?,?)').join(','),
-        fresh.flatMap((t) => [accountId, title.npCommunicationId, t.id, t.earnedAt]),
-      );
+      const PER = D1.chunkSize(4);
+      for (let i = 0; i < fresh.length; i += PER) {
+        const part = fresh.slice(i, i + PER);
+        await db.run(
+          'INSERT OR IGNORE INTO member_trophies ' +
+            '(psn_account_id, np_comm_id, trophy_id, earned_at) VALUES ' +
+            part.map(() => '(?,?,?,?)').join(','),
+          part.flatMap((t) => [accountId, title.npCommunicationId, t.id, t.earnedAt]),
+        );
+      }
     }
   } catch (err) {
     console.log(`  trophy log skipped for ${title.npCommunicationId}: ${err.message}`);

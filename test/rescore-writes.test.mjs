@@ -146,3 +146,54 @@ test('a NULL column counts as different, not as equal', needsSqlite, () => {
   db.prepare("UPDATE games SET max_points = NULL WHERE np_comm_id = 'A'").run();
   assert.equal(rowsWritten(db, MAX_POINTS), 1, 'a null total is repaired');
 });
+
+test('no multi-row INSERT builds an unbounded parameter list', async () => {
+  /**
+   * THE BUG THIS EXISTS FOR, and it cost a member the whole trophy log.
+   *
+   * The scan built its `member_trophies` insert as one statement with four
+   * bound parameters per trophy and no chunking. D1 rejects anything past its
+   * parameter ceiling, so at four per row the limit is twenty-two trophies and
+   * a 47-trophy session failed entirely. In silence, because the write is
+   * wrapped so a decoration cannot take a nightly scan down.
+   *
+   * YT-WilkoX had zero rows in the log for months. JFL__Leon, who earns one or
+   * two at a time through the live poll, never crossed the line and looked
+   * fine, which is what made it look like a purple bug rather than a write bug.
+   *
+   * `D1.chunkSize()` has been in this codebase the whole time. The failure was
+   * one call site not using it, so this checks every call site instead of that
+   * one.
+   */
+  const { readFile, readdir } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+
+  const files = [];
+  const walk = async (dir) => {
+    for (const name of await readdir(dir, { withFileTypes: true })) {
+      const p = join(dir, name.name);
+      if (name.isDirectory()) await walk(p);
+      else if (/\.mjs$/.test(p)) files.push(p);
+    }
+  };
+  await walk('jobs');
+  await walk('worker/src');
+
+  for (const f of files) {
+    const src = await readFile(f, 'utf8');
+    /**
+     * The shape of the bug: a placeholder list built by mapping over an array
+     * whose length nothing bounds. A chunked one maps over a `part`/`slice`
+     * taken from D1.chunkSize, so the variable name is the tell.
+     */
+    for (const m of src.matchAll(/(\w+)\.map\(\(\)\s*=>\s*'\(\?[?,]*\)'\)/g)) {
+      const over = m[1];
+      assert.ok(
+        /^(part|slice|chunk|batch)$/.test(over),
+        `${f}: builds VALUES placeholders from \`${over}\`, which nothing chunks. ` +
+          `D1 rejects the whole statement past its parameter ceiling, and a wrapped ` +
+          `write fails silently forever. Slice it with D1.chunkSize(columns) first.`,
+      );
+    }
+  }
+});

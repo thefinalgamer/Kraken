@@ -1191,13 +1191,31 @@ export async function onRequestGet({ params, env, request }) {
     })
     .join('');
 
-  const rivalsBlock = rivals.length
-    ? `<details class="numbers rivals">
-         <summary>Rivals<span class="soon-tag">${rivals.length} of ${MAX_RIVALS}</span></summary>
-         <div class="tablewrap"><table class="rivaltab"><tbody>${rivalRows}</tbody></table></div>
-         <p class="rivalnote">Set with <code>/rivals</code> in Discord.</p>
-       </details>`
-    : '';
+  /**
+   * ALWAYS DRAWN, EVEN EMPTY, and that is the fix rather than a nicety.
+   *
+   * This used to render only when somebody already had rivals, which put the
+   * one line explaining how to set them INSIDE the block that only appears once
+   * you have. The instructions were visible exclusively to the people who did
+   * not need them. Martin, having watched people use the site: "most people
+   * dont know about rivals since its not on there unless you set it in discord
+   * but once you set it up at the bottom it tells you how to set it up".
+   *
+   * An empty state is the single best place to teach a feature, because the
+   * person looking at it has just gone looking for the thing.
+   */
+  const rivalsBlock = `<details class="numbers rivals">
+      <summary>Rivals<span class="soon-tag">${rivals.length} of ${MAX_RIVALS}</span></summary>
+      ${
+        rivals.length
+          ? `<div class="tablewrap"><table class="rivaltab"><tbody>${rivalRows}</tbody></table></div>
+             <p class="rivalnote">Set with <code>/rivals</code> in Discord.</p>`
+          : `<p class="rivalnote empty">Up to five hunters worth keeping an eye on. Add them
+               with <code>/rivals add</code> in Discord and they appear here as a little board
+               of just them and you: rank, points, and how far ahead or behind each one is.
+               Everybody can see everybody's, so being chased is part of it.</p>`
+      }
+    </details>`;
 
   /**
    * The dice.
@@ -1348,14 +1366,32 @@ export async function onRequestGet({ params, env, request }) {
 
     ${rollBlock}
 
-    <form class="find vsfind" method="get" action="/hunter/${encodeURIComponent(m.psn_online_id)}">
-      <input type="search" name="vs" value="${esc(vsName)}"
-             placeholder="Compare ${esc(m.psn_online_id)} with another hunter"
-             aria-label="Compare with another hunter" maxlength="40">
-      <input type="hidden" name="sort" value="${esc(sort)}">
-      ${q ? `<input type="hidden" name="q" value="${esc(q)}">` : ''}
-      <button type="submit">Compare</button>
-    </form>
+    ${
+      /**
+       * IT NEEDS A NAME, because it was losing to the search box underneath it.
+       *
+       * Two identical grey inputs stacked one above the other read as one
+       * control, and the eye takes the second as the real one. Martin, watching
+       * streamers use the page: "they couldnt notice the compare section".
+       *
+       * A heading and the versus mark is the whole change. It stops the two
+       * boxes being twins, it says what the box is for before you read the
+       * placeholder, and the mark ties it to the panel it opens.
+       */
+      ''
+    }
+    <section class="vsask">
+      <h2><span class="vsmark tiny"><i>VS</i></span>Head to head</h2>
+      <p>Put this library next to anybody else's, down to the individual trophy.</p>
+      <form class="find vsfind" method="get" action="/hunter/${encodeURIComponent(m.psn_online_id)}">
+        <input type="search" name="vs" value="${esc(vsName)}"
+               placeholder="Which hunter?"
+               aria-label="Compare with another hunter" maxlength="40">
+        <input type="hidden" name="sort" value="${esc(sort)}">
+        ${q ? `<input type="hidden" name="q" value="${esc(q)}">` : ''}
+        <button type="submit">Compare</button>
+      </form>
+    </section>
 
     ${vsBlock}
 

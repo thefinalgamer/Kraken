@@ -890,11 +890,23 @@ test('rivals are ordered by rank, not by gap', async () => {
   assert.deepEqual(order, [27, 32, 40], 'ascending rank, hunter folded in');
 });
 
-test('a hunter with no rivals gets no panel at all', async () => {
+test('a hunter with no rivals is told how to get some', async () => {
+  /**
+   * THE PANEL USED TO BE HIDDEN UNTIL YOU HAD RIVALS, which meant the one line
+   * explaining how to set them sat inside the block that only appeared once you
+   * had. The instructions reached exactly the people who did not need them.
+   *
+   * Martin, after watching people use the site: "most people dont know about
+   * rivals since its not on there unless you set it in discord but once you set
+   * it up at the bottom it tells you how to set it up".
+   */
   const { out } = await render('JFL__Leon');
   const body = bodyOf(out);
-  assert.ok(!body.includes('rivaltab'), 'no empty table');
-  assert.ok(!/<summary>Rivals/.test(body), 'and no summary promising one');
+
+  assert.match(body, /<summary>Rivals/, 'the panel is there to be found');
+  assert.ok(body.includes('0 of 5'), 'and says it is empty');
+  assert.ok(body.includes('/rivals add'), 'and how to fill it');
+  assert.ok(!body.includes('rivaltab'), 'but no empty table pretending to be a board');
 });
 
 test('the "soon" placeholder is gone', async () => {
@@ -1068,7 +1080,16 @@ test('nothing is compared until somebody asks', async () => {
   const { out } = await compare('');
 
   assert.equal(vsQueries, 0, 'no compare query runs on a plain page view');
-  assert.ok(!out.includes('Head to head'), 'and no panel');
+  /**
+   * bodyOf, NOT the whole document. The stylesheet is inlined into every page
+   * and it contains a `.vshead` rule, so testing the raw output finds the CSS
+   * and reports a panel that was never drawn.
+   *
+   * `vshead` is the two hunter cards, which only the real panel renders. The
+   * words "Head to head" no longer work as a marker: they now also head the
+   * invitation box that sits above the library.
+   */
+  assert.ok(!bodyOf(out).includes('vshead'), 'and no panel');
   // The way in is still on the page, though, or the feature does not exist.
   assert.ok(out.includes('name="vs"'), 'the compare box is there');
 });
@@ -1125,7 +1146,7 @@ test('comparing somebody against themselves is refused politely', async () => {
   const body = bodyOf(out);
 
   assert.ok(body.includes('That is the same hunter'), 'says so');
-  assert.ok(!body.includes('Head to head'), 'and does not draw the panel');
+  assert.ok(!body.includes('vshead'), 'and does not draw the panel');
 });
 
 test('comparing against nobody says so and keeps the page', async () => {

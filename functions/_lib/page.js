@@ -1217,6 +1217,9 @@ p.warn.dead.whole b{color:#ff8e86}
 
 .rivalnote{margin:8px 0 0;font-size:12px;color:var(--faint)}
 .rivalnote code{background:var(--deep);border:1px solid var(--edge);border-radius:4px;padding:1px 5px}
+/* The empty state is a paragraph rather than a footnote, because here it is
+   the whole content of the panel rather than a note under a table. */
+.rivalnote.empty{font-size:13px;color:var(--soft);line-height:1.5;max-width:62ch;margin:4px 0 2px}
 
 /* ---- head to head ----
    The compare panel, opened with ?vs= from a hunter page.
@@ -1334,6 +1337,29 @@ p.warn.dead.whole b{color:#ff8e86}
   .vsrow{flex-wrap:wrap}
   .vsbars{width:100%;order:3}
 }
+
+/* The invitation to compare, which was a bare input directly above the search
+   box and lost to it every time. A heading, a line of explanation and the mark
+   from the panel it opens. */
+.vsask{
+  background:var(--panel);border:1px solid var(--edge);border-radius:10px;
+  padding:12px 14px 4px;margin:0 0 12px;
+}
+.vsask h2{
+  display:flex;align-items:center;gap:9px;margin:0 0 3px;
+  font-size:15px;letter-spacing:.01em;
+}
+.vsask p{margin:0 0 10px;font-size:12.5px;color:var(--faint)}
+.vsask .find{margin:0 0 10px}
+/* The same mark as the versus screen, shrunk to sit on a line of text. It keeps
+   its skew and its two colours so the two are obviously the same feature. */
+.vsmark.tiny{align-self:auto;padding:0;flex:none}
+.vsmark.tiny::before{display:none}
+/* background-COLOR only. Setting the whole background shorthand also wiped
+   the gradient the
+   letters are cut out of, and with color:transparent still applying from
+   the @supports block above, the mark rendered as a blank gap. */
+.vsmark.tiny i{font-size:17px;padding:0;background-color:transparent}
 
 /* ---- head to head, per trophy ----
    ONE LIST, IN ITS OWN ORDER, and the row does the comparing.

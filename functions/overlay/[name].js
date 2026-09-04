@@ -218,7 +218,16 @@ body{
 }
 .bar.bottom{bottom:0;box-shadow:0 -10px 24px rgba(0,0,0,.34)}
 .bar.top{top:0;box-shadow:0 10px 24px rgba(0,0,0,.34)}
-.zone{display:flex;align-items:center;min-width:0}
+/* FLEX:NONE, AND THIS IS THE OVERLAP BUG.
+   Every segment is white-space:nowrap, and a nowrap flex item that is allowed
+   to shrink does not wrap and does not clip: it keeps its text at full width
+   and slides it over its neighbour. So "00.0h" sat on top of the boost chip and
+   the chase sat on top of the cabinet, and nothing anywhere reported a problem.
+   Segments now hold their size and the bar sheds whole segments instead, in the
+   order below. Clipping is the last resort rather than the first symptom. */
+.zone{display:flex;align-items:center;min-width:0;flex:none}
+.seg{flex:none}
+.bar{overflow:hidden}
 .zone.mid{margin:0 auto;padding:0 .25em;
   border-left:1px solid rgba(255,255,255,.16);
   border-right:1px solid rgba(255,255,255,.16)}
@@ -387,7 +396,7 @@ function leftZone(g, { points = '', onStream = 0 } = {}) {
       <span class="pctv">${progress.toFixed(2)}%</span>
       ${live > 0 ? `<span class="onstream">+${n(live)} live</span>` : ''}
     </span>
-    ${cups ? `<span class="seg"><span class="cups gcups">${cups}</span></span>` : ''}
+    ${cups ? `<span class="seg s-gcups"><span class="cups gcups">${cups}</span></span>` : ''}
     <span class="seg hold">
       <span class="ic">${CLOCK}</span><span class="num">00.0h</span>
     </span>
@@ -429,7 +438,7 @@ function midZone(m, g, total, ahead) {
        * placed yet gets nothing rather than a wrong number.
        */
       ahead
-        ? `<span class="seg"><span class="gap"><b>${n(
+        ? `<span class="seg s-gap"><span class="gap"><b>${n(
             Math.max(0, Number(ahead.points) - Number(m.points)),
           )}</b> to ${n(ahead.rank)}${ordinalMark(ahead.rank)}</span></span>`
         : ''
@@ -442,12 +451,12 @@ function rightZone(m) {
   const started = Number(m.projects) || 0;
   const pc = Number(m.completion);
   return `<span class="zone">
-    <span class="seg">
+    <span class="seg s-comp">
       <span class="ic pad">${PAD}</span>
       <span class="num">${n(done)}/${n(started)}</span>
       ${Number.isFinite(pc) && pc > 0 ? `<span class="pctv">${pc.toFixed(2)}%</span>` : ''}
     </span>
-    <span class="seg">
+    <span class="seg s-cab">
       <span class="cups">
         <span class="c-plat">${CUP}${n(m.platinum)}</span>
         <span class="c-gold">${CUP}${n(m.gold)}</span>
@@ -458,14 +467,112 @@ function rightZone(m) {
   </span>`;
 }
 
+/**
+ * WHAT THE BAR DROPS WHEN IT RUNS OUT OF ROOM.
+ *
+ * The scale dial made this unavoidable. Everything is sized in em, so
+ * ?scale=150 asks for half again as much width, and JFL__Leon's bar wanted
+ * 2,640 pixels of content inside a 1,920 pixel canvas. No arrangement of that
+ * fits. Something has to go, and the only question is what and in what order.
+ *
+ * MEASURED, NOT GUESSED. Taken off a rendered bar, in design pixels at scale 1:
+ *
+ *   title 339 (at the 22ch clamp) · progress 234 · game cups 126 · hours 98
+ *   game points 101 · boost 140 · rank 100 · chase 113 · completion 181
+ *   cabinet 319
+ *
+ * SIZED AGAINST THE REAL TITLE. "Indiana Jones and the Great Circle" and "2XKO"
+ * are two hundred pixels apart, and a fixed worst-case ladder would strip the
+ * cabinet off the 2XKO bar to make room for characters it does not have. The
+ * server knows the title, so the estimate uses it.
+ *
+ * BREAKPOINTS IN REAL PIXELS, computed here. A CSS media query cannot see --s:
+ * `em` inside one means the browser's initial font size, not the page's. The
+ * server knows the scale, so it does the arithmetic and emits plain pixel
+ * breakpoints, which work in whatever Chromium your OBS happens to ship with
+ * rather than only in the ones new enough for container queries.
+ *
+ * THE ORDER IS A JUDGEMENT AND IS MEANT TO BE ARGUED WITH. It is by value per
+ * pixel, not by importance alone:
+ *
+ *   1. padding    nobody can see it go
+ *   2. the hours  a placeholder for a board that does not exist yet
+ *   3. the cabinet 319 pixels, the biggest single thing on the bar, and the one
+ *                 fact here that is also on your profile page
+ *   4. the title  clamped shorter, never removed
+ *   5. game cups  the same four metals sit two segments to the right
+ *   6. the chase  the rank beside it carries most of the meaning alone
+ *
+ * Never dropped: the game, the progress, the points, the rank, and the boost
+ * chip, which only shows up when it has something to say.
+ */
+const TITLE_CLAMP = 22;
+const TITLE_SHORT = 14;
+const TITLE_TINY = 8;
+const titleWidth = (title, ch) => 95 + 11.1 * Math.min(String(title ?? '').length, ch);
+
+/**
+ * SIX PER CENT OF SLACK, because this is an estimate of a thing the browser
+ * measures for real. Fonts fall back, digits are wider in some weights than
+ * others, and a member with a five figure trophy count is wider than one with
+ * three. Erring high means a breakpoint fires a few pixels early, which nobody
+ * can see; erring low means the bar overflows, which everybody can.
+ */
+const SLACK = 1.06;
+
+function responsive(scale, { title, mid, chase }) {
+  const natural =
+    (titleWidth(title, TITLE_CLAMP) +
+      234 + 126 + 98 + 101 + 181 + 319 +
+      (mid ? 140 + 100 + (chase ? 113 : 0) : 0)) *
+    SLACK;
+
+  // Each step says what it saves. The breakpoint for a step is whatever is
+  // still on the bar when everything above it has already gone.
+  const steps = [
+    [90, '.seg{padding:0 .55em}'],
+    [98, '.seg.hold{display:none}'],
+    [319, '.seg.s-cab{display:none}'],
+    [
+      titleWidth(title, TITLE_CLAMP) - titleWidth(title, TITLE_SHORT),
+      `.game{max-width:${TITLE_SHORT}ch}`,
+    ],
+    [126, '.seg.s-gcups{display:none}'],
+    [113, '.seg.s-gap{display:none}'],
+    /**
+     * BELOW HERE IS A BAR NOBODY SHOULD BE ASKING FOR: 200 per cent on a 1280
+     * canvas is a strip a tenth of the screen tall. It still has to degrade
+     * rather than spill, because the scale is clamped at 200 and anything the
+     * clamp allows is something somebody will type.
+     */
+    [181, '.seg.s-comp{display:none}'],
+    [140, '.mult{display:none}'],
+    [
+      titleWidth(title, TITLE_SHORT) - titleWidth(title, TITLE_TINY),
+      `.game{max-width:${TITLE_TINY}ch}`,
+    ],
+  ];
+
+  let left = natural;
+  const out = [];
+  for (const [saves, rule] of steps) {
+    if (saves <= 0) continue;
+    // A little slack so a bar that only just fits is not left touching both
+    // edges with nothing between the segments.
+    out.push(`@media (max-width:${Math.round(left * scale) + 8}px){${rule}}`);
+    left -= saves;
+  }
+  return '\n' + out.join('\n');
+}
+
 /** A bare document. No shared page chrome, because this is not a page. */
-const doc = (body, scale = 1) => `<!doctype html>
+const doc = (body, scale = 1, fit = '') => `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="${REFRESH}">
 <title>overlay</title>
 <style>${STYLES}</style>
-<style>:root{--s:${scale}}</style>
+<style>:root{--s:${scale}}${fit}</style>
 </head><body>${body}</body></html>`;
 
 export async function onRequestGet({ env, request, params }) {
@@ -588,7 +695,13 @@ export async function onRequestGet({ env, request, params }) {
     ${rightZone(member)}
   </div>`;
 
-  return new Response(doc(body, scale), {
+  return new Response(
+    doc(body, scale, responsive(scale, {
+      title: shown?.title,
+      mid: showMid,
+      chase: !!ahead,
+    })),
+    {
     headers: {
       'content-type': 'text/html;charset=utf-8',
       /**
@@ -604,5 +717,6 @@ export async function onRequestGet({ env, request, params }) {
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',
     },
-  });
+    },
+  );
 }

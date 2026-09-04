@@ -464,6 +464,73 @@ test('a normal link is not touched by the mending', async () => {
   assert.match(plain.out, /class="bar bottom"/, 'and the default edge');
 });
 
+test('segments hold their size instead of sliding over each other', async () => {
+  /**
+   * THE BUG MARTIN SAW: "the middle is fucked". At scale 150 the bar wanted
+   * 2,640 pixels of content in a 1,920 pixel canvas, and because every segment
+   * is white-space:nowrap AND allowed to shrink, they did not wrap and did not
+   * clip. They kept their text at full width and slid it over the neighbour, so
+   * "00.0h" printed on top of the boost chip and the chase printed on top of
+   * the cabinet.
+   *
+   * flex:none is the whole fix. Everything else below is about what to shed
+   * once the segments refuse to squash.
+   */
+  const { out } = await render();
+  assert.match(out, /\.seg\{flex:none\}/, 'segments cannot be squashed');
+  assert.match(out, /\.bar\{overflow:hidden\}/, 'and clipping is the last resort');
+});
+
+test('the bar sheds what it cannot fit, in order, and says so in the CSS', async () => {
+  const { out } = await render({}, '?scale=150');
+  const css = out.slice(out.indexOf('--s:'));
+
+  const at = (rule) => css.indexOf(rule);
+  assert.ok(at('padding:0 .55em') > -1, 'padding tightens first');
+  assert.ok(at('.seg.hold') > at('padding:0 .55em'), 'then the hours placeholder');
+  assert.ok(at('.seg.s-cab') > at('.seg.hold'), 'then the cabinet, the biggest single thing');
+  assert.ok(at('.seg.s-gcups') > at('.seg.s-cab'), 'then the game cups');
+  assert.ok(at('.seg.s-gap') > at('.seg.s-gcups'), 'then the chase');
+
+  // The game, the progress and the rank are never in the ladder at all.
+  assert.ok(!css.includes('.game{display:none'), 'the game is never dropped');
+  assert.ok(!css.includes('.rank{display:none'), 'nor the rank');
+});
+
+test('the breakpoints are in real pixels, because a media query cannot see the scale', async () => {
+  /**
+   * `em` inside a media query is the browser's INITIAL font size, not the
+   * page's, so the whole em-based sizing of this bar is invisible to one. The
+   * server knows the scale and does the arithmetic instead, which also means it
+   * works in whatever Chromium somebody's OBS shipped with rather than only in
+   * the ones new enough for container queries.
+   */
+  const first = (out) => Number(/@media \(max-width:(\d+)px\)/.exec(out)?.[1]);
+
+  const one = first((await render({}, '?scale=100')).out);
+  const two = first((await render({}, '?scale=200')).out);
+
+  assert.ok(one > 0 && two > 0, 'both emit breakpoints');
+  assert.ok(two > one * 1.9 && two < one * 2.1, 'twice the scale is twice the breakpoint');
+});
+
+test('a short game title keeps more of the bar than a long one', async () => {
+  /**
+   * "2XKO" and "Indiana Jones and the Great Circle" are two hundred pixels
+   * apart. A ladder built for the worst case would strip the cabinet off the
+   * 2XKO bar to make room for characters it does not have, so the estimate uses
+   * the title the page is actually about to draw.
+   */
+  const first = (out) => Number(/@media \(max-width:(\d+)px\)/.exec(out)?.[1]);
+
+  const short = first((await render({ playing: { ...PLAYING, title: '2XKO' } })).out);
+  const long = first(
+    (await render({ playing: { ...PLAYING, title: 'Indiana Jones and the Great Circle' } })).out,
+  );
+
+  assert.ok(long > short, 'the long title reaches its first breakpoint sooner');
+});
+
 test('the controller ring is the green one', async () => {
   // Martin picked the console card icon for the ring, and the ring is the part
   // that makes it read at a glance.

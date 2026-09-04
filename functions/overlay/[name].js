@@ -30,7 +30,7 @@
  * so this step cannot hurt the board.
  */
 
-import { esc, n, barShade, SHADE_VAR } from '../_lib/page.js';
+import { esc, n, barShade, SHADE_VAR, mendQuery } from '../_lib/page.js';
 import { displayBanked } from '../../shared/scoring.mjs';
 import { localMultiplier } from '../../shared/scoring.mjs';
 
@@ -469,7 +469,7 @@ const doc = (body, scale = 1) => `<!doctype html>
 </head><body>${body}</body></html>`;
 
 export async function onRequestGet({ env, request, params }) {
-  const url = new URL(request.url);
+  const url = mendQuery(new URL(request.url));
   const name = decodeURIComponent(params.name ?? '');
 
   // Whitelisted, never interpolated. `top` and `bottom` are the only two

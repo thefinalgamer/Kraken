@@ -439,6 +439,31 @@ test('every game bar on the project asks the same function', async () => {
   }
 });
 
+test("Leon's link with two question marks still works", async () => {
+  /**
+   * THE REAL ONE, from a real morning. `?pos=top?scale=150` loses BOTH
+   * settings and says nothing: `pos` arrives as the string "top?scale=150",
+   * which is not "top", so the bar drops to the bottom edge; and `scale`
+   * arrives as null, so the size is ignored. It looked exactly like OBS
+   * refusing to resize, and that is where the twenty minutes went.
+   *
+   * A 44 pixel tall source hid half of it, because at that height the top edge
+   * and the bottom edge are the same place.
+   */
+  const bad = await render({}, '?pos=top?scale=150');
+  const good = await render({}, '?pos=top&scale=150');
+
+  assert.match(bad.out, /--s:1\.5/, 'the scale is read');
+  assert.match(bad.out, /class="bar top"/, 'and so is the position');
+  assert.equal(bodyOf(bad.out), bodyOf(good.out), 'it renders as the link he meant');
+});
+
+test('a normal link is not touched by the mending', async () => {
+  const plain = await render();
+  assert.match(plain.out, /--s:1}/, 'no scale means no scale, not 70 per cent');
+  assert.match(plain.out, /class="bar bottom"/, 'and the default edge');
+});
+
 test('the controller ring is the green one', async () => {
   // Martin picked the console card icon for the ring, and the ring is the part
   // that makes it read at a glance.

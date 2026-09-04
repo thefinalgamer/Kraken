@@ -22,7 +22,7 @@
  * talks to PSN.
  */
 
-import { esc, n } from '../../_lib/page.js';
+import { esc, n, mendQuery } from '../../_lib/page.js';
 import { displayBanked } from '../../../shared/scoring.mjs';
 
 /**
@@ -224,7 +224,7 @@ function card({ metal, name, game, points, climb, demo }) {
 }
 
 export async function onRequestGet({ env, request, params, waitUntil }) {
-  const url = new URL(request.url);
+  const url = mendQuery(new URL(request.url));
   const name = decodeURIComponent(params.name ?? '');
 
   /**

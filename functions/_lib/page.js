@@ -300,6 +300,31 @@ export const SHADE_VAR = {
   p: 'var(--plat)', ok: 'var(--accent)', none: 'var(--accent)',
 };
 
+/**
+ * A SECOND QUESTION MARK IS A TYPO, SO TREAT IT AS ONE.
+ *
+ * JFL__Leon spent a morning on `?pos=top?scale=150`. That is not a broken link
+ * in any way a browser will tell you about: `pos` comes back as the string
+ * "top?scale=150", which is not "top" so the bar quietly moves to the bottom,
+ * and `scale` comes back null so the size is quietly ignored. Two settings lost
+ * and no error anywhere. He and Martin went round OBS transforms and source
+ * heights for twenty minutes.
+ *
+ * These links are typed by hand into a text box in OBS, where being wrong is
+ * invisible until you are live. A literal `?` inside a value is always a
+ * mistake, because a real one would arrive as %3F, so every one after the first
+ * is what the person meant to be an `&`.
+ *
+ * MENDED, NOT REJECTED. An error message would be better than silence, but a
+ * bar that works is better than both, and there is nobody to show an error to:
+ * the audience is a browser source with no address bar.
+ */
+export function mendQuery(url) {
+  if (!url.search.includes('?', 1)) return url;
+  url.search = url.search.replace(/\?/g, (m, i) => (i === 0 ? m : '&'));
+  return url;
+}
+
 const GENERATED_NOTE = /can no longer be earned|has unobtainable trophies/i;
 
 export function deadTitle(g) {

@@ -59,7 +59,7 @@ let lastTrophySql = '';
 const fakeEnv = ({
   game = GAME, byTitle = null, trophies = TROPHIES, owners = OWNERS,
   groups = [], viewer = null, noGroupColumn = false, noFlagColumn = false,
-  onStream = [], noStreamColumn = false,
+  onStream = [], noStreamColumn = false, rival = null,
 } = {}) => ({
   DB: {
     prepare(sql) {
@@ -95,8 +95,23 @@ const fakeEnv = ({
       // The viewer lookup and the owners list both read member_games; only the
       // viewer one is filtered by online id.
       if (sql.includes('FROM member_games')) {
+        /**
+         * The viewer lookup runs TWICE when two hunters are being compared,
+         * with identical SQL and a different name bound. Answering both from
+         * `viewer` made somebody their own rival, which the page then refuses,
+         * so the split never rendered and the test claimed the feature was
+         * missing. The stub has to read the name it was handed.
+         */
         return sql.includes('psn_online_id = ?')
-          ? { bind: () => ({ first: async () => viewer }) }
+          ? {
+              bind: (who) => ({
+                first: async () =>
+                  [viewer, rival].find(
+                    (v) =>
+                      v && String(v.psn_online_id).toLowerCase() === String(who).toLowerCase(),
+                  ) ?? null,
+              }),
+            }
           : { bind: () => ({ all: async () => ({ results: owners }) }) };
       }
       const row = sql.includes('COLLATE NOCASE') ? byTitle : game;
@@ -676,4 +691,93 @@ test('the page survives a database without migration 024', async () => {
   assert.equal(res.status, 200);
   assert.ok(!bodyOf(out).includes('class="livemark"'));
   assert.match(bodyOf(out), /Bloodborne/, 'and the game still renders');
+});
+
+/* ---- head to head, per trophy ---- */
+
+const ME = { psn_online_id: 'JFL__Leon', avatar_url: null, progress: 50, points: 915,
+  earned_ids: '[1,3]' };
+const THEM = { psn_online_id: 'MRTheChez', avatar_url: null, progress: 75, points: 1620,
+  earned_ids: '[0,1,2]' };
+
+const versus = (opts = {}) =>
+  render({ viewer: ME, rival: THEM, ...opts }, '?as=JFL__Leon&vs=MRTheChez');
+
+test('the trophy split sorts four ways and leads with what to go and get', async () => {
+  const { out } = await versus();
+  const body = bodyOf(out);
+
+  /**
+   * NOT A GRID. The obvious build is a column each and a tick per row, and on a
+   * game with a hundred and thirty six trophies that is a hundred and thirty
+   * six rows to scan for the four that differ. The split puts those four at the
+   * top and folds the rest away, which is the same move the hunter page panel
+   * makes: the heading is the answer.
+   */
+  assert.ok(body.includes('Only MRTheChez'), 'what they have and you do not, first');
+  assert.ok(body.includes('Only JFL__Leon'), 'then the other way round');
+  assert.ok(body.includes('Both of you: 1'), 'the rest folds away');
+  // Between them they hold all four, so there is no "neither" section at all.
+  // An empty fold is a row that promises content and has none.
+  assert.ok(!body.includes('Neither of you'), 'and an empty fold is not drawn');
+
+  // Leon has 1 and 3, MRTheChez has 0, 1 and 2. So 0 and 2 are theirs alone,
+  // 3 is Leon's alone, 1 is shared.
+  const only = body.slice(body.indexOf('Only MRTheChez'), body.indexOf('Only JFL__Leon'));
+  assert.ok(only.includes('Bloodborne'), 'the platinum is theirs alone');
+  assert.ok(only.includes("Childhood"), 'and the secret gold');
+  assert.ok(!only.includes('Ill-Omened'), "but not the bronze Leon has");
+});
+
+test('trophies neither of them has are counted and folded away', async () => {
+  const { out } = await versus({
+    viewer: { ...ME, earned_ids: '[1]' },
+    rival: { ...THEM, earned_ids: '[0]' },
+  });
+  const body = bodyOf(out);
+  assert.ok(body.includes('Neither of you: 2'), 'the two nobody has');
+  assert.ok(body.includes('Both of you: 0') === false, 'and no empty both section');
+});
+
+test('the two hunters keep the colours they have on the compare panel', async () => {
+  const { out } = await versus();
+  // Teal is always the hunter whose page you came from, brass is always the
+  // challenger, on both halves of the feature and in every row.
+  assert.match(out, /class="tlist viewing them"/, 'their list is the brass one');
+  assert.match(out, /class="tlist viewing mine"/, 'and yours is the teal');
+});
+
+test('a clean sweep says so instead of showing an empty list', async () => {
+  const { out } = await versus({ rival: { ...THEM, earned_ids: '[1]' } });
+  const body = bodyOf(out);
+  assert.ok(
+    body.includes('Nothing. JFL__Leon has everything MRTheChez has'),
+    'no empty heading with nothing under it',
+  );
+});
+
+test('comparing somebody with themselves falls back to the normal list', async () => {
+  const { out } = await render(
+    { viewer: ME, rival: { ...ME } },
+    '?as=JFL__Leon&vs=JFL__Leon',
+  );
+  assert.ok(!out.includes('Only JFL__Leon'), 'no four sections, three of them empty');
+  assert.ok(out.includes('Blood Rapture'), 'just the trophies');
+});
+
+test('a rival on their own is ignored, because a comparison needs two sides', async () => {
+  const { out } = await render({ viewer: null, rival: THEM }, '?vs=MRTheChez');
+  assert.ok(!out.includes('Only MRTheChez'), 'nothing to compare against');
+});
+
+test('the split costs one row per hunter, not a walk through the trophy log', async () => {
+  /**
+   * THE WHOLE REASON THIS IS CHEAP. `member_games.earned_ids` is the complete
+   * set of what somebody holds in a game, rewritten on every scan, so the
+   * comparison is two primary key lookups. `member_trophies` is NOT complete
+   * (the scan logs only what is new, and caps a first sighting to ninety days)
+   * which is why there are no dates here and why nothing reads it for this.
+   */
+  await versus();
+  assert.ok(!lastTrophySql.includes('member_trophies'), 'the log is not involved');
 });

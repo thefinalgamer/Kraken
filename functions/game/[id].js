@@ -440,6 +440,15 @@ export async function onRequestGet({ params, env, request }) {
   const url = new URL(request.url);
   const sort = SORTS[url.searchParams.get('sort')] ? url.searchParams.get('sort') : DEFAULT_SORT;
   const as = String(url.searchParams.get('as') || '').trim().slice(0, 40);
+  /**
+   * The other hunter, for the trophy level half of head to head.
+   *
+   * Only meaningful ALONGSIDE `as`: a rival with nobody to be a rival to is a
+   * comparison with one side in it. It costs one row, because `earned_ids` on
+   * member_games is already the complete set of what somebody holds in a game
+   * and the trophy list is loaded either way.
+   */
+  const vsName = as ? String(url.searchParams.get('vs') || '').trim().slice(0, 40) : '';
 
   const g =
     (await env.DB.prepare(GAME).bind(id).first()) ||
@@ -509,9 +518,10 @@ export async function onRequestGet({ params, env, request }) {
     }
   }
 
-  const [{ results: owners = [] }, viewer, { results: onStream = [] }] = await Promise.all([
+  const [{ results: owners = [] }, viewer, rival, { results: onStream = [] }] = await Promise.all([
     env.DB.prepare(OWNERS).bind(g.np_comm_id).all(),
     as ? env.DB.prepare(VIEWER).bind(as, g.np_comm_id).first() : Promise.resolve(null),
+    vsName ? env.DB.prepare(VIEWER).bind(vsName, g.np_comm_id).first() : Promise.resolve(null),
     /**
      * Wrapped, because `on_stream` arrives in migration 024 and a game page
      * must not go down on a database that has not run it. Same seatbelt as the
@@ -524,6 +534,14 @@ export async function onRequestGet({ params, env, request }) {
   const live = new Map(onStream.map((r) => [Number(r.trophy_id), r]));
 
   const earned = viewer ? earnedSet(viewer.earned_ids) : null;
+  const theirs = rival ? earnedSet(rival.earned_ids) : null;
+  /**
+   * Comparing somebody against themselves is refused the same way it is on the
+   * hunter page, and for the same reason: four sections, three of them empty.
+   */
+  const comparing =
+    !!earned && !!theirs &&
+    String(rival.psn_online_id).toLowerCase() !== String(viewer.psn_online_id).toLowerCase();
 
   // The cabinet, counted from the rows already in hand rather than by asking
   // the database for four more numbers it would have to scan for anyway.
@@ -618,12 +636,72 @@ export async function onRequestGet({ params, env, request }) {
       .map((t) => trophyCard(t, { localTotal: here, earned, live }))
       .join('')}</ol>`;
 
+  /**
+   * HEAD TO HEAD, PER TROPHY.
+   *
+   * NOT A GRID, and that was the whole design decision. The obvious build is
+   * PSNProfiles' table: every trophy, a column each, ticks all the way down.
+   * Martin: "it also doesnt have to be that layout if there is a cheaper way
+   * that matches our site and not someone elses". A grid makes the reader scan
+   * forty rows to find the four that differ. Splitting the list puts those four
+   * at the top and folds the rest away, which is the same shape as the panel on
+   * the hunter page: the section heading IS the answer.
+   *
+   * NO DATES, deliberately. `member_trophies` only holds what the scan saw as
+   * new, capped to ninety days for a game it meets for the first time, so a
+   * trophy earned in 2018 has no row and a date column would be blank almost
+   * everywhere. `earned_ids` on member_games is complete, which is why this
+   * costs one row per hunter and says has or has not rather than when.
+   */
+  const splitBlock = () => {
+    const mineName = esc(viewer.psn_online_id);
+    const themName = esc(rival.psn_online_id);
+    const has = (set, t) => set.has(Number(t.trophy_id));
+
+    const onlyThem = trophies.filter((t) => has(theirs, t) && !has(earned, t));
+    const onlyMine = trophies.filter((t) => has(earned, t) && !has(theirs, t));
+    const both = trophies.filter((t) => has(earned, t) && has(theirs, t));
+    const neither = trophies.filter((t) => !has(earned, t) && !has(theirs, t));
+
+    const cards = (rows, cls) =>
+      `<ol class="tlist viewing ${cls}">${rows
+        .map((t) => trophyCard(t, { localTotal: here, earned, live }))
+        .join('')}</ol>`;
+
+    const fold = (rows, label) =>
+      rows.length
+        ? `<details class="vsfold"><summary>${esc(label)}</summary>${cards(rows, '')}</details>`
+        : '';
+
+    return `<div class="vsplit">
+      <h3 class="them">Only ${themName}<span class="c">${n(onlyThem.length)}</span></h3>
+      ${
+        onlyThem.length
+          ? `<p class="why">What ${mineName} would have to go and get.</p>
+             ${cards(onlyThem, 'them')}`
+          : `<p class="vsempty">Nothing. ${mineName} has everything ${themName} has.</p>`
+      }
+
+      <h3 class="mine">Only ${mineName}<span class="c">${n(onlyMine.length)}</span></h3>
+      ${
+        onlyMine.length
+          ? cards(onlyMine, 'mine')
+          : `<p class="vsempty">Nothing. ${themName} has everything ${mineName} has.</p>`
+      }
+
+      ${fold(both, `Both of you: ${both.length}`)}
+      ${fold(neither, `Neither of you: ${neither.length}`)}
+    </div>`;
+  };
+
   const trophyBlock = !trophies.length
     ? `<div class="tablewrap"><p class="empty">
          No trophy list for this game yet. It arrives the next time somebody
          who owns it runs a deep scan.
        </p></div>`
-    : hasPacks
+    : comparing
+      ? splitBlock()
+      : hasPacks
       ? HEAD +
         [...byGroup.entries()]
           .map(([key, rows]) => {

@@ -393,9 +393,12 @@ export const d20 = () =>
  * encoded, because "safe today" is how a URL builder becomes an injection in
  * eighteen months when Sony changes a format.
  */
-export const gameHref = (id, as = '') =>
+export const gameHref = (id, as = '', vs = '') =>
   `/game/${encodeURIComponent(String(id ?? ''))}` +
-  (as ? `?as=${encodeURIComponent(String(as))}` : '');
+  (as ? `?as=${encodeURIComponent(String(as))}` : '') +
+  // Only ever alongside `as`. A rival with nobody to be a rival TO is a
+  // comparison with one side, which the page would have to explain away.
+  (as && vs ? `&vs=${encodeURIComponent(String(vs))}` : '');
 
 /**
  * The way back, at the TOP of the page.
@@ -1331,6 +1334,47 @@ p.warn.dead.whole b{color:#ff8e86}
   .vsrow{flex-wrap:wrap}
   .vsbars{width:100%;order:3}
 }
+
+/* ---- head to head, per trophy ----
+   The game page's half of the compare feature. Same two colours as the panel on
+   the hunter page: this hunter is the teal, the challenger is the brass, and
+   they never swap. */
+.vsplit{margin:0 0 6px}
+.vsplit h3{
+  display:flex;align-items:baseline;gap:9px;margin:22px 0 6px;
+  font-size:14px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;
+}
+.vsplit h3 .c{
+  font-size:12px;letter-spacing:0;text-transform:none;color:var(--faint);
+  font-variant-numeric:tabular-nums;font-weight:600;
+}
+.vsplit h3.them{color:var(--brass)}
+.vsplit h3.mine{color:var(--kraken)}
+.vsplit h3.both,.vsplit h3.none{color:var(--soft)}
+.vsplit p.why{margin:0 0 10px;font-size:12.5px;color:var(--faint)}
+
+/* A SPINE DOWN THE SECTION, NOT A COLOUR ON THE CARDS.
+   The first version recoloured each card's left edge by side, which threw away
+   the thing that edge already says: what metal the trophy is. The heading names
+   whose section it is, so the cards only need grouping, and a rule down the
+   side of the list groups them without overwriting anything.
+
+   The folded sections get no spine. A colour on a closed <details> is a promise
+   about content nobody can see. */
+.tlist.them,.tlist.mine{border-left:2px solid;padding-left:11px;margin-left:1px}
+.tlist.them{border-left-color:rgba(240,195,87,.55)}
+.tlist.mine{border-left-color:rgba(32,184,153,.55)}
+
+.vsfold{margin:14px 0 0}
+.vsfold summary{
+  cursor:pointer;font-size:13px;color:var(--soft);padding:7px 0;
+  list-style:none;display:flex;align-items:center;gap:8px;
+}
+.vsfold summary::-webkit-details-marker{display:none}
+.vsfold summary::before{content:"▸";color:var(--faint);font-size:11px}
+.vsfold[open] summary::before{content:"▾"}
+.vsfold summary:hover{color:var(--ink)}
+.vsempty{margin:0 0 4px;font-size:13px;color:var(--faint)}
 
 /* ---- the deep ----
    Bioluminescence at the foot of every page. The gradient does the depth; the

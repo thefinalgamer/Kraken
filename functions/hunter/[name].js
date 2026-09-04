@@ -778,6 +778,14 @@ function vsBar(side, progress) {
   </span>`;
 }
 
+/**
+ * Every row goes through to the same two people, one game deeper.
+ *
+ * It used to open the game as the CHALLENGER, which is the wrong way round: you
+ * are reading this page to find out what THEY have that you do not, and landing
+ * on their copy of it answers a question nobody asked. It carries both names
+ * now, so the game page opens on the trophy level split of the same pair.
+ */
 function vsRow(g, meName, themName, myCompletion) {
   const has = g.my_progress != null;
   const left = Math.max(0, displayBanked(g.max_points, myCompletion) - displayBanked(g.my_points ?? 0, myCompletion));
@@ -790,7 +798,7 @@ function vsRow(g, meName, themName, myCompletion) {
     }
     <div class="vsg">
       ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<a
-        class="tname" href="${esc(gameHref(g.np_comm_id, themName))}">${esc(g.title)}</a>
+        class="tname" href="${esc(gameHref(g.np_comm_id, meName, themName))}">${esc(g.title)}</a>
       <span class="vsmeta">${
         has
           ? `${n(g.my_trophies)} v ${n(g.their_trophies)} of ${n(g.trophy_count)} trophies`

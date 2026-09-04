@@ -1107,6 +1107,46 @@ test('a hostile hunter name cannot inject markup through the compare box', async
   assert.ok(out.includes('&lt;img src=x onerror=alert(1)&gt;'), 'it is shown as text');
 });
 
+/**
+ * THE LIMIT IS NOT A COST CONTROL, and these two tests are what stops somebody
+ * later "optimising" it into one.
+ *
+ * Both compare queries end in ORDER BY on a computed expression, so every
+ * matching row is produced and sorted before the LIMIT applies. Twelve rows
+ * costs what four hundred costs. The short list is a readability decision and
+ * the long one is a display switch, which is why `all=1` adds no query.
+ */
+const many = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    np_comm_id: `M${i}`, title: `Game ${i}`, platform: 'PS5', icon_url: null,
+    max_points: 5000 - i, trophy_count: 40,
+    my_points: 100, my_progress: 10, my_trophies: 4,
+    their_points: 4000, their_progress: 90, their_trophies: 36,
+  }));
+
+test('a long comparison is cut to a readable list, with a way to see the rest', async () => {
+  const { out } = await compare('?vs=MRTheChez', { vsAhead: many(60), vsTheirs: many(60) });
+  const body = bodyOf(out);
+
+  assert.equal((body.match(/class="vsrow"/g) || []).length, 20, '12 shared and 8 of theirs');
+  assert.ok(body.includes('Show every game they are ahead on'), 'and a way through to the rest');
+  assert.ok(body.includes('all=1'), 'which is a plain link, not a script');
+});
+
+test('asking for all of it adds no queries, only rows', async () => {
+  const { out } = await compare('?vs=MRTheChez&all=1', { vsAhead: many(60), vsTheirs: many(60) });
+  const body = bodyOf(out);
+
+  assert.equal((body.match(/class="vsrow"/g) || []).length, 120, 'everything the stub had');
+  assert.equal(vsQueries, 3, 'the same three queries as the short version');
+  assert.ok(!body.includes('Show every game'), 'and nothing left to expand');
+});
+
+test('a comparison that fits shows no expander at all', async () => {
+  const { out } = await compare('?vs=MRTheChez');
+  assert.ok(!bodyOf(out).includes('Show every game'), 'one spare row is how it knows');
+});
+
 test('a comparison is only two extra queries, and only when asked', async () => {
   await compare('?vs=MRTheChez');
   // The lookup, the shared games, the games only they have. Three, and no more:

@@ -1200,6 +1200,10 @@ p.warn.dead.whole b{color:#ff8e86}
 
 .vsnote{margin:4px 0 10px;font-size:12.5px;color:var(--faint);line-height:1.45}
 .vsnote.foot{margin:18px 0 0;padding-top:12px;border-top:1px solid var(--edge)}
+/* "There is more of this". Sits under a list, reads as the end of it. */
+.vsmore{margin:10px 0 0;font-size:13px}
+.vsmore a{color:var(--kraken);text-decoration:none;font-weight:600}
+.vsmore a:hover{text-decoration:underline}
 .vs.miss{padding:14px 16px}
 .vs.miss .vsnote{margin:0}
 .vs.miss a{color:var(--kraken)}

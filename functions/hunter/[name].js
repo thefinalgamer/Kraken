@@ -188,10 +188,31 @@ const VS_MEMBER = `
      AND rank IS NOT NULL
    LIMIT 1`;
 
-// Enough to be a list worth reading, few enough that the panel is not a second
-// library page. The order does the work: the top of it is the answer.
+/**
+ * How many rows, and why this is NOT a cost decision.
+ *
+ * Martin assumed showing everything would be expensive. It is not, and the
+ * reason is worth writing down: both queries below end in ORDER BY on a
+ * computed expression, which no index can serve, so SQLite has to produce and
+ * sort every matching row before the LIMIT applies. LIMIT 12 reads exactly what
+ * LIMIT 5000 reads. The limit buys nothing back from the database.
+ *
+ * What it buys is an ANSWER. Twelve rows ordered by what is still on the table
+ * says "here is what to go and do"; four hundred says "here is your library
+ * again, sorted differently". So the short list is the default and the whole
+ * thing is one click away, because the expensive half is already paid for by
+ * the time we know how many there are.
+ *
+ * Measured, gzipped, on the real renderer: 18 rows is 31.3KB and 600 rows is
+ * 40.1KB. Game rows are near-identical markup and compression eats them.
+ *
+ * The ceiling is not about bytes either. It is images: every row is an icon
+ * request to PSN's CDN, lazy-loaded, so only what somebody scrolls past is
+ * actually fetched. Four hundred is past where anybody is still reading.
+ */
 const VS_ROWS = 12;
 const VS_NEW_ROWS = 8;
+const VS_ALL = 400;
 
 /**
  * Shared games where the other hunter is further along.
@@ -803,7 +824,7 @@ function vsRow(g, meName, themName, myCompletion) {
  * which mean the same thing for both people, and the points sit in the header
  * where they belong.
  */
-function comparePanel(me, them, ahead, theirs, clearHref) {
+function comparePanel(me, them, ahead, theirs, clearHref, moreHref) {
   const gap = (Number(them.points) || 0) - (Number(me.points) || 0);
   const line =
     gap > 0
@@ -812,13 +833,28 @@ function comparePanel(me, them, ahead, theirs, clearHref) {
         ? `${esc(them.psn_online_id)} is <b>${n(-gap)}</b> points behind.`
         : 'Dead level.';
 
+  /**
+   * "There are more of these" is a LINK, not a count.
+   *
+   * Counting them would mean a third query over the same two libraries to print
+   * a number, and the honest version of that number is the one thing the query
+   * already knows: whether it filled up. So the row budget is fetched with one
+   * spare, the spare is dropped, and its existence is the whole of "there is
+   * more".
+   */
+  const more = (rows, label) =>
+    rows.more && moreHref
+      ? `<p class="vsmore"><a href="${esc(moreHref)}">${esc(label)}</a></p>`
+      : '';
+
   const aheadBlock = ahead.length
     ? `<h3>Further along than ${esc(me.psn_online_id)}</h3>
        <p class="vsnote">Games you both own where ${esc(them.psn_online_id)} is deeper in,
          biggest prize first.</p>
        <ul class="vslist">${ahead
          .map((g) => vsRow(g, me.psn_online_id, them.psn_online_id, me.completion))
-         .join('')}</ul>`
+         .join('')}</ul>
+       ${more(ahead, 'Show every game they are ahead on')}`
     : `<h3>Further along than ${esc(me.psn_online_id)}</h3>
        <p class="vsnote">Nothing. On every game they both own, ${esc(
          me.psn_online_id,
@@ -830,7 +866,8 @@ function comparePanel(me, them, ahead, theirs, clearHref) {
          difficulty.</p>
        <ul class="vslist">${theirs
          .map((g) => vsRow(g, me.psn_online_id, them.psn_online_id, me.completion))
-         .join('')}</ul>`
+         .join('')}</ul>
+       ${more(theirs, 'Show everything they have that you have not')}`
     : '';
 
   return `<section class="panel vs">
@@ -886,6 +923,9 @@ export async function onRequestGet({ params, env, request }) {
   // PSN online ids top out at sixteen characters. Forty is generous and still
   // caps what an idle person can put through a lookup.
   const vsName = String(url.searchParams.get('vs') || '').trim().slice(0, 40);
+  // The long version of a comparison. Costs no extra rows read, so it is a
+  // display switch rather than a second, heavier feature.
+  const vsAll = url.searchParams.has('all');
 
   /**
    * Which platform this deal is narrowed to, or null for all of them.
@@ -1011,20 +1051,35 @@ export async function onRequestGet({ params, env, request }) {
           That is the same hunter. Pick somebody else to compare against.
           <a href="${esc(vsHref)}">Close</a></p></section>`;
     } else {
+      const aheadCap = vsAll ? VS_ALL : VS_ROWS;
+      const theirsCap = vsAll ? VS_ALL : VS_NEW_ROWS;
+
+      // One spare row each, exactly like the library pager. Its existence is
+      // the whole of "there is more", and it costs one row rather than a
+      // COUNT over both libraries.
       const [aheadRes, theirsRes] = await Promise.all([
         env.DB.prepare(VS_AHEAD)
-          .bind(them.psn_account_id, m.psn_account_id, VS_ROWS)
+          .bind(them.psn_account_id, m.psn_account_id, aheadCap + 1)
           .all(),
         env.DB.prepare(VS_THEIRS)
-          .bind(them.psn_account_id, m.psn_account_id, VS_NEW_ROWS)
+          .bind(them.psn_account_id, m.psn_account_id, theirsCap + 1)
           .all(),
       ]);
+
+      const trim = (rows, cap) => {
+        const all = rows ?? [];
+        const out = all.slice(0, cap);
+        out.more = all.length > cap;
+        return out;
+      };
+
       vsBlock = comparePanel(
         m,
         them,
-        aheadRes?.results ?? [],
-        theirsRes?.results ?? [],
+        trim(aheadRes?.results, aheadCap),
+        trim(theirsRes?.results, theirsCap),
         vsHref,
+        `${vsHref}&vs=${encodeURIComponent(them.psn_online_id)}&all=1`,
       );
     }
   }

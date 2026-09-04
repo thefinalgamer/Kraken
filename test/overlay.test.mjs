@@ -367,42 +367,76 @@ test('the games icon is a controller, not three rectangles', async () => {
   assert.ok(!out.includes('<rect x="3" y="4"'), 'the old stacked bars are gone');
 });
 
-test('the bar wears the best metal earned in the game so far', async () => {
+test('the bar climbs through the bands, and matches the website exactly', async () => {
   /**
-   * Martin: "if we earn bronze have bronze once it earns silver turn to that
-   * gold turn to that like we do". Bronze while it is only bronzes, and up
-   * from there as better ones land.
+   * SAME RULE AS THE WEBSITE, from the same function. These two had already
+   * drifted once: a finished game went green on the site and stayed platinum
+   * blue here, and Leon has both open at the same time. The colours below are
+   * the overlay's own palette, but the DECISION comes from barShade, so the
+   * only way for these to disagree again is for somebody to stop calling it.
    *
-   * NOT SEGMENTS, deliberately. Bands by trophy type cannot be honest here:
-   * PSN's progress percentage is weighted and the trophy counts are not, so
-   * the bands would add up to a different width than the percentage printed
-   * beside them.
+   * Bronze to 39, silver 40 to 69, gold 70 to 99, green at 100, platinum
+   * overriding at any percentage because no percentage can say it.
    */
-  const withCups = (cups) => render({ playing: { ...PLAYING, ...cups } });
+  const at = (progress, cups = {}) => render({ playing: { ...PLAYING, progress, ...cups } });
   const fillOf = (out) => /class="fill"[^>]*background:([^"]+)"/.exec(bodyOf(out))?.[1];
 
+  const cups = { earned_platinum: 0, earned_gold: 4, earned_silver: 6, earned_bronze: 20 };
+
+  assert.equal(fillOf((await at(4, cups)).out), 'var(--bronze)', '4% is bronze despite the golds');
+  assert.equal(fillOf((await at(39, cups)).out), 'var(--bronze)', '39 is the top of bronze');
+  assert.equal(fillOf((await at(40, cups)).out), 'var(--silver)', '40 is the floor of silver');
+  assert.equal(fillOf((await at(69, cups)).out), 'var(--silver)', '69 is the top of silver');
+  assert.equal(fillOf((await at(70, cups)).out), 'var(--gold)', '70 is the floor of gold');
+  assert.equal(fillOf((await at(99, cups)).out), 'var(--gold)', '99 is the top of gold');
+
+  /**
+   * THE GAP THIS CLOSED. There was no green case on this bar at all, so a
+   * finished game sat here in platinum blue while the hunter page two tabs
+   * across showed it green.
+   */
+  assert.equal(fillOf((await at(100, cups)).out), 'var(--accent)', '100 is green, as on the site');
+
   assert.equal(
-    fillOf((await withCups({ earned_platinum: 0, earned_gold: 0, earned_silver: 0, earned_bronze: 9 })).out),
-    'var(--bronze)',
-  );
-  assert.equal(
-    fillOf((await withCups({ earned_platinum: 0, earned_gold: 0, earned_silver: 2, earned_bronze: 9 })).out),
-    'var(--silver)',
-  );
-  assert.equal(
-    fillOf((await withCups({ earned_platinum: 0, earned_gold: 1, earned_silver: 2, earned_bronze: 9 })).out),
-    'var(--gold)',
-  );
-  assert.equal(
-    fillOf((await withCups({ earned_platinum: 1, earned_gold: 1, earned_silver: 2, earned_bronze: 9 })).out),
+    fillOf((await at(84, { ...cups, earned_platinum: 1 })).out),
     'var(--plat)',
-    'the platinum outranks everything under it',
+    'the platinum outranks the band',
   );
   assert.equal(
-    fillOf((await withCups({ earned_platinum: 0, earned_gold: 0, earned_silver: 0, earned_bronze: 0 })).out),
+    fillOf((await at(0, { earned_platinum: 0, earned_gold: 0, earned_silver: 0, earned_bronze: 0,
+      earned_total: 0 })).out),
     'var(--accent)',
     'and a game with nothing earned yet is not painted bronze',
   );
+});
+
+test('every game bar on the project asks the same function', async () => {
+  /**
+   * THE ACTUAL FIX, and the reason this test is here rather than a comment.
+   *
+   * Three files drew a game progress bar and all three worked out the colour
+   * themselves. They drifted, quietly, and the way anybody found out was Leon
+   * having the overlay and his own hunter page open at once and seeing one game
+   * in two colours. A comment saying "keep these in sync" is a comment. This
+   * fails the build.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const files = [
+    'functions/hunter/[name].js',
+    'functions/game/[id].js',
+    'functions/overlay/[name].js',
+  ];
+
+  for (const f of files) {
+    const src = await readFile(f, 'utf8');
+    assert.match(src, /barShade/, `${f} does not use the shared shade`);
+    // The old ladder, in any of its spellings. If this comes back, so does the
+    // drift.
+    assert.ok(
+      !/earned_gold\)\s*>\s*0\s*$/m.test(src) && !/\?\s*'g'\s*$/m.test(src),
+      `${f} is working the colour out for itself again`,
+    );
+  }
 });
 
 test('the controller ring is the green one', async () => {

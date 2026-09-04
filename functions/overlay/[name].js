@@ -30,7 +30,7 @@
  * so this step cannot hurt the board.
  */
 
-import { esc, n } from '../_lib/page.js';
+import { esc, n, barShade, SHADE_VAR } from '../_lib/page.js';
 import { displayBanked } from '../../shared/scoring.mjs';
 import { localMultiplier } from '../../shared/scoring.mjs';
 
@@ -335,20 +335,18 @@ function leftZone(g, { points = '', onStream = 0 } = {}) {
   ];
 
   /**
-   * THE BAR WEARS THE BEST METAL IN THE GAME SO FAR.
+   * THE BAR CLIMBS: bronze, silver, gold, platinum if it is in, green at 100.
    *
-   * Bronze while it is only bronzes, silver when a silver lands, gold after
-   * that, and the pale blue of a platinum once the platinum is in. Martin: "if
-   * we earn bronze have bronze once it earns silver turn to that gold turn to
-   * that like we do".
+   * The rule itself lives in barShade so this bar and the two on the website
+   * cannot disagree, which they already had: a finished game went green there
+   * and stayed platinum here, and Leon has both open at once.
    *
-   * NOT SEGMENTS. Splitting the bar into coloured bands by trophy type was the
-   * obvious reading and it cannot be honest: PSN's progress percentage is
-   * weighted and the trophy counts are not, so the bands would add up to a
-   * different width than the number printed beside them. One colour says the
-   * same thing and cannot disagree with itself.
+   * NOT SEGMENTS, still. Splitting the bar into coloured bands BY TROPHY TYPE
+   * was the other obvious reading and it cannot be honest: PSN's progress
+   * percentage is weighted and the trophy counts are not, so the segments would
+   * add up to a different width than the number printed beside them.
    */
-  const fill = metals.find(([, v]) => Number(v) > 0)?.[2] ?? 'var(--accent)';
+  const fill = SHADE_VAR[barShade(g)] ?? 'var(--accent)';
 
   const cups = metals
     .filter(([, v]) => Number(v) > 0)

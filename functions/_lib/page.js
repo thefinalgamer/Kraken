@@ -250,6 +250,56 @@ export const isUrgent = (closesAt, now = Date.now()) => {
  * titles at all. Phones show none of this, which is why the game page carries
  * the same information as text.
  */
+/**
+ * WHAT COLOUR IS THIS PROGRESS BAR.
+ *
+ * ONE FUNCTION, THREE SURFACES. The hunter page, the game page and the overlay
+ * each computed this themselves and had already drifted: the website turned a
+ * finished game green and the overlay never did, so the same game was two
+ * colours depending on which window Leon had open. Anything that draws a game
+ * bar calls this now.
+ *
+ * THE RULE IS THE PERCENTAGE, NOT THE METALS, and that was a real decision
+ * rather than the obvious one. Colouring by the best trophy earned meant the
+ * bar could jump to gold in the first hour and then never move again for
+ * twenty, which on an overlay that is on screen for a four hour stream is dead
+ * pixels. Bands climb. Martin: "for people who dont stream they want to see
+ * that climb".
+ *
+ * The cost is that the colour now says the same thing as the number printed
+ * beside it. That is accepted, because the bar's second job belongs to purple:
+ * a streamer's bar goes purple for the share earned on air, and most of this
+ * server streams everything, so for them the colour is the badge and the bands
+ * are what the rest of us get. Two audiences, one bar, neither wasted.
+ *
+ * PLATINUM STILL OVERRIDES. A platinum in a game with DLC left is a fact no
+ * percentage can express: 70% with the plat in is a different thing from 70%
+ * without it. Green is 100% and only 100%.
+ */
+const BAND_SILVER = 40;
+const BAND_GOLD = 70;
+
+export function barShade(g) {
+  const progress = Math.max(0, Math.min(100, Number(g?.progress) || 0));
+  if (progress >= 100) return 'ok';
+  if (Number(g?.earned_platinum) > 0) return 'p';
+  if (progress >= BAND_GOLD) return 'g';
+  if (progress >= BAND_SILVER) return 's';
+  // A game touched at all is bronze, even where PSN's weighting rounds the
+  // percentage to nothing. An untouched one takes the bare track.
+  if (progress > 0 || Number(g?.earned_total) > 0) return 'b';
+  return 'none';
+}
+
+/**
+ * The same six answers as a colour, for the overlay, which has its own palette
+ * and no stylesheet in common with the site.
+ */
+export const SHADE_VAR = {
+  b: 'var(--bronze)', s: 'var(--silver)', g: 'var(--gold)',
+  p: 'var(--plat)', ok: 'var(--accent)', none: 'var(--accent)',
+};
+
 const GENERATED_NOTE = /can no longer be earned|has unobtainable trophies/i;
 
 export function deadTitle(g) {

@@ -22,6 +22,7 @@
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
   closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
+  barShade,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -537,7 +538,7 @@ function dealCard(g, { mine, who, completion, i }) {
           <span class="dpay">${pay}</span>
           ${
             mine
-              ? `<span class="track"><span class="fill" style="width:${progress}%"></span></span>`
+              ? `<span class="track"><span class="fill ${barShade(g)}" style="width:${progress}%"></span></span>`
               : ''
           }
         </span>
@@ -647,17 +648,7 @@ function gameRow(g, who, completion, live = 0) {
    * whole thing is done. So the bar answers two questions at a glance — how far
    * along, and how far up — without either encoding lying about the other.
    */
-  const shade = done
-    ? 'ok'
-    : Number(g.earned_platinum) > 0
-      ? 'p'
-      : Number(g.earned_gold) > 0
-        ? 'g'
-        : Number(g.earned_silver) > 0
-          ? 's'
-          : Number(g.earned_total) > 0
-            ? 'b'
-            : 'none';
+  const shade = barShade(g);
   const width = Math.max(0, Math.min(100, Number(g.progress) || 0));
 
   return `<tr class="sh-${shade}">

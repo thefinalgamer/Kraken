@@ -370,21 +370,65 @@ test('points read as earned out of the full completion, like the backlog does', 
  * The COLOUR is the best trophy in the cabinet, so one bar answers both "how
  * far along" and "how far up" without either encoding lying about the other.
  */
-test('the progress bar fills to the percentage and is coloured by the best trophy', async () => {
+test('the progress bar fills to the percentage and is coloured by the band', async () => {
+  /**
+   * THE BANDS, at their edges, because an off-by-one here is invisible.
+   *
+   * Bronze to 39, silver 40 to 69, gold 70 to 99, green at 100. Every row below
+   * is deliberately loaded with trophies that would have won under the old
+   * best-metal rule, so a revert would fail this rather than pass it quietly:
+   * "Bronzey" holds a gold and is still bronze, because it is on 4%.
+   */
   const games = [
-    { ...GAMES[0], title: 'Green', progress: 100, earned_platinum: 1 },
-    { ...GAMES[0], title: 'Platinum', progress: 84, earned_platinum: 1 },
-    { ...GAMES[0], title: 'Golden', progress: 60, earned_platinum: 0, earned_gold: 3 },
-    { ...GAMES[0], title: 'Silvery', progress: 30, earned_platinum: 0, earned_gold: 0, earned_silver: 2 },
-    { ...GAMES[0], title: 'Bronzey', progress: 4, earned_platinum: 0, earned_gold: 0, earned_silver: 0, earned_bronze: 1 },
+    { ...GAMES[0], title: 'Green', progress: 100, earned_platinum: 0, earned_gold: 0 },
+    { ...GAMES[0], title: 'GoldTop', progress: 99, earned_platinum: 0, earned_gold: 0 },
+    { ...GAMES[0], title: 'GoldFloor', progress: 70, earned_platinum: 0, earned_gold: 0 },
+    { ...GAMES[0], title: 'SilverTop', progress: 69, earned_platinum: 0, earned_gold: 0 },
+    { ...GAMES[0], title: 'SilverFloor', progress: 40, earned_platinum: 0, earned_gold: 0 },
+    { ...GAMES[0], title: 'BronzeTop', progress: 39, earned_platinum: 0, earned_gold: 0 },
+    { ...GAMES[0], title: 'Bronzey', progress: 4, earned_platinum: 0, earned_gold: 9 },
   ];
   const { out } = await render('JFL__Leon', '', { games });
 
-  assert.ok(out.includes('class="fill ok" style="width:100%"'), 'finished is green');
-  assert.ok(out.includes('class="fill p" style="width:84%"'), 'platinum');
-  assert.ok(out.includes('class="fill g" style="width:60%"'), 'gold');
-  assert.ok(out.includes('class="fill s" style="width:30%"'), 'silver');
-  assert.ok(out.includes('class="fill b" style="width:4%"'), 'bronze');
+  assert.ok(out.includes('class="fill ok" style="width:100%"'), '100 is green');
+  assert.ok(out.includes('class="fill g" style="width:99%"'), '99 is gold');
+  assert.ok(out.includes('class="fill g" style="width:70%"'), '70 is gold');
+  assert.ok(out.includes('class="fill s" style="width:69%"'), '69 is silver');
+  assert.ok(out.includes('class="fill s" style="width:40%"'), '40 is silver');
+  assert.ok(out.includes('class="fill b" style="width:39%"'), '39 is bronze');
+  assert.ok(out.includes('class="fill b" style="width:4%"'), 'a gold at 4% is still bronze');
+});
+
+test('a platinum still beats the band, because no percentage can say it', async () => {
+  /**
+   * 84% with the plat in is a different thing from 84% without it, and the only
+   * games where that happens are ones with DLC still outstanding. The band
+   * cannot express it, so the platinum keeps its override. Green is 100 and
+   * only 100.
+   */
+  const games = [
+    { ...GAMES[0], title: 'PlatWithDlc', progress: 84, earned_platinum: 1 },
+    { ...GAMES[0], title: 'PlatEarly', progress: 12, earned_platinum: 1 },
+  ];
+  const { out } = await render('JFL__Leon', '', { games });
+
+  assert.ok(out.includes('class="fill p" style="width:84%"'), 'platinum, not gold');
+  assert.ok(out.includes('class="fill p" style="width:12%"'), 'platinum, not bronze');
+});
+
+test('an untouched game takes the bare track, and one barely touched is bronze', async () => {
+  const games = [
+    { ...GAMES[0], title: 'Untouched', progress: 0, earned_total: 0, earned_platinum: 0,
+      earned_gold: 0, earned_silver: 0, earned_bronze: 0 },
+    // PSN's weighting can round a real trophy to nothing. It is still started.
+    { ...GAMES[0], title: 'Rounded', progress: 0, earned_total: 1, earned_platinum: 0,
+      earned_gold: 0, earned_silver: 0, earned_bronze: 1 },
+  ];
+  const { out } = await render('JFL__Leon', '', { games });
+  const rows = out.split('<tr').slice(1);
+
+  assert.match(rows.find((r) => r.includes('Untouched')), /^ class="sh-none"/, 'nothing claimed');
+  assert.match(rows.find((r) => r.includes('Rounded')), /^ class="sh-b"/, 'a trophy is a trophy');
 });
 
 test('a nonsense progress value cannot escape the bar', async () => {

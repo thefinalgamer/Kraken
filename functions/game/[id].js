@@ -28,7 +28,7 @@
 
 import {
   page, html, esc, n, pct, cup, miniCups, trophyGlyph, crumb, gameHref,
-  closingState, closingLabel, isUrgent,
+  closingState, closingLabel, isUrgent, barShade,
 } from '../_lib/page.js';
 import { displayBanked, hasCompletion } from '../../shared/scoring.mjs';
 
@@ -397,17 +397,7 @@ const banked = (raw, completion) => displayBanked(raw, completion);
 function ownerRow(o, id, viewing) {
   const width = Math.max(0, Math.min(100, Number(o.progress) || 0));
   const done = width === 100;
-  const shade = done
-    ? 'ok'
-    : Number(o.earned_platinum) > 0
-      ? 'p'
-      : Number(o.earned_gold) > 0
-        ? 'g'
-        : Number(o.earned_silver) > 0
-          ? 's'
-          : Number(o.earned_total) > 0
-            ? 'b'
-            : 'none';
+  const shade = barShade(o);
   const isViewing = viewing && viewing.toLowerCase() === String(o.psn_online_id).toLowerCase();
 
   return `<tr class="sh-${shade}">

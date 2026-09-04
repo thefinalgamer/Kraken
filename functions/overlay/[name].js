@@ -710,7 +710,7 @@ const doc = (body, scale = 1, fit = '') => `<!doctype html>
 <style>:root{--s:${scale}}${fit}</style>
 </head><body>${body}</body></html>`;
 
-export async function onRequestGet({ env, request, params }) {
+export async function onRequestGet({ env, request, params, waitUntil }) {
   const url = mendQuery(new URL(request.url));
   const name = decodeURIComponent(params.name ?? '');
 
@@ -752,6 +752,36 @@ export async function onRequestGet({ env, request, params }) {
       status: 404,
       headers: { 'content-type': 'text/html;charset=utf-8', 'cache-control': 'no-store' },
     });
+  }
+
+  /**
+   * THE BAR RINGS THE DOORBELL TOO, and this is a bug fix rather than a tidy-up.
+   *
+   * The poll only ever ran when the TROPHY POP refreshed, so a streamer who
+   * added the bar and not the pop was never polled at all. Their bar fell back
+   * to whatever their last /update saw and stayed there for the whole broadcast.
+   *
+   * Martin found it on somebody else's stream: "this guy is playing on ps3 and
+   * just synced, overlay hasnt updated and its showing an old ps5 game". He had
+   * synced, so PSN knew. Nothing had asked PSN.
+   *
+   * It is also the quieter half of OBS's "shutdown source when not visible":
+   * a pop sitting in a scene that is not on air stops refreshing, and took the
+   * live data for the bar in the other scene down with it.
+   *
+   * FREE, because the poll has its own brakes. It refuses unless Twitch says
+   * the member is live, refuses again inside ten seconds of the last one, and
+   * stops entirely once the minute budget is spent. A second caller cannot
+   * cost a second PSN call; it only means the poll happens when EITHER source
+   * is on screen rather than one particular one.
+   */
+  const worker = env.WORKER_BASE_URL || 'https://platinum-intel.martinleewilkinson1992.workers.dev';
+  if (worker && typeof waitUntil === 'function') {
+    waitUntil(
+      fetch(`${worker}/poll/${encodeURIComponent(member.psn_online_id)}`, {
+        headers: { 'user-agent': 'kraken-overlay' },
+      }).catch(() => {}),
+    );
   }
 
   /**

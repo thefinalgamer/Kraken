@@ -669,3 +669,44 @@ test('the boost pill says what it is', async () => {
   const body = bodyOf((await render()).out);
   assert.match(body, /class="mult">&times;[\d.]+ <small>boost<\/small>/);
 });
+
+test('the bar rings the poll, not just the trophy pop', async () => {
+  /**
+   * THE BUG. The doorbell lived only in the pop, so a streamer who added the
+   * bar and not the pop was never polled: their bar showed whatever their last
+   * /update saw and sat there for the whole broadcast.
+   *
+   * Martin, watching somebody else's stream: "this guy is playing on ps3 and
+   * just synced, overlay hasnt updated and its showing an old ps5 game". He had
+   * synced, so PSN knew. Nothing had asked PSN.
+   *
+   * It is also the quiet half of OBS's "shutdown source when not visible": a
+   * pop in an off-air scene stops refreshing and used to take the bar's live
+   * data down with it.
+   */
+  const rung = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { rung.push(String(url)); return new Response('ok'); };
+
+  try {
+    await mod.onRequestGet({
+      env: fakeEnv(),
+      request: new Request('https://platinumintel.co.uk/overlay/Pelzio'),
+      params: { name: 'Pelzio' },
+      waitUntil: (p) => p,
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.equal(rung.length, 1, 'exactly one knock');
+  assert.match(rung[0], /\/poll\/Pelzio$/, 'and it names the hunter whose bar this is');
+});
+
+test('a bar with no waitUntil still renders', async () => {
+  // Whatever the runtime hands us, an overlay must never fail to draw because
+  // a background nicety was unavailable.
+  const { res, out } = await render();
+  assert.equal(res.status, 200);
+  assert.ok(out.includes('class="bar'), 'the bar is there without a doorbell');
+});

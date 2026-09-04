@@ -102,7 +102,9 @@ let vsQueries = 0;
 
 const fakeEnv = ({
   onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [],
-  vsMember = null, vsAhead = [], vsTheirs = [] } = {}) => ({
+  vsMember = null, vsAhead = [], vsTheirs = [],
+  names = [{ psn_online_id: 'JFL__Leon' }, { psn_online_id: 'MRTheChez' },
+    { psn_online_id: 'th3finalgamer--' }] } = {}) => ({
   DB: {
     prepare(sql) {
       /**
@@ -114,7 +116,13 @@ const fakeEnv = ({
        * database for, which is the number the test is about.
        */
       if (
-        (sql.includes('FROM members') && !sql.includes('COUNT(*)') && !sql.includes('rivals')) ||
+        (sql.includes('FROM members') &&
+          !sql.includes('COUNT(*)') &&
+          !sql.includes('rivals') &&
+          // The datalist's name list is also `FROM members`, and counting it
+          // here made three tests report an extra compare query on a page
+          // nobody had asked to compare anything on.
+          !sql.includes('ORDER BY rank ASC')) ||
         sql.includes('them.progress > mine.progress') ||
         sql.includes('NOT EXISTS')
       ) {
@@ -128,6 +136,11 @@ const fakeEnv = ({
         if (sql.includes('FROM members')) {
           if (sql.includes('COUNT(*)')) {
             return { first: async () => ({ c: 64 }), all: async () => ({ results: [] }) };
+          }
+          // The name list for the compare box's datalist. One column, so it is
+          // told apart by what it selects rather than by what it is missing.
+          if (sql.includes('ORDER BY rank ASC')) {
+            return { all: async () => ({ results: names }) };
           }
           /**
            * BOTH member lookups are `FROM members WHERE psn_online_id = ?`, so
@@ -1217,4 +1230,46 @@ test('a comparison is only two extra queries, and only when asked', async () => 
   // The lookup, the shared games, the games only they have. Three, and no more:
   // this reads two libraries, so a fourth would want a reason.
   assert.equal(vsQueries, 3, 'lookup plus the two lists');
+});
+
+test('the compare box finishes a name as you type', async () => {
+  /**
+   * Martin: "its more for people to go th3fi... and th3finalgamer-- should come
+   * up and for leon JFL and he should come up". Nobody types an
+   * underscore-heavy PSN id right first time, and a comparison that finds
+   * nobody reads as the feature being broken rather than as a typo.
+   *
+   * A NATIVE DATALIST does the matching in the browser, on any part of the name
+   * rather than only the start. It is keyboard and screen reader correct for
+   * free, behaves on a phone, and ships no JavaScript, which matters because
+   * every test in this file asserts on server-rendered HTML and would not have
+   * covered a line of script.
+   */
+  const { out } = await render('JFL__Leon');
+  const body = bodyOf(out);
+
+  assert.match(body, /list="hunters"/, 'the box is wired to a list');
+  assert.match(body, /<datalist id="hunters">/, 'and the list is on the page');
+  assert.ok(body.includes('<option value="MRTheChez">'), 'other hunters are offered');
+  assert.ok(body.includes('th3finalgamer--'), 'including the ones with awkward names');
+});
+
+test('a hunter is never offered as their own opponent', async () => {
+  // Comparing somebody with themselves is refused a moment later anyway, and
+  // offering a choice that is going to be rejected is worse than not offering.
+  const { out } = await render('JFL__Leon');
+  // Bounded at BOTH ends: everything after the opening tag is most of the page,
+  // and the page mentions its own hunter plenty of times.
+  const body = bodyOf(out);
+  const list = body.slice(body.indexOf('<datalist'), body.indexOf('</datalist>'));
+  assert.ok(!list.includes('JFL__Leon'), 'the page owner is left out of their own list');
+  assert.ok(list.includes('MRTheChez'), 'but everybody else is there');
+});
+
+test('no names means a plain box, not a broken page', async () => {
+  // The query is wrapped: a decoration must never be able to take a page down.
+  const { res, out } = await render('JFL__Leon', '', { names: [] });
+  assert.equal(res.status, 200);
+  assert.ok(!out.includes('<datalist'), 'no empty list element');
+  assert.match(bodyOf(out), /name="vs"/, 'and the box still works by typing');
 });

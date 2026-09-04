@@ -82,6 +82,29 @@ const MEMBER = `
 const TOTAL = `SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL AND last_update_at IS NOT NULL`;
 
 /**
+ * Every name on the board, for the compare box to finish as you type.
+ *
+ * Martin: "its more for people to go th3fi... and th3finalgamer-- should come
+ * up and for leon JFL and he should come up". Nobody types an underscore-heavy
+ * PSN id correctly first time, and a comparison that silently finds nobody
+ * looks like the feature is broken rather than like a typo.
+ *
+ * ONE COLUMN, ONE ROW PER MEMBER, and at seventy-odd members that is fewer rows
+ * than the fifty games rendered underneath it. Ordered by rank so an empty box
+ * opens on the top of the board rather than on whoever is alphabetically first.
+ *
+ * The LIMIT is not for today, it is for the day this list is not small. A
+ * datalist is the right tool at seventy names and the wrong one at five
+ * thousand, and the cap means the page degrades to a plain text box instead of
+ * quietly shipping a hundred kilobytes of options.
+ */
+const NAMES = `
+  SELECT psn_online_id FROM members
+   WHERE rank IS NOT NULL AND last_update_at IS NOT NULL
+   ORDER BY rank ASC
+   LIMIT 400`;
+
+/**
  * The hunters somebody is watching. Set in Discord with /rivals, read here.
  *
  * PUBLIC, AND THAT WAS A DECISION. The Discord reply is ephemeral, which made
@@ -952,6 +975,14 @@ export async function onRequestGet({ params, env, request }) {
 
   const totalRow = await env.DB.prepare(TOTAL).first();
   const total = Number(totalRow?.c) || 0;
+
+  /**
+   * Wrapped, because a decoration must never be able to take the page down.
+   * No names means a plain text box, which is exactly what there was before.
+   */
+  const { results: allNames = [] } = await env.DB.prepare(NAMES)
+    .all()
+    .catch(() => ({ results: [] }));
   const { name: tierName, color } = TIER[tierFor(m.rank, total)];
 
   const projects = Number(m.projects) || 0;
@@ -1385,12 +1416,34 @@ export async function onRequestGet({ params, env, request }) {
       <p>Put this library next to anybody else's, down to the individual trophy.</p>
       <form class="find vsfind" method="get" action="/hunter/${encodeURIComponent(m.psn_online_id)}">
         <input type="search" name="vs" value="${esc(vsName)}"
-               placeholder="Which hunter?"
+               placeholder="Which hunter?" list="hunters"
+               autocomplete="off" spellcheck="false"
                aria-label="Compare with another hunter" maxlength="40">
         <input type="hidden" name="sort" value="${esc(sort)}">
         ${q ? `<input type="hidden" name="q" value="${esc(q)}">` : ''}
         <button type="submit">Compare</button>
       </form>
+      ${
+        /**
+         * A NATIVE DATALIST, so the browser does the matching.
+         *
+         * It finishes on any part of the name rather than only the start, which
+         * is the whole ask: "JFL" reaches JFL__Leon and "th3fi" reaches
+         * th3finalgamer--. It is keyboard and screen reader correct for free,
+         * behaves properly on a phone, and needs no JavaScript, so it cannot
+         * break in a way the tests here would miss.
+         *
+         * THE HUNTER WHOSE PAGE THIS IS IS LEFT OUT. Comparing somebody with
+         * themselves is refused a moment later anyway, and offering a choice
+         * that is going to be rejected is worse than not offering it.
+         */
+        allNames.length
+          ? `<datalist id="hunters">${allNames
+              .filter((r) => r.psn_online_id !== m.psn_online_id)
+              .map((r) => `<option value="${esc(r.psn_online_id)}"></option>`)
+              .join('')}</datalist>`
+          : ''
+      }
     </section>
 
     ${vsBlock}

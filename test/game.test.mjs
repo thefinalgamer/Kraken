@@ -703,57 +703,94 @@ const THEM = { psn_online_id: 'MRTheChez', avatar_url: null, progress: 75, point
 const versus = (opts = {}) =>
   render({ viewer: ME, rival: THEM, ...opts }, '?as=JFL__Leon&vs=MRTheChez');
 
-test('the trophy split sorts four ways and leads with what to go and get', async () => {
+test('the list keeps its own order and each row carries both hunters', async () => {
   const { out } = await versus();
   const body = bodyOf(out);
 
   /**
-   * NOT A GRID. The obvious build is a column each and a tick per row, and on a
-   * game with a hundred and thirty six trophies that is a hundred and thirty
-   * six rows to scan for the four that differ. The split puts those four at the
-   * top and folds the rest away, which is the same move the hunter page panel
-   * makes: the heading is the answer.
+   * ONE LIST, NOT FOUR BUCKETS.
+   *
+   * The first build split the trophies into "only them", "only you", "both"
+   * and "neither". Martin: "i dont think this layout works, its very
+   * confusing". The fault was throwing the ORDER away, so this asserts the
+   * order survives: the trophy list renders exactly as it does without a rival,
+   * in the sort that is on, and the comparison rides on the rows.
    */
-  assert.ok(body.includes('Only MRTheChez'), 'what they have and you do not, first');
-  assert.ok(body.includes('Only JFL__Leon'), 'then the other way round');
-  assert.ok(body.includes('Both of you: 1'), 'the rest folds away');
-  // Between them they hold all four, so there is no "neither" section at all.
-  // An empty fold is a row that promises content and has none.
-  assert.ok(!body.includes('Neither of you'), 'and an empty fold is not drawn');
-
-  // Leon has 1 and 3, MRTheChez has 0, 1 and 2. So 0 and 2 are theirs alone,
-  // 3 is Leon's alone, 1 is shared.
-  const only = body.slice(body.indexOf('Only MRTheChez'), body.indexOf('Only JFL__Leon'));
-  assert.ok(only.includes('Bloodborne'), 'the platinum is theirs alone');
-  assert.ok(only.includes("Childhood"), 'and the secret gold');
-  assert.ok(!only.includes('Ill-Omened'), "but not the bronze Leon has");
+  const order = ['Bloodborne', 'Blood Rapture', "Childhood", 'Ill-Omened'];
+  let at = -1;
+  for (const name of order) {
+    const next = body.indexOf(name, at + 1);
+    assert.ok(next > at, `${name} is out of order, so the list was rebuilt`);
+    at = next;
+  }
+  assert.ok(!body.includes('Only MRTheChez'), 'no buckets');
+  assert.ok(!body.includes('Both of you'), 'and nothing folded away');
 });
 
-test('trophies neither of them has are counted and folded away', async () => {
-  const { out } = await versus({
-    viewer: { ...ME, earned_ids: '[1]' },
-    rival: { ...THEM, earned_ids: '[0]' },
-  });
-  const body = bodyOf(out);
-  assert.ok(body.includes('Neither of you: 2'), 'the two nobody has');
-  assert.ok(body.includes('Both of you: 0') === false, 'and no empty both section');
-});
-
-test('the two hunters keep the colours they have on the compare panel', async () => {
+test('a half is lit only for the hunter who holds that trophy', async () => {
   const { out } = await versus();
-  // Teal is always the hunter whose page you came from, brass is always the
-  // challenger, on both halves of the feature and in every row.
-  assert.match(out, /class="tlist viewing them"/, 'their list is the brass one');
-  assert.match(out, /class="tlist viewing mine"/, 'and yours is the teal');
+  /**
+   * SKIP THE FIRST CHUNK. Splitting on the card opener leaves everything before
+   * the first card as element zero, and that includes the page title, so
+   * looking for "Bloodborne" found the <title> and tested the document head.
+   */
+  const row = (name) => {
+    const cards = bodyOf(out).split('<li class="tc').slice(1);
+    const hit = cards.find((c) => c.includes(`>${name}`) || c.includes(`${name}<`));
+    assert.ok(hit, `no card for ${name}`);
+    return hit;
+  };
+
+  // Leon has 1 and 3. MRTheChez has 0, 1 and 2.
+  const both = row('Blood Rapture');
+  assert.match(both, /vshalf mine on/, 'Leon has it');
+  assert.match(both, /vshalf them on/, 'and so does MRTheChez, so it reads 50/50');
+
+  const onlyThem = row('Bloodborne');
+  assert.ok(!/vshalf mine on/.test(onlyThem), "Leon does not have the platinum");
+  assert.match(onlyThem, /vshalf them on/, 'MRTheChez does');
+
+  const onlyMine = row('Ill-Omened');
+  assert.match(onlyMine, /vshalf mine on/, 'the bronze is Leon\'s');
+  assert.ok(!/vshalf them on/.test(onlyMine), 'and not MRTheChez\'s');
 });
 
-test('a clean sweep says so instead of showing an empty list', async () => {
-  const { out } = await versus({ rival: { ...THEM, earned_ids: '[1]' } });
+test('the single hunter highlight steps aside while two are compared', async () => {
+  /**
+   * `.got` washes a card amber for "the viewer has this", which is right with
+   * one hunter and a third state with two: the halves already say who holds
+   * it. The dimming that goes with it is off as well, or every row in the
+   * comparison renders at 62 per cent and the tints barely show.
+   */
+  const { out } = await versus();
+  assert.ok(!out.includes('tc m-b got'), 'no amber wash under the halves');
+  assert.match(out, /class="tlist viewing vslist"/, 'and the list says it is comparing');
+});
+
+test('the one hunter viewbar gets out of the way when two are compared', async () => {
+  // It fell through to the "does not own this one" branch and told Leon he did
+  // not own a game his own trophies were being drawn for.
+  const { out } = await versus();
+  assert.ok(!out.includes('does not own this one'), 'no contradiction under the key');
+  assert.ok(!out.includes('trophies they have earned are highlighted below'), 'and no stale key');
+});
+
+test('the key names both hunters, their counts and which colour is which', async () => {
+  const { out } = await versus();
   const body = bodyOf(out);
-  assert.ok(
-    body.includes('Nothing. JFL__Leon has everything MRTheChez has'),
-    'no empty heading with nothing under it',
-  );
+
+  // Two tinted halves mean nothing until somebody has been told whose is whose.
+  assert.match(body, /class="vskey"/, 'the key is drawn');
+  assert.ok(body.includes('JFL__Leon'), 'this hunter');
+  assert.ok(body.includes('MRTheChez'), 'and the challenger');
+  assert.ok(body.includes('2 of 4') && body.includes('3 of 4'), 'with a count each');
+});
+
+test('the comparison survives changing the sort', async () => {
+  // Losing the rival on a sort click would make the feature feel broken rather
+  // than finished, and the tabs are the most obvious thing to click.
+  const { out } = await versus();
+  assert.match(out, /href="[^"]*sort=points[^"]*vs=MRTheChez/, 'every tab carries it');
 });
 
 test('comparing somebody with themselves falls back to the normal list', async () => {

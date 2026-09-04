@@ -1336,45 +1336,129 @@ p.warn.dead.whole b{color:#ff8e86}
 }
 
 /* ---- head to head, per trophy ----
-   The game page's half of the compare feature. Same two colours as the panel on
-   the hunter page: this hunter is the teal, the challenger is the brass, and
-   they never swap. */
-.vsplit{margin:0 0 6px}
-.vsplit h3{
-  display:flex;align-items:baseline;gap:9px;margin:22px 0 6px;
-  font-size:14px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;
-}
-.vsplit h3 .c{
-  font-size:12px;letter-spacing:0;text-transform:none;color:var(--faint);
-  font-variant-numeric:tabular-nums;font-weight:600;
-}
-.vsplit h3.them{color:var(--brass)}
-.vsplit h3.mine{color:var(--kraken)}
-.vsplit h3.both,.vsplit h3.none{color:var(--soft)}
-.vsplit p.why{margin:0 0 10px;font-size:12.5px;color:var(--faint)}
+   ONE LIST, IN ITS OWN ORDER, and the row does the comparing.
 
-/* A SPINE DOWN THE SECTION, NOT A COLOUR ON THE CARDS.
-   The first version recoloured each card's left edge by side, which threw away
-   the thing that edge already says: what metal the trophy is. The heading names
-   whose section it is, so the cards only need grouping, and a rule down the
-   side of the list groups them without overwriting anything.
+   The first version broke the trophies into "only them", "only you", "both"
+   and "neither". Martin: "i dont think this layout works, its very confusing".
+   The fault was throwing the ORDER away: a trophy list is something people read
+   down, and four buckets makes you jump between four of them to answer one
+   question. So the list is untouched and each row carries two halves.
 
-   The folded sections get no spine. A colour on a closed <details> is a promise
-   about content nobody can see. */
-.tlist.them,.tlist.mine{border-left:2px solid;padding-left:11px;margin-left:1px}
-.tlist.them{border-left-color:rgba(240,195,87,.55)}
-.tlist.mine{border-left-color:rgba(32,184,153,.55)}
+   Left is the hunter whose page you came from, in the teal the compare panel
+   already uses; right is the challenger, in the brass. A half is tinted only
+   when that person holds the trophy, so both of you reads as a 50/50 split and
+   one of you leaves the plain card showing through on the other side. */
+/* THE KEY IS A VERSUS SCREEN.
+   Three columns, the outer two equal, so the middle one sits dead on 50 per
+   cent of the row. That is the same line every trophy below is split on, so the
+   VS is not a label between two names, it is the top of the divider.
 
-.vsfold{margin:14px 0 0}
-.vsfold summary{
-  cursor:pointer;font-size:13px;color:var(--soft);padding:7px 0;
-  list-style:none;display:flex;align-items:center;gap:8px;
+   Martin: "have that VS pretty big and of slanted abit, kinda like the old
+   fighting games". The skew is -11deg against the card's own -3, which is
+   enough to read as deliberate rather than as a rendering fault. */
+.vskey{
+  position:relative;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+  /* SYMMETRIC PADDING, and it is load bearing. 40px on the right against 16 on
+     the left moved the grid's centre column twelve pixels left of the page's
+     middle, so the VS missed the seam every row below is split on by half a
+     character. The close button is taken out of the flow instead and the right
+     hand name reserves room for it. */
+  gap:14px;margin:0 0 14px;padding:10px 16px;
+  background:var(--panel);border:1px solid var(--edge);border-radius:10px;overflow:hidden;
 }
-.vsfold summary::-webkit-details-marker{display:none}
-.vsfold summary::before{content:"▸";color:var(--faint);font-size:11px}
-.vsfold[open] summary::before{content:"▾"}
-.vsfold summary:hover{color:var(--ink)}
-.vsempty{margin:0 0 4px;font-size:13px;color:var(--faint)}
+/* The names go to the OUTSIDE, each one over the half it owns, so which colour
+   belongs to whom needs no explaining. */
+.vskey .side{display:flex;align-items:baseline;gap:8px;min-width:0}
+.vskey .side.mine{justify-self:start}
+.vskey .side.them{justify-self:end;text-align:right;padding-right:26px}
+.vskey .side b{
+  font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.vskey .side .c{font-size:12.5px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
+.vskey .side.mine b{color:var(--kraken)}
+.vskey .side.them b{color:var(--brass)}
+/* A swatch on each name. The colour is the thing being explained and a coloured
+   word is easy to read straight past. */
+.vskey .side::before{content:"";width:11px;height:11px;border-radius:3px;flex:none;align-self:center}
+.vskey .side.mine::before{background:rgba(32,184,153,.55);border:1px solid var(--kraken)}
+.vskey .side.them::before{background:rgba(216,171,62,.5);border:1px solid var(--brass)}
+
+/* The divider itself: a skewed bar running the full height of the key, with the
+   VS sitting on it. Teal above the middle, brass below, so even the divider
+   says which side is which. */
+.vskey .vsbig{position:relative;display:flex;align-items:center;justify-content:center;
+  padding:0 14px}
+.vskey .vsbig::before{
+  content:"";position:absolute;left:50%;top:-14px;bottom:-14px;width:2px;margin-left:-1px;
+  transform:skewX(-11deg);
+  background:linear-gradient(180deg,var(--kraken),rgba(255,255,255,.22),var(--brass));
+  opacity:.55;
+}
+.vskey .vsbig i{
+  position:relative;font-style:normal;font-weight:900;
+  font-size:clamp(24px,3.4vw,34px);line-height:1;letter-spacing:.02em;
+  transform:skewX(-11deg);display:block;
+  padding:2px 10px;background:var(--panel);
+  color:var(--soft);
+}
+/* Two-tone, split at the middle, matching the halves below it. Guarded because
+   without background-clip the transparent colour would leave a blank space
+   where the word should be. */
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .vskey .vsbig i{
+    background-image:linear-gradient(100deg,var(--kraken) 0 46%,var(--brass) 54% 100%);
+    background-color:var(--panel);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+}
+.vskey .x{
+  position:absolute;right:12px;top:50%;margin-top:-11px;
+  color:var(--faint);text-decoration:none;font-size:18px;line-height:1;
+}
+.vskey .x:hover{color:var(--ink)}
+
+@media (max-width:560px){
+  .vskey{gap:8px;padding:8px 34px 8px 12px}
+  .vskey .side b{font-size:14px}
+  .vskey .side .c{display:none}
+}
+
+/* The halves. Behind the card's own content, never over it.
+
+   NAMED vspair, NOT vsrow, and that cost half an hour. .vsrow is already the
+   row class on the hunter page's compare panel, where it is display:flex, so a
+   trophy card wearing the same name became a flex container and every card
+   collapsed to half width with its numbers bunched in the middle. The CSS here
+   is one stylesheet for the whole site: a class name is global. */
+.tc.vspair{position:relative}
+.tc.vspair .tcin{position:relative;z-index:1;background:transparent;flex:1 1 auto}
+.vshalf{
+  position:absolute;top:0;bottom:0;width:50%;z-index:0;pointer-events:none;
+  border-radius:inherit;
+}
+.vshalf.mine{left:0}
+.vshalf.them{right:0}
+.vshalf.on.mine{background:linear-gradient(90deg,rgba(32,184,153,.34),rgba(32,184,153,.14))}
+.vshalf.on.them{background:linear-gradient(270deg,rgba(216,171,62,.34),rgba(216,171,62,.13))}
+
+/* THE DIMMING HAS TO STOP HERE.
+   .tlist.viewing .tc:not(.got) fades every row the viewer does not hold, which
+   is right when one hunter is highlighted and wrong the moment there are two:
+   the compare view drops the got class, so every row qualified and the whole
+   list came out at 62 per cent with the tints barely visible through it. */
+.tlist.vslist .tc{opacity:1}
+
+/* A seam at the halfway mark, always, so the row reads as two sides even when
+   only one of them is lit. Without it a single tinted half looks like a
+   gradient across the whole card rather than half of a pair. */
+.tc.vspair::after{
+  content:"";position:absolute;left:50%;top:12%;bottom:12%;width:1px;z-index:0;
+  /* The card itself is skewed -3deg by its own ::before, so an upright seam
+     leans the wrong way against every edge around it. */
+  transform:skewX(-3deg);
+  background:rgba(255,255,255,.11);
+}
+
 
 /* ---- the deep ----
    Bioluminescence at the foot of every page. The gradient does the depth; the

@@ -282,12 +282,31 @@ function clockBlock(g, trophies = []) {
  * a game you have not played, which is the entire risk. Somebody determined to
  * read it through the blur has, by definition, decided to.
  */
-function trophyCard(t, { localTotal, earned, live }) {
+function trophyCard(t, { localTotal, earned, live, theirs = null }) {
   const b = band(t.earned_rate);
   const metal = METALS[String(t.type)] || 'b';
   const secret = Number(t.hidden) === 1;
   const here = Number(t.local_earned) || 0;
   const got = earned ? earned.has(Number(t.trophy_id)) : false;
+
+  /**
+   * HEAD TO HEAD, ONE ROW PER TROPHY.
+   *
+   * The first build of this split the list into "only them", "only you", "both"
+   * and "neither". Martin: "i dont think this layout works, its very
+   * confusing". He was right, and the reason is that it threw away the ORDER.
+   * A trophy list has an order people already read down, and four buckets means
+   * jumping between four lists to answer one question.
+   *
+   * So the list stays exactly as it is, in whatever sort is on, and the ROW
+   * carries the comparison: left half is the hunter whose page you came from,
+   * right half is the challenger, each tinted only when that person holds it.
+   * Both of you and it reads as a 50/50 split; one of you and the other side
+   * shows the plain card through. Nothing is added to the row, nothing is
+   * hidden, and the whole list can be skimmed in one pass.
+   */
+  const mineHas = !!theirs && got;
+  const themHas = !!theirs && theirs.has(Number(t.trophy_id));
 
   /**
    * A DEAD TROPHY IS MARKED, AND ITS POINTS ARE LEFT ALONE.
@@ -310,9 +329,18 @@ function trophyCard(t, { localTotal, earned, live }) {
    */
   const onAir = live?.get(Number(t.trophy_id)) ?? null;
 
-  return `<li class="tc m-${metal}${secret ? ' secret' : ''}${got ? ' got' : ''}${
-    dead ? ' dead' : ''
-  }${onAir ? ' onair' : ''}">
+  return `<li class="tc m-${metal}${secret ? ' secret' : ''}${
+    // The single-hunter highlight steps aside while two are being compared: the
+    // two halves already say who has it, and the amber wash underneath them
+    // made every row look like a third state.
+    got && !theirs ? ' got' : ''
+  }${dead ? ' dead' : ''}${onAir ? ' onair' : ''}${theirs ? ' vspair' : ''}">
+    ${
+      theirs
+        ? `<span class="vshalf mine${mineHas ? ' on' : ''}" aria-hidden="true"></span>
+           <span class="vshalf them${themHas ? ' on' : ''}" aria-hidden="true"></span>`
+        : ''
+    }
     <span class="tcin">
       ${
         t.icon_url
@@ -586,7 +614,13 @@ export async function onRequestGet({ params, env, request }) {
   const href = (extra = {}) => {
     const q = new URLSearchParams();
     if ((extra.sort ?? sort) !== DEFAULT_SORT) q.set('sort', extra.sort ?? sort);
-    if (extra.as ?? as) q.set('as', extra.as ?? as);
+    const who = extra.as ?? as;
+    if (who) q.set('as', who);
+    // The rival rides along with every sort tab, or changing the sort would
+    // quietly end the comparison. It cannot outlive `as`, because a challenger
+    // with nobody to challenge is half a comparison.
+    const other = extra.vs === null ? '' : (extra.vs ?? vsName);
+    if (who && other) q.set('vs', other);
     const s = q.toString();
     return `/game/${encodeURIComponent(g.np_comm_id)}${s ? `?${s}` : ''}`;
   };
@@ -632,76 +666,16 @@ export async function onRequestGet({ params, env, request }) {
     '<span class="h-local">Hunters</span><span class="h-pts">Points</span></div>';
 
   const list = (rows) =>
-    `<ol class="tlist${earned ? ' viewing' : ''}">${rows
-      .map((t) => trophyCard(t, { localTotal: here, earned, live }))
+    `<ol class="tlist${earned ? ' viewing' : ''}${comparing ? ' vslist' : ''}">${rows
+      .map((t) => trophyCard(t, { localTotal: here, earned, live, theirs: comparing ? theirs : null }))
       .join('')}</ol>`;
-
-  /**
-   * HEAD TO HEAD, PER TROPHY.
-   *
-   * NOT A GRID, and that was the whole design decision. The obvious build is
-   * PSNProfiles' table: every trophy, a column each, ticks all the way down.
-   * Martin: "it also doesnt have to be that layout if there is a cheaper way
-   * that matches our site and not someone elses". A grid makes the reader scan
-   * forty rows to find the four that differ. Splitting the list puts those four
-   * at the top and folds the rest away, which is the same shape as the panel on
-   * the hunter page: the section heading IS the answer.
-   *
-   * NO DATES, deliberately. `member_trophies` only holds what the scan saw as
-   * new, capped to ninety days for a game it meets for the first time, so a
-   * trophy earned in 2018 has no row and a date column would be blank almost
-   * everywhere. `earned_ids` on member_games is complete, which is why this
-   * costs one row per hunter and says has or has not rather than when.
-   */
-  const splitBlock = () => {
-    const mineName = esc(viewer.psn_online_id);
-    const themName = esc(rival.psn_online_id);
-    const has = (set, t) => set.has(Number(t.trophy_id));
-
-    const onlyThem = trophies.filter((t) => has(theirs, t) && !has(earned, t));
-    const onlyMine = trophies.filter((t) => has(earned, t) && !has(theirs, t));
-    const both = trophies.filter((t) => has(earned, t) && has(theirs, t));
-    const neither = trophies.filter((t) => !has(earned, t) && !has(theirs, t));
-
-    const cards = (rows, cls) =>
-      `<ol class="tlist viewing ${cls}">${rows
-        .map((t) => trophyCard(t, { localTotal: here, earned, live }))
-        .join('')}</ol>`;
-
-    const fold = (rows, label) =>
-      rows.length
-        ? `<details class="vsfold"><summary>${esc(label)}</summary>${cards(rows, '')}</details>`
-        : '';
-
-    return `<div class="vsplit">
-      <h3 class="them">Only ${themName}<span class="c">${n(onlyThem.length)}</span></h3>
-      ${
-        onlyThem.length
-          ? `<p class="why">What ${mineName} would have to go and get.</p>
-             ${cards(onlyThem, 'them')}`
-          : `<p class="vsempty">Nothing. ${mineName} has everything ${themName} has.</p>`
-      }
-
-      <h3 class="mine">Only ${mineName}<span class="c">${n(onlyMine.length)}</span></h3>
-      ${
-        onlyMine.length
-          ? cards(onlyMine, 'mine')
-          : `<p class="vsempty">Nothing. ${themName} has everything ${mineName} has.</p>`
-      }
-
-      ${fold(both, `Both of you: ${both.length}`)}
-      ${fold(neither, `Neither of you: ${neither.length}`)}
-    </div>`;
-  };
 
   const trophyBlock = !trophies.length
     ? `<div class="tablewrap"><p class="empty">
          No trophy list for this game yet. It arrives the next time somebody
          who owns it runs a deep scan.
        </p></div>`
-    : comparing
-      ? splitBlock()
-      : hasPacks
+    : hasPacks
       ? HEAD +
         [...byGroup.entries()]
           .map(([key, rows]) => {
@@ -802,7 +776,33 @@ export async function onRequestGet({ params, env, request }) {
     </div>
 
     ${
-      viewer
+      /**
+       * THE KEY, and it has to be at the top.
+       *
+       * Two tinted halves mean nothing until somebody has been told which side
+       * is whose. It reads left to right in the same order the halves do, and
+       * carries each hunter's count so the row colours have a total to sit
+       * against.
+       */
+      comparing
+        ? `<div class="vskey">
+             <span class="side mine">
+               <b>${esc(viewer.psn_online_id)}</b>
+               <span class="c">${n(earned.size)} of ${n(trophies.length || g.trophy_count)}</span>
+             </span>
+             <span class="vsbig"><i>VS</i></span>
+             <span class="side them">
+               <b>${esc(rival.psn_online_id)}</b>
+               <span class="c">${n(theirs.size)} of ${n(trophies.length || g.trophy_count)}</span>
+             </span>
+             <a class="x" href="${esc(href({ vs: null }))}"
+                aria-label="Stop comparing" title="Stop comparing">&times;</a>
+           </div>`
+        : ''
+    }
+
+    ${
+      viewer && !comparing
         ? `<div class="viewbar">
              <span class="whochip">${
                viewer.avatar_url
@@ -815,7 +815,7 @@ export async function onRequestGet({ params, env, request }) {
                  title="Stop showing ${esc(viewer.psn_online_id)}'s trophies">&times;</a></span>
              <span class="why">trophies they have earned are highlighted below</span>
            </div>`
-        : as
+        : as && !comparing
           ? `<div class="viewbar"><span class="why"><b>${esc(
               as,
             )}</b> does not own this one, so there is nothing to highlight.</span></div>`

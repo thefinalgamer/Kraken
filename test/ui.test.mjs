@@ -355,3 +355,59 @@ test('a missing member cannot break a card', async () => {
     assert.doesNotThrow(() => nextPayout(bad));
   }
 });
+
+test('no backtick ever gets into a CSS comment in a template literal', async () => {
+  /**
+   * THREE TIMES THIS HAS BROKEN THE BUILD, and every time the same way.
+   *
+   * The stylesheets on this project live inside JavaScript template literals,
+   * so a backtick anywhere in them ends the literal. Quoting a class name in a
+   * CSS comment the way you would in prose (`.vsrow`) does exactly that, and
+   * the error it produces points at whatever happens to parse strangely
+   * afterwards rather than at the comment: "Unexpected token ':'" four hundred
+   * lines away, or a TypeError about an object that was never meant to exist.
+   *
+   * Ten seconds to find once you know. Twenty minutes when you do not.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const files = ['functions/_lib/page.js', 'functions/overlay/[name].js',
+    'functions/overlay/[name]/pop.js'];
+
+  for (const f of files) {
+    const src = await readFile(f, 'utf8');
+
+    /**
+     * SCOPED TO THE STYLESHEET ITSELF. A backtick in an ordinary JSDoc comment
+     * above a function is fine and there are plenty; it is only fatal between
+     * the opening backtick of STYLES and its closing one. Checking the whole
+     * file flagged a comment on `currentColor` that has been harmless for
+     * months, which is how a guard gets deleted rather than fixed.
+     */
+    const open = src.indexOf('const STYLES = ');
+    assert.ok(open > -1, `${f}: no STYLES literal to check`);
+    const from = src.indexOf('`', open) + 1;
+    const to = src.indexOf('`', from);
+    assert.ok(to > from, `${f}: the STYLES literal is not closed`);
+
+    const css = src.slice(from, to);
+
+    /**
+     * THE TELL IS AN UNCLOSED COMMENT.
+     *
+     * A backtick inside a CSS comment IS the closing backtick as far as the
+     * parser is concerned, so the slice above stops in the middle of that
+     * comment and the comment never matches a /* ... *\/ pattern. Looking for
+     * the backtick directly therefore finds nothing. What it leaves behind is
+     * an opened comment that is never closed, which is unambiguous and points
+     * straight at the line.
+     */
+    const lastOpen = css.lastIndexOf('/*');
+    const lastClose = css.lastIndexOf('*/');
+    assert.ok(
+      lastOpen <= lastClose,
+      `${f}: the stylesheet ends inside a CSS comment, which means a backtick ` +
+        `in that comment closed the literal early. It starts: ` +
+        `${css.slice(lastOpen, lastOpen + 90).replace(/\s+/g, ' ')}`,
+    );
+  }
+});

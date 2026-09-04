@@ -1269,10 +1269,6 @@ p.warn.dead.whole b{color:#ff8e86}
 .vsfacts div{text-align:right}
 .vsfacts dt{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
 .vsfacts dd{margin:0;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
-.vsx{
-  align-self:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--faint);font-weight:700;
-}
 .vsgap{margin:12px 0 0;font-size:14px;color:var(--soft)}
 .vsgap b{color:var(--ink);font-variant-numeric:tabular-nums}
 
@@ -1330,7 +1326,11 @@ p.warn.dead.whole b{color:#ff8e86}
   .vshead{flex-direction:column;align-items:stretch}
   .vscard{flex:0 0 auto;flex-wrap:wrap}
   .vsfacts{width:100%;justify-content:space-between;gap:8px;margin-top:2px}
-  .vsx{align-self:flex-start}
+  /* Stacked cards mean the divider would be a vertical bar between two things
+     sitting one above the other, which is a line pointing the wrong way. */
+  .vsmark{align-self:stretch;padding:2px 0}
+  .vsmark::before{display:none}
+  .vsmark i{font-size:22px;padding:0}
   .vsrow{flex-wrap:wrap}
   .vsbars{width:100%;order:3}
 }
@@ -1386,31 +1386,49 @@ p.warn.dead.whole b{color:#ff8e86}
 /* The divider itself: a skewed bar running the full height of the key, with the
    VS sitting on it. Teal above the middle, brass below, so even the divider
    says which side is which. */
-.vskey .vsbig{position:relative;display:flex;align-items:center;justify-content:center;
-  padding:0 14px}
-.vskey .vsbig::before{
+/* ---- the versus mark ----
+   Shared by the compare panel on a hunter page and the key on a game page,
+   because they are the same feature seen from two distances and a second
+   hand-tuned VS would drift from this one inside a week.
+
+   Martin: "have that VS pretty big and of slanted abit, kinda like the old
+   fighting games". The skew is -11deg against the -3 the cards already carry,
+   which reads as deliberate rather than as a rendering fault, and the bar runs
+   the full height of whatever it sits in so the mark is the top of a divider
+   rather than a label between two things. */
+.vsmark{
+  position:relative;display:flex;align-items:center;justify-content:center;
+  align-self:stretch;padding:0 14px;flex:none;
+}
+.vsmark::before{
   content:"";position:absolute;left:50%;top:-14px;bottom:-14px;width:2px;margin-left:-1px;
   transform:skewX(-11deg);
   background:linear-gradient(180deg,var(--kraken),rgba(255,255,255,.22),var(--brass));
   opacity:.55;
 }
-.vskey .vsbig i{
+.vsmark i{
   position:relative;font-style:normal;font-weight:900;
   font-size:clamp(24px,3.4vw,34px);line-height:1;letter-spacing:.02em;
   transform:skewX(-11deg);display:block;
   padding:2px 10px;background:var(--panel);
   color:var(--soft);
 }
-/* Two-tone, split at the middle, matching the halves below it. Guarded because
-   without background-clip the transparent colour would leave a blank space
-   where the word should be. */
+/* Two-tone, split at the middle, matching the two hunters either side of it.
+   Guarded because without background-clip the transparent colour would leave a
+   blank space where the word should be. */
 @supports ((-webkit-background-clip:text) or (background-clip:text)){
-  .vskey .vsbig i{
+  .vsmark i{
     background-image:linear-gradient(100deg,var(--kraken) 0 46%,var(--brass) 54% 100%);
     background-color:var(--panel);
     -webkit-background-clip:text;background-clip:text;color:transparent;
   }
 }
+/* On the hunter page the mark sits between two cards on the page ground, not
+   inside a panel, so the word needs the ground behind it rather than the panel
+   colour or it prints on a lighter rectangle. */
+.vshead .vsmark i{background-color:var(--ground)}
+.vshead .vsmark::before{top:6px;bottom:6px}
+
 .vskey .x{
   position:absolute;right:12px;top:50%;margin-top:-11px;
   color:var(--faint);text-decoration:none;font-size:18px;line-height:1;

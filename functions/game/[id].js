@@ -790,7 +790,7 @@ export async function onRequestGet({ params, env, request }) {
                <b>${esc(viewer.psn_online_id)}</b>
                <span class="c">${n(earned.size)} of ${n(trophies.length || g.trophy_count)}</span>
              </span>
-             <span class="vsbig"><i>VS</i></span>
+             <span class="vsmark"><i>VS</i></span>
              <span class="side them">
                <b>${esc(rival.psn_online_id)}</b>
                <span class="c">${n(theirs.size)} of ${n(trophies.length || g.trophy_count)}</span>

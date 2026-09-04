@@ -873,7 +873,7 @@ function comparePanel(me, them, ahead, theirs, clearHref, moreHref) {
     <h2>Head to head <a class="vsclear" href="${esc(clearHref)}">Close</a></h2>
     <div class="vshead">
       ${vsCard(me, 'mine')}
-      <span class="vsx">vs</span>
+      <span class="vsmark"><i>VS</i></span>
       ${vsCard(them, 'them')}
     </div>
     <p class="vsgap">${line}</p>

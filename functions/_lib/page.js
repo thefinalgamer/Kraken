@@ -1140,6 +1140,119 @@ p.warn.dead.whole b{color:#ff8e86}
 .rivalnote{margin:8px 0 0;font-size:12px;color:var(--faint)}
 .rivalnote code{background:var(--deep);border:1px solid var(--edge);border-radius:4px;padding:1px 5px}
 
+/* ---- head to head ----
+   The compare panel, opened with ?vs= from a hunter page.
+
+   TWO COLOURS AND THEY NEVER SWAP. The hunter whose page this is takes the
+   teal the rest of the site already uses for "you are here"; the challenger
+   takes the brass. Colouring by who is winning would mean the colours change
+   meaning halfway down the list, which is the one thing a legend cannot fix. */
+.vsfind input::placeholder{color:var(--faint)}
+
+.vs{margin:0 0 18px}
+.vs h2{
+  display:flex;align-items:baseline;gap:10px;margin:0 0 14px;
+  font-size:17px;letter-spacing:.01em;
+}
+.vs h2 .vsclear{
+  margin-left:auto;font-size:13px;font-weight:500;color:var(--faint);text-decoration:none;
+}
+.vs h2 .vsclear:hover{color:var(--ink)}
+.vs h3{
+  margin:20px 0 4px;font-size:14px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--soft);font-weight:700;
+}
+
+/* Two cards and the word between them. On a phone the word drops out of the
+   flow and the cards stack, which is the only thing that fits. */
+.vshead{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}
+.vscard{
+  flex:1 1 240px;min-width:0;display:flex;align-items:center;gap:11px;
+  background:var(--deep);border:1px solid var(--edge);border-radius:12px;padding:11px 13px;
+}
+.vscard.mine{box-shadow:inset 3px 0 0 var(--kraken)}
+.vscard.them{box-shadow:inset 3px 0 0 var(--brass)}
+.vsav{
+  width:44px;height:44px;border-radius:10px;flex:0 0 auto;object-fit:cover;
+  background:var(--panel);border:1px solid var(--edge);
+}
+.vswho{min-width:0;flex:1 1 auto}
+/* The name and the supporter star are ONE line. The anchor was display:block,
+   which pushed the star onto a line of its own under the name and read as a
+   second, nameless row. */
+.vsline{display:flex;align-items:center;gap:4px;min-width:0}
+.vsline a{
+  color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.vsline a:hover{color:var(--kraken)}
+.vsrank{display:block;font-size:12px;color:var(--faint)}
+.vsfacts{display:flex;gap:14px;margin:0;flex:0 0 auto}
+.vsfacts div{text-align:right}
+.vsfacts dt{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.vsfacts dd{margin:0;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.vsx{
+  align-self:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--faint);font-weight:700;
+}
+.vsgap{margin:12px 0 0;font-size:14px;color:var(--soft)}
+.vsgap b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+.vsnote{margin:4px 0 10px;font-size:12.5px;color:var(--faint);line-height:1.45}
+.vsnote.foot{margin:18px 0 0;padding-top:12px;border-top:1px solid var(--edge)}
+.vs.miss{padding:14px 16px}
+.vs.miss .vsnote{margin:0}
+.vs.miss a{color:var(--kraken)}
+
+.vslist{list-style:none;margin:0;padding:0}
+.vsrow{
+  display:flex;align-items:center;gap:12px;
+  padding:9px 0;border-top:1px solid var(--edge);
+}
+.vsrow:first-child{border-top:0}
+.vsrow .ico{
+  width:46px;height:46px;border-radius:8px;flex:0 0 auto;object-fit:cover;
+  background:var(--panel);border:1px solid var(--edge);
+}
+.vsg{flex:1 1 auto;min-width:0}
+.vsg .tname{
+  color:var(--ink);text-decoration:none;font-weight:600;font-size:14.5px;
+}
+.vsg .tname:hover{color:var(--kraken);text-decoration:underline}
+.vsmeta{display:block;margin-top:2px;font-size:12px;color:var(--faint);
+  font-variant-numeric:tabular-nums}
+
+/* The bars. Fixed width so every row's grooves start in the same column and
+   the list can be read straight down without the eye hunting for the left
+   edge of each one. */
+.vsbars{flex:0 0 auto;width:clamp(150px,28vw,270px);display:grid;gap:4px}
+.vsb{display:flex;align-items:center;gap:7px}
+.vsb .track{
+  flex:1 1 auto;height:7px;border-radius:99px;background:var(--rule);overflow:hidden;
+}
+.vsb .fill{display:block;height:100%;border-radius:99px}
+.vsb.mine .fill{background:var(--kraken)}
+.vsb.them .fill{background:var(--brass)}
+.vsb i{
+  font-style:normal;font-size:11.5px;color:var(--faint);
+  font-variant-numeric:tabular-nums;width:3.1em;text-align:right;flex:0 0 auto;
+}
+.vsb.mine i{color:var(--kraken)}
+.vsb.them i{color:var(--brass)}
+
+/* On a phone the two cards stack, and flex:1 1 240px then reads as a 240px
+   TALL card with the facts hanging off the right edge. Both halves of that are
+   fixed here: the card sizes to its content, and the facts drop to their own
+   line underneath the name. */
+@media (max-width:560px){
+  .vshead{flex-direction:column;align-items:stretch}
+  .vscard{flex:0 0 auto;flex-wrap:wrap}
+  .vsfacts{width:100%;justify-content:space-between;gap:8px;margin-top:2px}
+  .vsx{align-self:flex-start}
+  .vsrow{flex-wrap:wrap}
+  .vsbars{width:100%;order:3}
+}
+
 /* ---- the deep ----
    Bioluminescence at the foot of every page. The gradient does the depth; the
    motes do the life. Fixed to the viewport bottom rather than the document, so

@@ -165,6 +165,79 @@ const ON_STREAM = `
    WHERE psn_account_id = ? AND on_stream = 1
    GROUP BY np_comm_id`;
 
+/**
+ * COMPARING TWO HUNTERS. MRTheChez asked for this, and the shape of the ask
+ * mattered more than the feature: he did not want a scoreboard, he wanted to
+ * know which of the games he already owns somebody else has got further into.
+ *
+ * PUBLIC, on the hunter's own page, behind ?vs=. Martin's call. There is no
+ * login, so a separate page would have meant typing two names to see something
+ * you can already see one of; opening it from the page you are already on means
+ * one name, and the address is shareable, which is the whole point of putting it
+ * in the URL rather than in a script.
+ *
+ * ONLY ON SUBMIT, exactly like the search box, and for exactly the same reason:
+ * the pair of queries below reads two libraries instead of fifty rows. Nobody
+ * pays for that unless they asked a question.
+ */
+const VS_MEMBER = `
+  SELECT psn_account_id, psn_online_id, country, avatar_url, rank,
+         points, reported_points, completion, projects, completed, supporter_months
+    FROM members
+   WHERE psn_online_id = ? COLLATE NOCASE
+     AND rank IS NOT NULL
+   LIMIT 1`;
+
+// Enough to be a list worth reading, few enough that the panel is not a second
+// library page. The order does the work: the top of it is the answer.
+const VS_ROWS = 12;
+const VS_NEW_ROWS = 8;
+
+/**
+ * Shared games where the other hunter is further along.
+ *
+ * ORDERED BY WHAT IS LEFT ON THE TABLE, not by the size of the gap. "They are
+ * 90% to your 10%" on a game worth nothing is a fact; "they have finished the
+ * one you are eleven thousand points short on" is a plan. The subtraction is of
+ * two stored numbers, same as everywhere else on this page.
+ */
+const VS_AHEAD = `
+  SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points, g.trophy_count,
+         mine.points AS my_points, mine.progress AS my_progress,
+         mine.earned_total AS my_trophies,
+         them.points AS their_points, them.progress AS their_progress,
+         them.earned_total AS their_trophies
+    FROM member_games mine
+    JOIN member_games them
+      ON them.np_comm_id = mine.np_comm_id
+     AND them.psn_account_id = ?
+    JOIN games g ON g.np_comm_id = mine.np_comm_id
+   WHERE mine.psn_account_id = ?
+     AND them.progress > mine.progress
+   ORDER BY (g.max_points - mine.points) DESC, g.title ASC
+   LIMIT ?`;
+
+/**
+ * Games the other hunter has that this one has never touched.
+ *
+ * `max_points > 0` because a game no trophy in which is hard for anybody is not
+ * a suggestion, it is noise, and this list is short enough that one wasted row
+ * is a tenth of it.
+ */
+const VS_THEIRS = `
+  SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points, g.trophy_count,
+         them.points AS their_points, them.progress AS their_progress,
+         them.earned_total AS their_trophies
+    FROM member_games them
+    JOIN games g ON g.np_comm_id = them.np_comm_id
+   WHERE them.psn_account_id = ?
+     AND g.max_points > 0
+     AND NOT EXISTS (SELECT 1 FROM member_games mine
+                      WHERE mine.psn_account_id = ?
+                        AND mine.np_comm_id = them.np_comm_id)
+   ORDER BY g.max_points DESC, g.title ASC
+   LIMIT ?`;
+
 const gamesSql = (order, search) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
@@ -645,6 +718,139 @@ function gameRow(g, who, completion, live = 0) {
 }
 
 /**
+ * One hunter's header card inside the compare panel.
+ *
+ * The same four figures as the top of the page, at a size that lets two of them
+ * sit side by side. Rank first, because rank is the only one of the four that is
+ * a comparison already.
+ */
+function vsCard(x, side) {
+  const country = flag(x.country);
+  return `<div class="vscard ${side}">
+    ${
+      x.avatar_url
+        ? `<img class="vsav" src="${esc(x.avatar_url)}" alt="" width="44" height="44" loading="lazy">`
+        : '<span class="vsav"></span>'
+    }
+    <div class="vswho">
+      <span class="vsline"><a href="/hunter/${encodeURIComponent(x.psn_online_id)}">${
+        country ? `${country} ` : ''
+      }${esc(x.psn_online_id)}</a>${supporterStar(x.supporter_months)}</span>
+      <span class="vsrank">${ordinal(x.rank)}</span>
+    </div>
+    <dl class="vsfacts">
+      <div><dt>Points</dt><dd>${n(x.points)}</dd></div>
+      <div><dt>Completion</dt><dd>${pct(x.completion)}</dd></div>
+      <div><dt>Finished</dt><dd>${n(x.completed)} / ${n(x.projects)}</dd></div>
+    </dl>
+  </div>`;
+}
+
+/**
+ * Two bars, or one.
+ *
+ * SAME BAR AS THE LIBRARY TABLE, stacked. Two hunters on one track would need
+ * two colours inside one groove and the reader has to work out which end is
+ * whose; two grooves one above the other reads instantly and costs eight pixels.
+ *
+ * The colours are fixed by SIDE, not by score: this hunter is always the teal
+ * and the challenger is always the amber, on every row, so the eye learns it
+ * once. Nothing here goes green for finished, because a row where both are
+ * green tells you less than a row where both are full.
+ */
+function vsBar(side, progress) {
+  const w = Math.max(0, Math.min(100, Number(progress) || 0));
+  return `<span class="vsb ${side}">
+    <span class="track"><span class="fill" style="width:${w}%"></span></span>
+    <i>${w}%</i>
+  </span>`;
+}
+
+function vsRow(g, meName, themName, myCompletion) {
+  const has = g.my_progress != null;
+  const left = Math.max(0, displayBanked(g.max_points, myCompletion) - displayBanked(g.my_points ?? 0, myCompletion));
+
+  return `<li class="vsrow">
+    ${
+      g.icon_url
+        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="46" height="46">`
+        : '<span class="ico"></span>'
+    }
+    <div class="vsg">
+      ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<a
+        class="tname" href="${esc(gameHref(g.np_comm_id, themName))}">${esc(g.title)}</a>
+      <span class="vsmeta">${
+        has
+          ? `${n(g.my_trophies)} v ${n(g.their_trophies)} of ${n(g.trophy_count)} trophies`
+          : `${n(g.their_trophies)} of ${n(g.trophy_count)} trophies`
+      }${left > 0 ? ` &middot; ${n(left)} left for ${esc(meName)}` : ''}</span>
+    </div>
+    <div class="vsbars">
+      ${has ? vsBar('mine', g.my_progress) : ''}
+      ${vsBar('them', g.their_progress)}
+    </div>
+  </li>`;
+}
+
+/**
+ * The compare panel.
+ *
+ * POINTS ARE NOT COMPARED PER GAME AND THAT IS SAID OUT LOUD. Two people
+ * holding the identical set of trophies score differently here, because the
+ * board multiplies a game by the hunter's own completion. Printing "4,200 v
+ * 2,900" beside one game would look like a scoring bug to everybody who did not
+ * already know that, so the per-game columns are progress and trophies, both of
+ * which mean the same thing for both people, and the points sit in the header
+ * where they belong.
+ */
+function comparePanel(me, them, ahead, theirs, clearHref) {
+  const gap = (Number(them.points) || 0) - (Number(me.points) || 0);
+  const line =
+    gap > 0
+      ? `${esc(them.psn_online_id)} is <b>${n(gap)}</b> points ahead.`
+      : gap < 0
+        ? `${esc(them.psn_online_id)} is <b>${n(-gap)}</b> points behind.`
+        : 'Dead level.';
+
+  const aheadBlock = ahead.length
+    ? `<h3>Further along than ${esc(me.psn_online_id)}</h3>
+       <p class="vsnote">Games you both own where ${esc(them.psn_online_id)} is deeper in,
+         biggest prize first.</p>
+       <ul class="vslist">${ahead
+         .map((g) => vsRow(g, me.psn_online_id, them.psn_online_id, me.completion))
+         .join('')}</ul>`
+    : `<h3>Further along than ${esc(me.psn_online_id)}</h3>
+       <p class="vsnote">Nothing. On every game they both own, ${esc(
+         me.psn_online_id,
+       )} is level or ahead.</p>`;
+
+  const theirsBlock = theirs.length
+    ? `<h3>${esc(them.psn_online_id)} plays, ${esc(me.psn_online_id)} has not</h3>
+       <p class="vsnote">Worth the most first. Nothing here is a recommendation about
+         difficulty.</p>
+       <ul class="vslist">${theirs
+         .map((g) => vsRow(g, me.psn_online_id, them.psn_online_id, me.completion))
+         .join('')}</ul>`
+    : '';
+
+  return `<section class="panel vs">
+    <h2>Head to head <a class="vsclear" href="${esc(clearHref)}">Close</a></h2>
+    <div class="vshead">
+      ${vsCard(me, 'mine')}
+      <span class="vsx">vs</span>
+      ${vsCard(them, 'them')}
+    </div>
+    <p class="vsgap">${line}</p>
+    ${aheadBlock}
+    ${theirsBlock}
+    <p class="vsnote foot">Points are not compared game by game on purpose. The board
+      multiplies every game by the hunter's own completion, so the same trophies are
+      worth different amounts to different people. Progress and trophy counts mean the
+      same thing for both of you, so those are what the rows show.</p>
+  </section>`;
+}
+
+/**
  * Previous / Next.
  *
  * `pages` is null while searching. Counting the matches would mean a second
@@ -676,6 +882,10 @@ export async function onRequestGet({ params, env, request }) {
   // what a bored person can put into a LIKE pattern.
   const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
   const rolling = url.searchParams.has('roll');
+
+  // PSN online ids top out at sixteen characters. Forty is generous and still
+  // caps what an idle person can put through a lookup.
+  const vsName = String(url.searchParams.get('vs') || '').trim().slice(0, 40);
 
   /**
    * Which platform this deal is narrowed to, or null for all of them.
@@ -774,6 +984,50 @@ export async function onRequestGet({ params, env, request }) {
         wildcards(env, m.psn_account_id, WILDCARD_PICKS, plat),
       ])
     : [[], []];
+
+  /**
+   * The comparison, and only when one was asked for.
+   *
+   * THREE THINGS CAN GO WRONG and each of them says so in a sentence rather
+   * than 404ing the page: the name is nobody, the name is this hunter, or the
+   * name is somebody with no library. None of those is an error worth losing
+   * the page you were already reading.
+   */
+  const vsHref = `/hunter/${encodeURIComponent(m.psn_online_id)}?sort=${encodeURIComponent(sort)}${
+    q ? `&q=${encodeURIComponent(q)}` : ''
+  }`;
+
+  let vsBlock = '';
+  if (vsName) {
+    const them = await env.DB.prepare(VS_MEMBER).bind(vsName).first();
+    const same = them && them.psn_account_id === m.psn_account_id;
+
+    if (!them) {
+      vsBlock = `<section class="panel vs miss"><p class="vsnote">
+          No hunter called <b>${esc(vsName)}</b> is on the board.
+          <a href="${esc(vsHref)}">Close</a></p></section>`;
+    } else if (same) {
+      vsBlock = `<section class="panel vs miss"><p class="vsnote">
+          That is the same hunter. Pick somebody else to compare against.
+          <a href="${esc(vsHref)}">Close</a></p></section>`;
+    } else {
+      const [aheadRes, theirsRes] = await Promise.all([
+        env.DB.prepare(VS_AHEAD)
+          .bind(them.psn_account_id, m.psn_account_id, VS_ROWS)
+          .all(),
+        env.DB.prepare(VS_THEIRS)
+          .bind(them.psn_account_id, m.psn_account_id, VS_NEW_ROWS)
+          .all(),
+      ]);
+      vsBlock = comparePanel(
+        m,
+        them,
+        aheadRes?.results ?? [],
+        theirsRes?.results ?? [],
+        vsHref,
+      );
+    }
+  }
 
   const country = flag(m.country);
 
@@ -1039,6 +1293,17 @@ export async function onRequestGet({ params, env, request }) {
     <div class="toolrow">${rivalsBlock}${numbersBlock}${rollLink}</div>
 
     ${rollBlock}
+
+    <form class="find vsfind" method="get" action="/hunter/${encodeURIComponent(m.psn_online_id)}">
+      <input type="search" name="vs" value="${esc(vsName)}"
+             placeholder="Compare ${esc(m.psn_online_id)} with another hunter"
+             aria-label="Compare with another hunter" maxlength="40">
+      <input type="hidden" name="sort" value="${esc(sort)}">
+      ${q ? `<input type="hidden" name="q" value="${esc(q)}">` : ''}
+      <button type="submit">Compare</button>
+    </form>
+
+    ${vsBlock}
 
     <form class="find" method="get" action="/hunter/${encodeURIComponent(m.psn_online_id)}">
       <input type="search" name="q" value="${esc(q)}" placeholder="Search this library"

@@ -65,23 +65,89 @@ const UPDATES = [
     points_earned: 182000, points_backlog: 0, points_drift: 0 },
 ];
 
+/**
+ * The other hunter, for the head to head panel.
+ *
+ * Higher points and LOWER completion than Leon on purpose. That pair is the
+ * whole reason the panel refuses to compare points game by game: the multiplier
+ * means the same trophies are worth different amounts to these two.
+ */
+const OTHER = {
+  psn_account_id: 'acc-2', psn_online_id: 'MRTheChez', country: 'US',
+  avatar_url: 'https://example.test/c.png', rank: 3,
+  points: 194669, reported_points: 194669, completion: 62.1,
+  projects: 1512, completed: 900, supporter_months: 0,
+};
+
+// A game they both own, where MRTheChez is done and Leon has barely started.
+const VS_AHEAD_ROWS = [
+  { np_comm_id: 'NPWR9', title: 'Elden Ring', platform: 'PS5', icon_url: null,
+    max_points: 12000, trophy_count: 42,
+    my_points: 900, my_progress: 18, my_trophies: 9,
+    their_points: 12000, their_progress: 100, their_trophies: 42 },
+];
+
+// A game only MRTheChez has. No `my_` columns at all, which is what tells the
+// row renderer to draw one bar instead of two.
+const VS_THEIRS_ROWS = [
+  { np_comm_id: 'NPWR8', title: 'Nioh 2', platform: 'PS4', icon_url: null,
+    max_points: 8000, trophy_count: 70,
+    their_points: 4000, their_progress: 55, their_trophies: 40 },
+];
+
 let lastGamesSql = '';
 let lastBind = [];
 let lastRivalBind = [];
+let vsQueries = 0;
 
 const fakeEnv = ({
-  onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [] } = {}) => ({
+  onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [],
+  vsMember = null, vsAhead = [], vsTheirs = [] } = {}) => ({
   DB: {
     prepare(sql) {
+      /**
+       * COUNTED HERE, not inside `answer`.
+       *
+       * `prepare` below returns `{ ...answer([]), bind }`, so `answer` runs
+       * twice for every query and a counter inside it reported six queries for
+       * three. Counting on `prepare` counts what the page actually asked the
+       * database for, which is the number the test is about.
+       */
+      if (
+        (sql.includes('FROM members') && !sql.includes('COUNT(*)') && !sql.includes('rivals')) ||
+        sql.includes('them.progress > mine.progress') ||
+        sql.includes('NOT EXISTS')
+      ) {
+        vsQueries += 1;
+      }
       const answer = (args) => {
         if (sql.includes('psn_account_id IN (')) {
           lastRivalBind = args;
           return { all: async () => ({ results: rivals }) };
         }
         if (sql.includes('FROM members')) {
-          return sql.includes('COUNT(*)')
-            ? { first: async () => ({ c: 64 }), all: async () => ({ results: [] }) }
-            : { first: async () => member, all: async () => ({ results: member ? [member] : [] }) };
+          if (sql.includes('COUNT(*)')) {
+            return { first: async () => ({ c: 64 }), all: async () => ({ results: [] }) };
+          }
+          /**
+           * BOTH member lookups are `FROM members WHERE psn_online_id = ?`, so
+           * the compare lookup swallowed the page's own and every page 404'd.
+           * `rivals` is in one column list and not the other, which is the only
+           * honest thing to split them on here.
+           */
+          if (!sql.includes('rivals')) {
+            return {
+              first: async () => vsMember,
+              all: async () => ({ results: vsMember ? [vsMember] : [] }),
+            };
+          }
+          return { first: async () => member, all: async () => ({ results: member ? [member] : [] }) };
+        }
+        if (sql.includes('them.progress > mine.progress')) {
+          return { all: async () => ({ results: vsAhead }) };
+        }
+        if (sql.includes('NOT EXISTS')) {
+          return { all: async () => ({ results: vsTheirs }) };
         }
         if (sql.includes('FROM updates')) {
           return { first: async () => updates[0], all: async () => ({ results: updates }) };
@@ -943,4 +1009,107 @@ test('an empty filtered deal explains itself and offers a way out', async () => 
   const body = bodyOf(await res.text());
   assert.ok(body.includes('Nothing on <b>Vita</b> to deal'), 'names the platform');
   assert.match(body, /Deal from everything/, 'and does not strand you there');
+});
+
+/* ---- head to head ---- */
+
+const compare = (query, opts = {}) => {
+  vsQueries = 0;
+  return render('JFL__Leon', query, {
+    vsMember: OTHER, vsAhead: VS_AHEAD_ROWS, vsTheirs: VS_THEIRS_ROWS, ...opts,
+  });
+};
+
+test('nothing is compared until somebody asks', async () => {
+  const { out } = await compare('');
+
+  assert.equal(vsQueries, 0, 'no compare query runs on a plain page view');
+  assert.ok(!out.includes('Head to head'), 'and no panel');
+  // The way in is still on the page, though, or the feature does not exist.
+  assert.ok(out.includes('name="vs"'), 'the compare box is there');
+});
+
+test('a comparison names both hunters and the gap between them', async () => {
+  const { out } = await compare('?vs=MRTheChez');
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('Head to head'), 'the panel opens');
+  assert.ok(body.includes('JFL__Leon') && body.includes('MRTheChez'), 'both names');
+  // 194,669 - 186,406. Measured from the hunter whose page this is, the same
+  // rule the rivals panel follows.
+  assert.ok(body.includes('8,263'), 'the gap, grouped');
+  assert.ok(body.includes('ahead'), 'and which way round it runs');
+  assert.ok(body.includes('3rd'), "the challenger's rank");
+});
+
+test('the rows compare progress and trophies, never points', async () => {
+  const { out } = await compare('?vs=MRTheChez');
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('Elden Ring'), 'the shared game they are ahead on');
+  assert.ok(body.includes('9 v 42 of 42 trophies'), 'trophies, both ways round');
+  assert.match(body, /class="vsb mine"[\s\S]*?width:18%/, "this hunter's bar");
+  assert.match(body, /class="vsb them"[\s\S]*?width:100%/, "the challenger's bar");
+
+  /**
+   * THE WHOLE REASON THE PANEL IS SHAPED THIS WAY. Leon is on 87.45% and
+   * MRTheChez on 62.10%, so the same trophies pay them different amounts. A
+   * points column beside one game would read as a bug to anybody who did not
+   * already know that, so there isn't one, and the panel says why.
+   */
+  assert.ok(
+    body.includes("multiplies every game by the hunter's own completion"),
+    'the panel explains why points are not per game',
+  );
+});
+
+test('games the hunter has never touched are offered, with one bar', async () => {
+  const { out } = await compare('?vs=MRTheChez');
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('Nioh 2'), 'the game only the challenger owns');
+  assert.ok(body.includes('40 of 70 trophies'), 'counted once, because there is only one of them');
+
+  const row = body.split('<li class="vsrow"').find((r) => r.includes('Nioh 2'));
+  assert.ok(!row.includes('vsb mine'), 'no bar for a library that has no row');
+});
+
+test('comparing somebody against themselves is refused politely', async () => {
+  // Same account id as the page member. Names alone would not do: PSN ids are
+  // matched NOCASE, so "jfl__leon" is the same hunter and must be caught too.
+  const { out } = await compare('?vs=JFL__Leon', { vsMember: { ...MEMBER } });
+  const body = bodyOf(out);
+
+  assert.ok(body.includes('That is the same hunter'), 'says so');
+  assert.ok(!body.includes('Head to head'), 'and does not draw the panel');
+});
+
+test('comparing against nobody says so and keeps the page', async () => {
+  const { res, out } = await compare('?vs=Nobody', { vsMember: null });
+  const body = bodyOf(out);
+
+  assert.equal(res.status, 200, 'still the hunter page, not a 404');
+  assert.ok(body.includes('No hunter called <b>Nobody</b>'), 'names what was typed');
+  assert.ok(body.includes('Bloodborne'), 'the library is still underneath');
+});
+
+test('a hostile hunter name cannot inject markup through the compare box', async () => {
+  const { out } = await compare('?vs=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E', {
+    vsMember: null,
+  });
+  /**
+   * ESCAPED, NOT ABSENT. The string comes back on the page twice, in the
+   * message and in the box it was typed into, and both times it has to read as
+   * the text somebody typed rather than run as markup. So the assertion is that
+   * no tag was built, not that the characters are gone.
+   */
+  assert.ok(!/<img[^>]*onerror/i.test(out), 'no tag is built from it');
+  assert.ok(out.includes('&lt;img src=x onerror=alert(1)&gt;'), 'it is shown as text');
+});
+
+test('a comparison is only two extra queries, and only when asked', async () => {
+  await compare('?vs=MRTheChez');
+  // The lookup, the shared games, the games only they have. Three, and no more:
+  // this reads two libraries, so a fourth would want a reason.
+  assert.equal(vsQueries, 3, 'lookup plus the two lists');
 });

@@ -244,3 +244,41 @@ test('nothing static is hidden underneath a dynamic route', async () => {
     );
   }
 });
+
+test('a trophy that pays nothing says why instead of showing a gap', async () => {
+  /**
+   * Martin: "leon popped a trophy on stream, the pop up only showed the trophy,
+   * but no points". Nothing was broken. A trophy half the world already has
+   * pays zero here by design, and one worth a single raw point floors to zero
+   * once a completion under 100% multiplies it. Both are correct and both left
+   * an empty slot where the number goes, which in front of an audience reads as
+   * the overlay failing.
+   *
+   * The rarity is the reason there are no points, so the rarity is what goes
+   * there.
+   */
+  const { out } = await render({
+    trophy: { ...TROPHY, points: 0, earned_rate: 62.4 },
+  });
+
+  assert.ok(out.includes('62.4%'), 'the rarity is shown');
+  assert.ok(out.includes('have it'), 'and labelled');
+  assert.ok(!out.includes('+0'), 'never a nought against somebody\'s name');
+  assert.match(out, /class="gain none"/, 'and it is not wearing the gain colour');
+});
+
+test('points still win when there are any', async () => {
+  const { out } = await render({
+    trophy: { ...TROPHY, points: 300, earned_rate: 4.2 },
+  });
+  assert.ok(out.includes('points'), 'the points label');
+  assert.ok(!out.includes('have it'), 'and no rarity competing with it');
+});
+
+test('an unpriced trophy shows neither rather than guessing', async () => {
+  const { out } = await render({
+    trophy: { ...TROPHY, points: 0, earned_rate: null },
+  });
+  assert.ok(!out.includes('have it'), 'nothing invented from a null');
+  assert.ok(!out.includes('+0'), 'and still no nought');
+});

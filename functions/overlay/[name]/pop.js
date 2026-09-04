@@ -66,7 +66,7 @@ const MEMBER = `
  */
 const NEWEST = `
   SELECT mt.np_comm_id, mt.trophy_id, mt.earned_at,
-         t.name, t.type, t.points,
+         t.name, t.type, t.points, t.earned_rate,
          g.title AS game
     FROM member_trophies mt
     JOIN trophies t ON t.np_comm_id = mt.np_comm_id AND t.trophy_id = mt.trophy_id
@@ -165,6 +165,9 @@ body{
   line-height:1.15}
 .gain span{display:block;color:var(--faint);font-size:10.5px;letter-spacing:.1em;
   text-transform:uppercase}
+/* The rarity, when there were no points to show. NOT the green: green is what
+   you gained, and this is the reason you gained nothing. */
+.gain.none b{color:var(--soft);font-size:17px}
 .edge{width:6px;flex:none;background:var(--metal);opacity:.9}
 /* THE RANK LINE, only when they actually moved up. It is the reason any of this
    is worth building: every overlay on Twitch can show a trophy, and this is the
@@ -195,7 +198,7 @@ const nothing = () =>
     },
   });
 
-function card({ metal, name, game, points, climb, demo }) {
+function card({ metal, name, game, points, rate, climb, demo }) {
   const slug = METALS[metal] ?? 'bronze';
   return `<div class="pop${demo ? ' demo' : ''}" style="--metal:var(--${slug === 'plat' ? 'plat' : slug})">
     <span class="box">
@@ -214,9 +217,26 @@ function card({ metal, name, game, points, climb, demo }) {
         }
       </span>
       ${
+        /**
+         * A ZERO IS A FACT, NOT AN EMPTY SPACE.
+         *
+         * Leon popped one on stream and the card came up with the trophy and
+         * nothing where the points go. Nothing was wrong: a trophy half the
+         * world already has pays nothing here by design, and one worth a single
+         * raw point floors to zero once his completion multiplies it. But an
+         * empty slot cannot say either of those, so in front of an audience it
+         * reads as the overlay being broken.
+         *
+         * So when there are no points to show, the card shows the REASON there
+         * are none, which is the rarity. "48.2% have this" is a fact about the
+         * trophy rather than a nought against somebody's name, and it is the
+         * more interesting half of why it paid nothing anyway.
+         */
         points > 0
           ? `<span class="gain"><b>+${n(points)}</b><span>points</span></span>`
-          : ''
+          : Number.isFinite(Number(rate)) && Number(rate) > 0
+            ? `<span class="gain none"><b>${Number(rate).toFixed(1)}%</b><span>have it</span></span>`
+            : ''
       }
     </span>
     <span class="edge"></span>
@@ -353,6 +373,7 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
         name: row.name || `Trophy #${row.trophy_id}`,
         game: row.game,
         points: displayBanked(row.points, member.completion),
+        rate: row.earned_rate,
         climb,
       }),
       REFRESH,

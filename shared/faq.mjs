@@ -192,7 +192,11 @@ export const FAQ = [
       '▫️ **Game pages** - every trophy in a game, how rare it is worldwide AND how many ' +
       'of us have it, split into the base game and each DLC pack\n' +
       '▫️ **The dice** - stuck for something to play? Three from your backlog, two from ' +
-      'games you have never touched\n\n' +
+      'games you have never touched\n' +
+      '▫️ **Head to head** - put your library next to anybody else\'s, down to the ' +
+      'individual trophy\n' +
+      '▫️ **Live now** - who from here is streaming at this moment, and what they are ' +
+      'playing\n\n' +
       '**"How many of us have it". What is that?**\n' +
       'The column no other trophy site can show you. Every trophy says how many people ' +
       '*on this server* have earned it. "Four of us have this" is a different fact from ' +
@@ -214,8 +218,82 @@ export const FAQ = [
       'at 100% completion and 980 at 70%, so the number beside your name is what it ' +
       'actually adds to your score. Two people with the same trophies and different ' +
       'completions see different numbers, and that is the multiplier doing its job.\n\n' +
+      '**How does head to head work?**\n' +
+      'Type a name into the compare box on anybody\'s page. You get the gap between the ' +
+      'two of you, the games you both own where they are further along, ordered by what ' +
+      'is still on the table rather than by the size of the gap, and the games they play ' +
+      'that you have never touched. Click any of those games and you get it trophy by ' +
+      'trophy: one list, each row split down the middle, one colour a side.\n\n' +
+      '**Why does head to head not compare points game by game?**\n' +
+      'Because the same trophies are worth different amounts to different people. Every ' +
+      'game is multiplied by your own completion, so a points column beside one game ' +
+      'would read as a bug to anybody who did not already know that. Progress and trophy ' +
+      'counts mean the same thing for both of you, so those are what the rows show.\n\n' +
+      '**What do the colours on a progress bar mean?**\n' +
+      'How far through the game you are. Bronze up to 39%, silver to 69%, gold to 99%, ' +
+      'green at 100%. A platinum turns the bar platinum blue at any percentage, because ' +
+      'having the plat with DLC still outstanding is a different thing from the same ' +
+      'number without it. Purple is separate, and it is the next section.\n\n' +
       '**Can I see it on my phone?**\n' +
       'Yes. All of it.',
+  },
+  /**
+   * THE OVERLAY HAD NO DOCUMENTATION AT ALL, which is how JFL__Leon and Martin
+   * lost a morning to a stray question mark and an OBS transform. Every answer
+   * below is one of the questions actually asked in the server while it was
+   * being built, in the order somebody hits them.
+   */
+  {
+    value: 'streaming',
+    label: 'Streaming and the overlay',
+    description: 'The bar, the trophy pop, and what the purple means',
+    body:
+      '## Streaming and the overlay\n\n' +
+      '**What is it?**\n' +
+      'Two browser sources for OBS. A bar across the top or bottom of your stream with ' +
+      'the game you are on, how far through it you are, your rank and your cabinet. And ' +
+      'a trophy card that pops when you earn one, then gets out of the way.\n\n' +
+      '**How do I get it?**\n' +
+      '`/overlay` in Discord. It hands you both links privately, with the sizes to set.\n\n' +
+      '**Does it brand my channel?**\n' +
+      'No. There is no Kraken logo, no server name and no website address anywhere on ' +
+      'it. They are your numbers. The only way anybody finds out where they come from is ' +
+      'you telling them.\n\n' +
+      '**How do I make it bigger?**\n' +
+      'Add `&scale=125` to the end of the bar link for a quarter bigger, anything up to ' +
+      '`&scale=200`. Set the browser source to the same size as your canvas, 1920 by ' +
+      '1080 for most people, and the bar pins itself to the edge, so there is no height ' +
+      'to work out and nothing to redo when you change the size.\n\n' +
+      '**It looks exactly the same afterwards.**\n' +
+      'OBS is still holding the old size. Right click the source, Transform, Reset ' +
+      'Transform.\n\n' +
+      '**Things vanish off the bar when I make it bigger.**\n' +
+      'On purpose. At 150% there is more on the bar than fits across a 1920 canvas, so ' +
+      'it drops the least useful things first: the hours placeholder, then your trophy ' +
+      'counts for the game, then the gap to the next rank. The game, your progress, your ' +
+      'points and your rank never go.\n\n' +
+      '**What is the purple?**\n' +
+      'Trophies earned in front of an audience. On the overlay it means tonight; on the ' +
+      'website it means ever, on your progress bars and on the trophy cards themselves. ' +
+      'It is the one colour here that means nothing else.\n\n' +
+      '**How does it know I am live?**\n' +
+      '`/twitch` with your channel name. Kraken checks Twitch every few minutes, and ' +
+      'while you are on air it asks PlayStation for new trophies every ten seconds, so a ' +
+      'trophy pops seconds after the console chimes instead of waiting for your next ' +
+      'update.\n\n' +
+      '**Do I have to be streaming to use it?**\n' +
+      'No. The bar works whenever it is on screen. The purple and the fast pops are the ' +
+      'parts that need `/twitch`.\n\n' +
+      '**Does it work on PS3?**\n' +
+      'Yes, with one catch that is PlayStation\'s and not ours: a PS3 only uploads ' +
+      'trophies when you sync, so nothing moves until you do. Sync as you go and it ' +
+      'behaves like a PS5. Sync once at the end and everything lands at once, which ' +
+      'still scores properly but only pops the newest one.\n\n' +
+      '**Nothing pops at all.**\n' +
+      'The card only announces trophies from the last half hour, so a backlog that ' +
+      'arrives hours late is skipped rather than queued through your whole stream. If it ' +
+      'is a fresh trophy and still nothing, check the pop is its own browser source and ' +
+      'that "Shutdown source when not visible" is unticked.',
   },
   {
     value: 'supporting',

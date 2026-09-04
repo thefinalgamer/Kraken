@@ -152,8 +152,6 @@ const CUP = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
   <path d="M18 4h2a2 2 0 0 1 2 2v1a5 5 0 0 1-3.8 4.9l-.5-2A3 3 0 0 0 20 7V6h-2V4z"/>
   <path d="M11 14h2v4h-2z"/><path d="M7 20h10v2H7z"/></svg>`;
 
-const CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-  aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
 
 /**
  * Games started against finished.
@@ -272,6 +270,8 @@ body{
 .gcups{display:flex;align-items:center;gap:.6em;font-size:.9em}
 .pts{font-weight:800;font-variant-numeric:tabular-nums}
 .pts .max{color:var(--soft);font-weight:500}
+.pts small{margin-left:.35em;font-size:.7em;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--faint)}
 .rank{font-variant-numeric:tabular-nums;font-weight:800;color:var(--brass);font-size:1.1em}
 .rank sup{font-size:.6em;top:-.55em}
 .of{color:var(--soft);font-size:.82em}
@@ -286,7 +286,6 @@ body{
   background:rgba(240,195,87,.18);border:1px solid rgba(240,195,87,.5);
   color:var(--brass);font-weight:800;font-variant-numeric:tabular-nums;font-size:.95em}
 .warn{color:#ff7b74;font-weight:800}
-.hold{opacity:.5}
 .miss{padding:0 .9em;color:var(--soft)}
 `;
 
@@ -315,7 +314,15 @@ function multiplierChip(g) {
    * somebody watching. "Boost" says what it does to a stranger and still fits
    * inside the pill.
    */
-  return `<span class="seg"><span class="mult">&times;${mult.toFixed(
+  /*
+   * s-mult ON THE SEGMENT, not just the chip.
+   *
+   * The drop ladder hid `.mult` and left the segment it lives in standing:
+   * an empty box still carrying its own padding and the divider line beside it,
+   * costing thirty pixels to display nothing. A wrapper whose only child can be
+   * hidden needs to be hideable itself.
+   */
+  return `<span class="seg s-mult"><span class="mult">&times;${mult.toFixed(
     2,
   )} <small>boost</small></span></span>`;
 }
@@ -397,9 +404,26 @@ function leftZone(g, { points = '', onStream = 0 } = {}) {
       ${live > 0 ? `<span class="onstream">+${n(live)} live</span>` : ''}
     </span>
     ${cups ? `<span class="seg s-gcups"><span class="cups gcups">${cups}</span></span>` : ''}
-    <span class="seg hold">
-      <span class="ic">${CLOCK}</span><span class="num">00.0h</span>
-    </span>
+    ${
+      /*
+       * THE HOURS SLOT IS GONE, AND SO IS THE IDEA BEHIND IT.
+       *
+       * It was a reserved space: "the hours played will be for streaming board
+       * when thats out so just have a space ready for it". Two things killed
+       * it. It sat at half opacity reading 00.0h on every bar for weeks, which
+       * is a feature announcing that it does not work yet. And Martin went off
+       * the metric itself: "i dont think it makes much sense, wow this guy
+       * streams more than me ? so what".
+       *
+       * He is right. Hours streamed measures endurance, not hunting, and it
+       * rewards leaving a console on. When the streaming board arrives it wants
+       * to count what happened in those hours rather than the hours: trophies
+       * earned live, platinums earned live, completion moved on stream. None of
+       * those fit in a slot shaped like a clock, so reserving one was the wrong
+       * shape of promise anyway.
+       */
+      ''
+    }
     ${points}
   </span>`;
 }
@@ -415,8 +439,16 @@ function gamePoints(m, g) {
   if (!g) return '';
   const max = displayBanked(g.max_points, m.completion);
   const got = displayBanked(g.points, m.completion);
+  /**
+   * LABELLED, because two bare fractions side by side is a riddle.
+   *
+   * The bar reads "47 / 52" for trophies and then "213 / 253" for points, and
+   * nothing said which was which. Martin: "so its clear what thats for". Three
+   * letters, and the segment now explains itself as the things around it get
+   * dropped at bigger scales.
+   */
   return `<span class="seg">
-    <span class="pts">${n(got)}<span class="max"> / ${n(max)}</span></span>
+    <span class="pts">${n(got)}<span class="max"> / ${n(max)}</span><small>pts</small></span>
   </span>`;
 }
 
@@ -425,24 +457,36 @@ function gamePoints(m, g) {
  * place is.
  */
 function midZone(m, g, total, ahead) {
+  /**
+   * ONE SEGMENT, NOT TWO. "31st" and the chase belong together.
+   *
+   * They were separate, which cost a divider and a helping of padding to say
+   * one thing in two halves, and it meant the more useful half went first when
+   * the bar ran out of room. Martin: "add rank 31st xxxx points to 30?"
+   *
+   * "OF 71" WENT WITH IT. It says how big the field is; the chase says what to
+   * do about it, in the same space. On a bar where every pixel is contested,
+   * the actionable half wins.
+   */
   return `<span class="zone mid">
     ${g ? multiplierChip(g) : ''}
     <span class="seg">
       <span class="rank">${n(m.rank)}<sup>${ordinalMark(m.rank)}</sup></span>
-      <span class="of">of ${n(total)}</span>
+      ${
+        /**
+         * The chase. Only when there is somebody to chase: first place gets
+         * nothing rather than a "0 to 0th", and a member the rescore has not
+         * placed yet gets nothing rather than a wrong number. With nobody
+         * ahead the segment falls back to the field size, so the rank is never
+         * left sitting on its own with no context at all.
+         */
+        ahead
+          ? `<span class="gap s-gap"><b>${n(
+              Math.max(0, Number(ahead.points) - Number(m.points)),
+            )}</b> to ${n(ahead.rank)}${ordinalMark(ahead.rank)}</span>`
+          : `<span class="of">of ${n(total)}</span>`
+      }
     </span>
-    ${
-      /**
-       * The chase. Only when there is somebody to chase: first place gets
-       * nothing rather than a "0 to 0th", and a member the rescore has not
-       * placed yet gets nothing rather than a wrong number.
-       */
-      ahead
-        ? `<span class="seg s-gap"><span class="gap"><b>${n(
-            Math.max(0, Number(ahead.points) - Number(m.points)),
-          )}</b> to ${n(ahead.rank)}${ordinalMark(ahead.rank)}</span></span>`
-        : ''
-    }
   </span>`;
 }
 
@@ -498,14 +542,15 @@ function rightZone(m) {
  * where they were!" The cabinet is the thing a viewer looks at. It is the last
  * structural drop now, not the third:
  *
- *   1. padding      nobody can see it go
- *   2. the hours    a placeholder for a board that does not exist yet
- *   3. game cups    the same three counts sit beside the progress fraction
- *   4. the chase    the rank next to it carries most of the meaning alone
- *   5. the title    clamped shorter, never removed
- *   6. completion   a number, where the cabinet is a picture
- *   7. the boost    only ever there when it has something to say
- *   8. the cabinet  last, and only on a canvas nobody streams at
+ *   1. padding       nobody can see it go
+ *   2. the boost     ours, and interesting, but not what people read
+ *   3. game cups     47/52 beside it says the same thing more cleanly
+ *   4. the chase     leaving the rank on its own
+ *   5. 319 / 355     half of completion, keeping the percentage
+ *   6. the platform  cheaper than the fraction, so it outlasts it
+ *   7. the title     clamped shorter, never removed
+ *   8. completion    the percentage too, by now
+ *   9. the cabinet   last, and only on a canvas nobody streams at
  *
  * Never dropped: the game, the progress, the game points, and the rank.
  */
@@ -515,28 +560,86 @@ const TITLE_TINY = 8;
 const titleWidth = (title, ch) => 95 + 11.1 * Math.min(String(title ?? '').length, ch);
 
 /**
- * SIX PER CENT OF SLACK, because this is an estimate of a thing the browser
- * measures for real. Fonts fall back, digits are wider in some weights than
- * others, and a member with a five figure trophy count is wider than one with
- * three. Erring high means a breakpoint fires a few pixels early, which nobody
- * can see; erring low means the bar overflows, which everybody can.
+ * TWO PER CENT OF SLACK, not six.
+ *
+ * The first version padded the estimate by six per cent to cover things it did
+ * not model, and it worked by accident: that padding happened to be about the
+ * width of the warning triangle and the live chip together. Both are modelled
+ * properly now, so the slack goes back to what it should be, a hair for font
+ * fallback and wide digits. Six per cent of this bar is a hundred pixels, and a
+ * hundred pixels of imaginary content is enough to drop a real segment that
+ * would have fitted.
  */
-const SLACK = 1.06;
+const SLACK = 1.02;
 
-function responsive(scale, { title, mid, chase }) {
+/**
+ * Measured off a rendered bar, in design pixels at scale 1. Leon's, which is
+ * the one that showed the problem: PS3, a flagged game, and live.
+ *
+ *   title 95 + 11.1/char (22 max) · warning triangle 13 · progress 234
+ *   live chip 59 · game cups 135 · hours 98 · game points 101 · boost 140
+ *   rank 100 · of-N 30 · chase 113 · completion 181, of which 68 is the
+ *   fraction · cabinet 319 · platform chip 34
+ */
+const W = {
+  warn: 13, progress: 234, live: 59, gcups: 135, points: 131,
+  boost: 140, comp: 181, compNum: 68, cab: 319, chip: 34,
+  /**
+   * THE RANK SEGMENT IS MEASURED WHOLE, both ways round, because merging the
+   * chase into it made the two-numbers-added model wrong.
+   *
+   * Rank and chase used to be separate segments at 100 and 113. Added up that
+   * is 213; measured as one segment it is 155, because the merge also took a
+   * divider and two helpings of padding with it. Carrying the old sum meant the
+   * bar believed it was 58 pixels heavier than it is, and paid for the
+   * difference by dropping the chase, which is the very thing the merge existed
+   * to protect.
+   */
+  rankChase: 155, rankOnly: 100,
+};
+
+function responsive(scale, { title, mid, chase, warn, live }) {
   const natural =
-    (titleWidth(title, TITLE_CLAMP) +
-      234 + 126 + 98 + 101 + 181 + 319 +
-      (mid ? 140 + 100 + (chase ? 113 : 0) : 0)) *
+    (titleWidth(title, TITLE_CLAMP) + (warn ? W.warn : 0) +
+      W.progress + (live ? W.live : 0) +
+      W.gcups + W.points + W.comp + W.cab +
+      // The rank and the chase are one segment now, so they are one number.
+      (mid ? W.boost + (chase ? W.rankChase : W.rankOnly) : 0)) *
     SLACK;
 
-  // Each step says what it saves. The breakpoint for a step is whatever is
-  // still on the bar when everything above it has already gone.
+  /**
+   * FINE RUNGS, and that is the whole of this second version.
+   *
+   * The first had six big steps, so a bar eight pixels too wide dropped a 181
+   * pixel segment to find them. Leon lost his completion, his game cups and the
+   * chase all at once when the real shortfall was a rounding error. Every step
+   * below is either small or has a small one beneath it, so the bar sheds
+   * roughly what it is actually over by rather than the next whole thing.
+   */
   const steps = [
     [90, '.seg{padding:0 .55em}'],
-    [98, '.seg.hold{display:none}'],
-    [126, '.seg.s-gcups{display:none}'],
-    [113, '.seg.s-gap{display:none}'],
+    /**
+     * THE BOOST GOES EARLY NOW, and it is not deleted.
+     *
+     * Martin: "boost is maybe but im really not bothered about it". It is still
+     * the one thing on this bar no other trophy site can show, and chat asking
+     * what x1.65 means is the streamer explaining this server on air, so it
+     * survives at 100 per cent where there is room for it. It just stops
+     * outranking the things people actually read the moment there is not.
+     */
+    [W.boost, '.seg.s-mult{display:none}'],
+    [W.gcups, '.seg.s-gcups{display:none}'],
+    [W.rankChase - W.rankOnly, '.s-gap{display:none}'],
+    // Half a segment rather than all of it. The percentage is the number people
+    // read; the fraction beside it is the one they can live without.
+    [W.compNum, '.seg.s-comp .num{display:none}'],
+    /**
+     * THE PLATFORM SURVIVES LONGER THAN THE FRACTION, and that ordering is
+     * worth a sentence. On a PS3 stream "PS3" is half the reason anybody is
+     * watching, and it costs 34 pixels against the 68 that 319 / 355 costs. The
+     * cheaper, more interesting chip stays.
+     */
+    [W.chip, '.plat-chip{display:none}'],
     [
       titleWidth(title, TITLE_CLAMP) - titleWidth(title, TITLE_SHORT),
       `.game{max-width:${TITLE_SHORT}ch}`,
@@ -547,9 +650,8 @@ function responsive(scale, { title, mid, chase }) {
      * rather than spill, because the scale is clamped at 200 and anything the
      * clamp allows is something somebody will type.
      */
-    [181, '.seg.s-comp{display:none}'],
-    [140, '.mult{display:none}'],
-    [319, '.seg.s-cab{display:none}'],
+    [W.comp - W.compNum, '.seg.s-comp{display:none}'],
+    [W.cab, '.seg.s-cab{display:none}'],
     [
       titleWidth(title, TITLE_SHORT) - titleWidth(title, TITLE_TINY),
       `.game{max-width:${TITLE_TINY}ch}`,
@@ -565,6 +667,36 @@ function responsive(scale, { title, mid, chase }) {
     out.push(`@media (max-width:${Math.round(left * scale) + 8}px){${rule}}`);
     left -= saves;
   }
+
+  /**
+   * THE FLOOR, once there is nothing sensible left to drop.
+   *
+   * Every width above is an estimate of something the browser measures for
+   * real, and the errors add up: with everything shed, 1280 at 200 per cent
+   * with a long title still came out fourteen pixels over. Deleting another
+   * fact to win fourteen pixels is a bad trade, so the whole bar shrinks by a
+   * point instead.
+   *
+   * Proportional rather than another rung, because at this end the problem is
+   * not any particular segment. It is that somebody has asked for a bar at
+   * double size on a canvas two thirds the width. Six per cent off the root is
+   * invisible next to that and cannot overflow.
+   */
+  /*
+   * THIRTY DESIGN PIXELS OF HEADROOM, and that number is the point of it.
+   *
+   * Fired at the same threshold as the rungs it would have gone off exactly
+   * where the estimate says the bar fits, which is precisely where the estimate
+   * cannot be trusted: the accumulated error is what put it fourteen real
+   * pixels over in the first place. It fires slightly BEFORE the model thinks
+   * it is needed, which costs a barely visible point of type on a bar already
+   * at its limit, and covers the error rather than sitting under it.
+   */
+  out.push(
+    `@media (max-width:${Math.round((left + 30) * scale)}px)` +
+      `{body{font-size:calc(14px * var(--s, 1))}}`,
+  );
+
   return '\n' + out.join('\n');
 }
 
@@ -703,6 +835,10 @@ export async function onRequestGet({ env, request, params }) {
       title: shown?.title,
       mid: showMid,
       chase: !!ahead,
+      // Both of these are only sometimes on the bar and both are wide enough to
+      // cost a segment if they are not counted.
+      warn: Number(shown?.unobtainable) === 1,
+      live: onStream > 0,
     })),
     {
     headers: {

@@ -131,16 +131,25 @@ test('the middle is the only part that can be switched off', async () => {
   assert.match(off, /class="spacer"/, 'and the middle leaves a hole, not a shuffle');
 });
 
-test('the hours slot is drawn empty rather than left out', async () => {
+test('the hours slot is gone, and so is the clock that drew it', async () => {
   /**
-   * It belongs to the streaming board, which does not exist yet. Drawing it
-   * dim now means the day the number arrives nothing else on the bar moves
-   * sideways to make room, which is the kind of change a streamer notices
-   * because their layout was built around where things sat.
+   * IT WAS RESERVED SPACE and it is not any more. Martin asked for the slot so
+   * the streaming board would have somewhere to land: "just have a space ready
+   * for it". It then sat at half opacity reading 00.0h on every bar for weeks,
+   * which is a feature announcing that it does not work.
+   *
+   * He went off the metric as well, which is the better reason: "i dont think
+   * it makes much sense, wow this guy streams more than me ? so what". Hours
+   * measure endurance, not hunting. When the streaming board lands it wants
+   * what happened in those hours rather than the hours, and none of that fits
+   * a slot shaped like a clock.
    */
   const body = bodyOf((await render()).out);
-  assert.match(body, /class="seg hold"/, 'the slot is there');
-  assert.match(body, /00\.0h/, 'holding a zero');
+  assert.ok(!body.includes('00.0h'), 'no placeholder');
+  assert.ok(!body.includes('class="seg hold"'), 'and no empty segment holding its place');
+
+  const src = readFileSync(fileURLToPath(new URL('../functions/overlay/[name].js', import.meta.url)), 'utf8');
+  assert.ok(!/const CLOCK =/.test(src), 'the icon it used went with it');
 });
 
 test('the multiplier only appears when it is doing something', async () => {
@@ -330,19 +339,24 @@ test('the four metals show for the game on screen', async () => {
   assert.ok(!/class="c-plat"/.test(gcups), 'zeroes are left out');
 });
 
-test('the gap to the next place is shown, and only when there is one', async () => {
+test('the rank and the chase are one segment, and the chase wins the space', async () => {
   /**
-   * "32nd of 71" says where you are and nothing about whether 31st is forty
-   * points away or four thousand, which is the only question anybody looks at
-   * their own rank to answer.
+   * Martin: "add rank 31st xxxx points to 30?". They were two segments, which
+   * spent a divider and two lots of padding saying one thing in two halves,
+   * and meant the useful half went first when the bar ran out of room.
+   *
+   * "OF 71" IS THE FALLBACK, NOT THE DEFAULT. It says how big the field is;
+   * the chase says what to do about it, in the same space. Somebody in first
+   * has nobody to chase, so they get the field size rather than "0 to 0th".
    */
   const body = bodyOf((await render({ ahead: { rank: 1, points: 152000 } })).out);
-  assert.match(body, /class="gap"/);
+  assert.match(body, /class="gap s-gap"/, 'the chase is inside the rank segment');
   assert.match(body, /3,780<\/b> to 1st/, 'the difference of two stored numbers');
+  assert.ok(!body.includes('of 71'), 'and it has taken the field size\'s place');
 
-  // First place has nobody to chase, and must not be told they need 0 to 0th.
   const first = bodyOf((await render({ member: { ...MEMBER, rank: 1 } })).out);
-  assert.ok(!first.includes('class="gap"'));
+  assert.ok(!first.includes('class="gap'), 'nobody to chase');
+  assert.match(first, /class="of"/, 'so the field size comes back rather than nothing');
 });
 
 test('the game points sit on the left but belong to the middle', async () => {
@@ -487,9 +501,9 @@ test('the bar sheds what it cannot fit, in order, and says so in the CSS', async
 
   const at = (rule) => css.indexOf(rule);
   assert.ok(at('padding:0 .55em') > -1, 'padding tightens first');
-  assert.ok(at('.seg.hold') > at('padding:0 .55em'), 'then the hours placeholder');
-  assert.ok(at('.seg.s-gcups') > at('.seg.hold'), 'then the game cups');
-  assert.ok(at('.seg.s-gap') > at('.seg.s-gcups'), 'then the chase');
+  assert.ok(at('.seg.s-mult') > at('padding:0 .55em'), 'then the boost, which is ours but not read');
+  assert.ok(at('.seg.s-gcups') > at('.seg.s-mult'), 'then the game cups');
+  assert.ok(at('.s-gap') > at('.seg.s-gcups'), 'then the chase');
 
   /**
    * THE CABINET IS LAST, and this assertion is the point of the test.
@@ -502,7 +516,7 @@ test('the bar sheds what it cannot fit, in order, and says so in the CSS', async
    */
   assert.ok(at('.seg.s-cab') > at('.seg.s-gap'), 'the cabinet outlasts the chase');
   assert.ok(at('.seg.s-cab') > at('.seg.s-comp'), 'and the completion figure');
-  assert.ok(at('.seg.s-cab') > at('.mult'), 'and even the boost chip');
+  assert.ok(at('.seg.s-cab') > at('.seg.s-mult'), 'and the boost, which now goes early');
 
   // The game, the progress and the rank are never in the ladder at all.
   assert.ok(!css.includes('.game{display:none'), 'the game is never dropped');

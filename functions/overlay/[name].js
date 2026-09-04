@@ -784,10 +784,26 @@ export async function onRequestGet({ env, request, params }) {
    * The scan's row, wearing the poll's numbers.
    *
    * Everything that is a COUNT comes from the live note, because it is seconds
-   * old and the stored one is from their last update. Everything that is a
-   * PRICE stays exactly as the scan left it: points are the rescore's to
-   * decide, and an overlay guessing at them would be the one place on this
-   * whole project where a number is invented rather than printed.
+   * old and the stored one is from their last update.
+   *
+   * AND NOW THE POINTS TOO, which is a change from how this read before.
+   *
+   * They used to stay exactly as the scan left them, on the grounds that a
+   * price is the rescore's to decide and an overlay guessing at one would be
+   * the single place on this project where a number is invented. That reasoning
+   * was right about inventing and wrong about this: Martin watched Leon earn
+   * two trophies, saw the count move and the points sit at 245 / 295 for ten
+   * minutes, and called it a bug. He is right. A segment where half the numbers
+   * are live and half are frozen, with nothing saying which, is worse than one
+   * that is honestly stale all over.
+   *
+   * NOTHING IS INVENTED. `live.points` is written by the poll as a sum of the
+   * `trophies.points` column over the trophies they hold, which is the same
+   * arithmetic over the same stored prices that the scan itself does. The site
+   * still computes no scoring; it prints a figure the Worker looked up.
+   *
+   * It is null until the poll has priced the game, so a game the board has
+   * never scanned falls back to the scan's own number rather than to zero.
    */
   const shown = playing && live
     ? {
@@ -798,6 +814,7 @@ export async function onRequestGet({ env, request, params }) {
         earned_gold: live.gold,
         earned_silver: live.silver,
         earned_bronze: live.bronze,
+        points: Number.isFinite(live.points) ? live.points : playing.points,
       }
     : playing;
 

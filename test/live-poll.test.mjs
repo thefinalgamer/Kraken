@@ -30,6 +30,9 @@ function harness({
   member = LIVE_MEMBER,
   state = {},
   known = [{ np_comm_id: 'NPWR_A', earned_total: 40 }],
+  // What the board has priced for the game, straight out of `trophies`.
+  priced = [{ trophy_id: 11, points: 22 }, { trophy_id: 12, points: 23 },
+    { trophy_id: 13, points: 99 }],
   titles = [{
     npCommunicationId: 'NPWR_A',
     trophyTitleName: 'inFAMOUS 2',
@@ -58,7 +61,12 @@ function harness({
             if (sql.includes('worker_state')) return state[stmt.args[0]] ?? null;
             return null;
           },
-          async all() { return { results: known }; },
+          async all() {
+            // Two queries reach `all` now: the stored counts, and the prices
+            // the poll sums to work out what the game has paid so far.
+            if (sql.includes('FROM trophies')) return { results: priced };
+            return { results: known };
+          },
           async run() { writes.push({ sql, args: stmt.args }); return { success: true }; },
         };
         return stmt;
@@ -306,4 +314,68 @@ test('the sweep runs even on a quiet look, not only when a trophy lands', async 
     writes.some((w) => w.sql.includes('UPDATE member_trophies SET on_stream')),
     'still swept',
   );
+});
+
+test('the poll prices the game so the overlay points move with the trophies', async () => {
+  /**
+   * THE BUG, in Martin's words: Leon earned two trophies on stream, "he was at
+   * 245/295 pts but it stuck he waited 10 mins and then had to do /update".
+   * The counts and the bar were live, the points were not, and nothing on the
+   * bar said so.
+   *
+   * A LOOKUP, NOT A CALCULATION. The scan prices a game as a plain sum of
+   * `trophies.points` over the trophies held. This sums the same column over
+   * the same set, so it lands on the number the scan would and invents nothing.
+   */
+  const { env, writes } = harness();
+  await pollMember(env, LIVE_MEMBER);
+
+  const plays = writes.filter((w) => w.sql.includes('live_play'));
+  const last = JSON.parse(plays[plays.length - 1].args[0]);
+  // 11 and 12 are held at 22 and 23; 13 is not earned and must not be counted.
+  assert.equal(last.points, 45, 'priced from the same column the scan uses');
+
+  assert.ok(
+    !writes.some((w) => /UPDATE member_games|INTO member_games/.test(w.sql)),
+    'and member_games is still never written, which is the rule that protects the score',
+  );
+});
+
+test('an unpriced game keeps the scan figure rather than showing a confident zero', async () => {
+  // A title nobody here has ever scanned has no rows in `trophies`. A bar
+  // reading 0 / 0 would be worse than one reading a stale but real number.
+  const { env, writes } = harness({ priced: [] });
+  await pollMember(env, LIVE_MEMBER);
+
+  const plays = writes.filter((w) => w.sql.includes('live_play'));
+  const last = JSON.parse(plays[plays.length - 1].args[0]);
+  assert.equal(last.points, null, 'nothing claimed about a game nobody has scanned');
+});
+
+test('a poll that finds nothing new keeps the points it already worked out', async () => {
+  /**
+   * The live note is rewritten every ten seconds and only the counts are cheap
+   * enough to recompute that often. Without carrying the figure forward, the
+   * first quiet poll would blank it and the bar would flick back to the scan's
+   * number a few seconds after showing the right one.
+   */
+  const { env, writes } = harness({
+    known: [{ np_comm_id: 'NPWR_A', earned_total: 42 }],
+    member: { ...LIVE_MEMBER, live_play: JSON.stringify({ id: 'NPWR_A', points: 45 }) },
+  });
+  await pollMember(env, { ...LIVE_MEMBER, live_play: JSON.stringify({ id: 'NPWR_A', points: 45 }) });
+
+  const plays = writes.filter((w) => w.sql.includes('live_play'));
+  assert.equal(JSON.parse(plays[0].args[0]).points, 45, 'carried, not blanked');
+});
+
+test('changing game does not carry the last game points across', async () => {
+  const { env, writes } = harness();
+  await pollMember(env, {
+    ...LIVE_MEMBER,
+    live_play: JSON.stringify({ id: 'NPWR_SOMETHING_ELSE', points: 9999 }),
+  });
+
+  const plays = writes.filter((w) => w.sql.includes('live_play'));
+  assert.notEqual(JSON.parse(plays[0].args[0]).points, 9999, 'a clean slate for a new game');
 });

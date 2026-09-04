@@ -162,19 +162,41 @@ export async function pollMember(env, member) {
      */
     const top = titles[0];
     const e = top?.earnedTrophies ?? {};
+
+    /**
+     * THE POINTS CARRY OVER BETWEEN POLLS.
+     *
+     * This write happens every ten seconds and only the counts are cheap enough
+     * to recompute that often, so a poll where nothing moved would otherwise
+     * blank the points figure it worked out two polls ago and the bar would
+     * flicker back to the scan's number.
+     *
+     * Only for the SAME game. Somebody changing disc gets a clean slate rather
+     * than the last game's total sitting under the new game's name.
+     */
+    let carried = null;
+    try {
+      const was = JSON.parse(member.live_play ?? 'null');
+      if (was && was.id && was.id === top?.npCommunicationId && Number.isFinite(was.points)) {
+        carried = was.points;
+      }
+    } catch {
+      // A mangled column is not worth a poll. It gets overwritten below.
+    }
+
+    const play = {
+      id: top?.npCommunicationId ?? null,
+      at: now,
+      progress: Number(top?.progress) || 0,
+      platinum: Number(e.platinum) || 0,
+      gold: Number(e.gold) || 0,
+      silver: Number(e.silver) || 0,
+      bronze: Number(e.bronze) || 0,
+      points: carried,
+    };
+
     await env.DB.prepare('UPDATE members SET live_play = ? WHERE psn_account_id = ?')
-      .bind(
-        JSON.stringify({
-          id: top?.npCommunicationId ?? null,
-          at: now,
-          progress: Number(top?.progress) || 0,
-          platinum: Number(e.platinum) || 0,
-          gold: Number(e.gold) || 0,
-          silver: Number(e.silver) || 0,
-          bronze: Number(e.bronze) || 0,
-        }),
-        member.psn_account_id,
-      )
+      .bind(JSON.stringify(play), member.psn_account_id)
       .run()
       .catch(() => {});
 
@@ -222,6 +244,54 @@ export async function pollMember(env, member) {
       .filter((t) => t.earned && t.earnedDateTime)
       .map((t) => ({ id: Number(t.trophyId), at: Date.parse(t.earnedDateTime) }))
       .filter((t) => Number.isFinite(t.at) && now - t.at < RECENT_MS);
+
+    /**
+     * WHAT THE GAME HAS PAID THEM, AS OF NOW.
+     *
+     * THE BUG: Leon earned two trophies on stream, the trophy count moved, the
+     * bar moved, and the points sat at 245 / 295 for ten minutes until he ran
+     * /update. Half the segment was live and the other half silently was not,
+     * which is worse than neither being live, because the bar looks like it is
+     * telling you everything.
+     *
+     * IT IS A LOOKUP, NOT A CALCULATION, and that distinction is the whole
+     * reason this is allowed. The scan prices a game like this:
+     *
+     *     const points = mine.reduce((n, t) => n + t.points, 0);
+     *
+     * A plain sum of `trophies.points` over the trophies they hold. Those
+     * prices are already in the table, rarity and the local blend included, put
+     * there by the rescore. Summing the same column over the same set reaches
+     * the same number the scan would, so nothing here decides what anything is
+     * worth. member_games is still untouched, which is the rule that matters:
+     * the scan compares its stored count against PSN to decide whether to
+     * re-fetch, and a live write there would make it skip the game forever.
+     *
+     * ALL OF IT, NOT A DELTA. An absolute total cannot drift out of step with
+     * the scan and cannot double count once /update lands on the same figure.
+     *
+     * ONLY WHEN THE WHOLE SET IS PRICED. A game the board has never scanned has
+     * no rows in `trophies`, and a confident 0 is far worse than a stale 245.
+     */
+    if (moved.npCommunicationId === top?.npCommunicationId) {
+      const { results: priced = [] } = await env.DB.prepare(
+        'SELECT trophy_id, points FROM trophies WHERE np_comm_id = ?',
+      )
+        .bind(moved.npCommunicationId)
+        .all()
+        .catch(() => ({ results: [] }));
+
+      const price = new Map(priced.map((r) => [Number(r.trophy_id), Number(r.points) || 0]));
+      const held = trophies.filter((t) => t.earned).map((t) => Number(t.trophyId));
+
+      if (held.length && held.every((id) => price.has(id))) {
+        play.points = held.reduce((sum, id) => sum + price.get(id), 0);
+        await env.DB.prepare('UPDATE members SET live_play = ? WHERE psn_account_id = ?')
+          .bind(JSON.stringify(play), member.psn_account_id)
+          .run()
+          .catch(() => {});
+      }
+    }
 
     if (!rows.length) return `poll: ${moved.trophyTitleName} moved, nothing recent`;
 

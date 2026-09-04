@@ -488,9 +488,21 @@ test('the bar sheds what it cannot fit, in order, and says so in the CSS', async
   const at = (rule) => css.indexOf(rule);
   assert.ok(at('padding:0 .55em') > -1, 'padding tightens first');
   assert.ok(at('.seg.hold') > at('padding:0 .55em'), 'then the hours placeholder');
-  assert.ok(at('.seg.s-cab') > at('.seg.hold'), 'then the cabinet, the biggest single thing');
-  assert.ok(at('.seg.s-gcups') > at('.seg.s-cab'), 'then the game cups');
+  assert.ok(at('.seg.s-gcups') > at('.seg.hold'), 'then the game cups');
   assert.ok(at('.seg.s-gap') > at('.seg.s-gcups'), 'then the chase');
+
+  /**
+   * THE CABINET IS LAST, and this assertion is the point of the test.
+   *
+   * Value per pixel put it third, because it is the biggest thing on the bar
+   * and the same figures are on the profile page. It went, Martin saw his own
+   * overlay without it, and: "the trophies need to be on the right where they
+   * were!" It is the thing a viewer actually looks at, so it outranks every
+   * other droppable on the bar regardless of what it costs in pixels.
+   */
+  assert.ok(at('.seg.s-cab') > at('.seg.s-gap'), 'the cabinet outlasts the chase');
+  assert.ok(at('.seg.s-cab') > at('.seg.s-comp'), 'and the completion figure');
+  assert.ok(at('.seg.s-cab') > at('.mult'), 'and even the boost chip');
 
   // The game, the progress and the rank are never in the ladder at all.
   assert.ok(!css.includes('.game{display:none'), 'the game is never dropped');

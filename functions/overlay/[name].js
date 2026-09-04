@@ -492,19 +492,22 @@ function rightZone(m) {
  * breakpoints, which work in whatever Chromium your OBS happens to ship with
  * rather than only in the ones new enough for container queries.
  *
- * THE ORDER IS A JUDGEMENT AND IS MEANT TO BE ARGUED WITH. It is by value per
- * pixel, not by importance alone:
+ * THE ORDER IS A JUDGEMENT AND IT WAS WRONG FIRST TIME. Value per pixel put the
+ * cabinet third, because it is 319 pixels and the same figures are on the
+ * profile page. Martin, seeing it go: "the trophies need to be on the right
+ * where they were!" The cabinet is the thing a viewer looks at. It is the last
+ * structural drop now, not the third:
  *
- *   1. padding    nobody can see it go
- *   2. the hours  a placeholder for a board that does not exist yet
- *   3. the cabinet 319 pixels, the biggest single thing on the bar, and the one
- *                 fact here that is also on your profile page
- *   4. the title  clamped shorter, never removed
- *   5. game cups  the same four metals sit two segments to the right
- *   6. the chase  the rank beside it carries most of the meaning alone
+ *   1. padding      nobody can see it go
+ *   2. the hours    a placeholder for a board that does not exist yet
+ *   3. game cups    the same three counts sit beside the progress fraction
+ *   4. the chase    the rank next to it carries most of the meaning alone
+ *   5. the title    clamped shorter, never removed
+ *   6. completion   a number, where the cabinet is a picture
+ *   7. the boost    only ever there when it has something to say
+ *   8. the cabinet  last, and only on a canvas nobody streams at
  *
- * Never dropped: the game, the progress, the points, the rank, and the boost
- * chip, which only shows up when it has something to say.
+ * Never dropped: the game, the progress, the game points, and the rank.
  */
 const TITLE_CLAMP = 22;
 const TITLE_SHORT = 14;
@@ -532,13 +535,12 @@ function responsive(scale, { title, mid, chase }) {
   const steps = [
     [90, '.seg{padding:0 .55em}'],
     [98, '.seg.hold{display:none}'],
-    [319, '.seg.s-cab{display:none}'],
+    [126, '.seg.s-gcups{display:none}'],
+    [113, '.seg.s-gap{display:none}'],
     [
       titleWidth(title, TITLE_CLAMP) - titleWidth(title, TITLE_SHORT),
       `.game{max-width:${TITLE_SHORT}ch}`,
     ],
-    [126, '.seg.s-gcups{display:none}'],
-    [113, '.seg.s-gap{display:none}'],
     /**
      * BELOW HERE IS A BAR NOBODY SHOULD BE ASKING FOR: 200 per cent on a 1280
      * canvas is a strip a tenth of the screen tall. It still has to degrade
@@ -547,6 +549,7 @@ function responsive(scale, { title, mid, chase }) {
      */
     [181, '.seg.s-comp{display:none}'],
     [140, '.mult{display:none}'],
+    [319, '.seg.s-cab{display:none}'],
     [
       titleWidth(title, TITLE_SHORT) - titleWidth(title, TITLE_TINY),
       `.game{max-width:${TITLE_TINY}ch}`,

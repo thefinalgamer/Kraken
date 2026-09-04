@@ -517,6 +517,10 @@ async function overlay(env, userId, { position, board }) {
   const qs = params.length ? '?' + params.join('&') : '';
 
   const bar = site + '/overlay/' + who + qs;
+  // `?scale=` or `&scale=`, depending on whether the link already carries
+  // anything. Getting this wrong hands somebody a link that silently ignores
+  // the size they asked for.
+  const joiner = params.length ? '&' : '?';
   const pop = site + '/overlay/' + who + '/pop';
 
   return reply(
@@ -525,12 +529,39 @@ async function overlay(env, userId, { position, board }) {
         [
           text('## Your overlay\nTwo browser sources. In OBS: **+ > Browser**.'),
           separator(),
+          /**
+           * THE SOURCE IS THE WHOLE CANVAS, and that is the fix for the only
+           * part of this anybody has got stuck on.
+           *
+           * It used to say "width 1920, height 44", which made the height a
+           * function of the scale: ask for a bigger bar and you also had to
+           * work out a new height, retype it, and then reset the transform,
+           * because OBS keeps the old bounding box and quietly squashes the
+           * bigger page back into it. JFL__Leon did the first two and not the
+           * third, and the bar "just stays the same basically".
+           *
+           * The bar is position:fixed against the bottom or top edge and
+           * everything else on the page is transparent, so a source the size of
+           * the canvas puts it exactly where a 44 pixel one did and never needs
+           * touching again. The scale becomes one number in a URL, which is
+           * what it was always meant to be.
+           */
           text(
             '### The bar\n```\n' + bar + '\n```\n' +
-              '**Width 1920, height 44.** It sits on the ' +
+              '**Set the source to the same size as your canvas**, 1920 by 1080 for most ' +
+              'people. The bar pins itself to the ' +
               (position === 'top' ? 'top' : 'bottom') + ' edge' +
-              (board === 'hide' ? ', with the middle section hidden.' : '.') +
+              (board === 'hide' ? ', with the middle section hidden' : '') +
+              ' and the rest of it is transparent, so there is no height to work out.' +
               '\n-# Untick "Shutdown source when not visible" or it blanks between scenes.',
+          ),
+          text(
+            '### Making it bigger\n' +
+              'Add `' + joiner + 'scale=125` to the end of the bar link for a quarter bigger, ' +
+              '`' + joiner + 'scale=150` for half again. Anything from 70 to 200 works, and ' +
+              'nothing else needs changing.' +
+              '\n-# If it looks identical afterwards, OBS is still holding the old size. ' +
+              'Right click the source, Transform, Reset Transform.',
           ),
           text(
             '### The trophy pop\n```\n' + pop + '\n```\n' +

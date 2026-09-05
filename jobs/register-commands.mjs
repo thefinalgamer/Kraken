@@ -21,7 +21,7 @@ const commands = [
         name: 'psn-id',
         description: 'Your PSN online ID, exactly as it appears on your profile',
         type: 3,
-        required: true,
+        required: false,
       },
     ],
   },

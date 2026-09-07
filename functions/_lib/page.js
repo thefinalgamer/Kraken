@@ -88,6 +88,20 @@ export const trophyGlyph = () =>
   '<path d="M18 4h2a2 2 0 0 1 2 2v1a5 5 0 0 1-3.8 4.9l-.5-2A3 3 0 0 0 20 7V6h-2V4z"/>' +
   '<path d="M11 14h2v4h-2z"/><path d="M7 20h10v2H7z"/></svg>';
 
+/**
+ * The shelf arrow, pointing back or forward.
+ *
+ * One path, mirrored by the direction, so the two arrows are guaranteed to be
+ * the same shape rather than two hand-drawn ones that almost match. Stroked
+ * rather than filled: a chevron at 20 pixels reads as a chevron and a filled
+ * triangle reads as a play button, which is the wrong promise on a card that
+ * opens Twitch in a new tab.
+ */
+export const chevron = (dir = 'fwd') =>
+  '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
+  'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
+  `<path d="${dir === 'back' ? 'M15 5 8 12l7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
+
 /** One count with its cup. `metal` is p | g | s | b. */
 export const cup = (metal, count, label) =>
   `<span class="cup ${metal}" title="${esc(label)}">${trophyGlyph()}${n(count)}</span>`;
@@ -1183,6 +1197,7 @@ p.warn.dead.whole b{color:#ff8e86}
   color:var(--live);border:1px solid rgba(176,125,255,.42);
   background:rgba(176,125,255,.12);border-radius:99px;padding:2px 9px;
 }
+
 .deadmark{
   display:block;margin-top:4px;font-size:11.5px;line-height:1.35;color:var(--brass);
 }
@@ -1686,7 +1701,12 @@ p.warn.dead.whole b{color:#ff8e86}
   scrollbar-width:none;
 }
 .lvs::-webkit-scrollbar{display:none}
-.lv{scroll-snap-align:start}
+/* scroll-margin-block, because an anchor scrolls EVERY scrollable ancestor to
+   bring its target into view, the document included. Without it, clicking an
+   arrow on a shelf that sits near the top of the page can jog the whole page up
+   to pin the card to the viewport edge. The margin gives the browser room to
+   decide the card is already visible and move only the shelf. */
+.lv{scroll-snap-align:start;scroll-margin-block:140px}
 /* The edge fade, which is the whole "there is more behind this" signal. It sits
    over the shelf and must never eat a click meant for the card under it. */
 .lvwrap::after{
@@ -1697,12 +1717,59 @@ p.warn.dead.whole b{color:#ff8e86}
 @media (max-width:760px){
   .lvs{grid-auto-columns:86%}
 }
-.lvdots{display:flex;gap:6px;justify-content:center;margin:8px 0 0}
+/* THE ARROWS.
+   The dots were 22 by 4 pixels of --rule under a row of 16:9 stills and the
+   server could not see them: "the tiny buttons on the bottom people can not see
+   them". These sit ON the shelf, at the edges, where every video wall anybody
+   has ever used puts them.
+
+   ONE COLOUR, and it is the site's teal rather than the teal-to-brass pair off
+   the VS mark. That pair means something specific - you on one side, them on
+   the other, split down the middle - and left and right on a shelf are not two
+   opposing parties, they are the same list twice. Spending the VS colours here
+   would be spending the one place they mean something.
+
+   CENTRED ON THE CARD, not on the picture. Half a card lower would need a magic
+   number for the height of the name row underneath, and that number would be
+   wrong the first time the row changed. */
+.lvgo{
+  position:absolute;z-index:3;top:50%;transform:translateY(-50%);
+  width:42px;height:42px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(8,16,15,.78);border:1px solid var(--edge);
+  color:var(--kraken);text-decoration:none;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  transition:background .16s ease,border-color .16s ease,transform .16s ease;
+}
+.lvgo svg{width:20px;height:20px;display:block}
+.lvgo.back{left:8px}
+.lvgo.fwd{right:8px}
+.lvgo:hover,.lvgo:focus-visible{
+  background:var(--panel);border-color:var(--kraken);
+  transform:translateY(-50%) scale(1.07);
+}
+/* The right-hand fade is the "there is more" signal and the forward arrow now
+   sits inside it. Widened so the arrow has ground under it rather than floating
+   on the edge of a thumbnail. */
+.lvwrap:has(.lvgo)::after{width:78px}
+@media (max-width:760px){
+  /* Smaller and tucked tighter. A phone swipes, so these are a hint that the
+     shelf moves rather than the main way of moving it. */
+  .lvgo{width:34px;height:34px}
+  .lvgo svg{width:17px;height:17px}
+  .lvgo.back{left:5px}
+  .lvgo.fwd{right:5px}
+}
+
+/* The dots, now only when there are three or more groups - see liveStrip().
+   Bigger than they were, because the reason they were missed was partly that
+   they were four pixels tall. */
+.lvdots{display:flex;gap:7px;justify-content:center;margin:9px 0 0}
 .lvdots a{
-  width:22px;height:4px;border-radius:99px;background:var(--rule);
+  width:26px;height:6px;border-radius:99px;background:var(--edge);
   transition:background .16s ease;
 }
-.lvdots a:hover,.lvdots a:focus-visible{background:var(--soft)}
+.lvdots a:hover,.lvdots a:focus-visible{background:var(--kraken)}
 
 /* THE QUIET STATE.
    The dot stops pulsing and goes grey, because a red live light over "nobody is

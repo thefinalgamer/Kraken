@@ -46,6 +46,45 @@ test('a completion says where you came in', () => {
   assert.match(s, /122 days/);
 });
 
+test('a completion prices the banked half and names what is still locked', () => {
+  // 70.41% completion pays 70% of the raw figure: 1,847 -> 1,292, leaving 555.
+  // The bottom half of the fraction stays the game's full worth on purpose, so
+  // the card cannot read "you got the lot" when the multiplier says otherwise.
+  const at70 = { ...member, completion: 70.41 };
+  const s = textOf(projectBlocks(at70, 'completed', [game({ member_points: 1847, days_taken: 12 })]));
+  assert.match(s, /1,292 of 1,847 points/);
+  assert.match(s, /The other 555 unlock/);
+  assert.doesNotMatch(s, /1,847 of 1,847/);
+});
+
+test('a member at 100% completion is not told about a gap that does not exist', () => {
+  const done = { ...member, completion: 100 };
+  const s = textOf(projectBlocks(done, 'completed', [game({ member_points: 1847 })]));
+  assert.match(s, /1,847 of 1,847 points/);
+  assert.doesNotMatch(s, /unlock as your overall completion/);
+});
+
+test('a missing completion falls back to the raw figure and stays quiet', () => {
+  // displayBanked never wipes somebody out for a completion that has not been
+  // written yet, and the explainer has to disappear with the multiplier rather
+  // than printing "the other 0 unlock".
+  for (const completion of [null, undefined, 0, 'nonsense']) {
+    const s = textOf(projectBlocks({ ...member, completion }, 'completed', [game({ member_points: 1847 })]));
+    assert.match(s, /1,847 of 1,847 points/, `${completion} falls back to raw`);
+    assert.doesNotMatch(s, /unlock as your overall completion/, `${completion} stays quiet`);
+  }
+});
+
+test('the multi-game line banks in the same currency as the single card', () => {
+  const at70 = { ...member, completion: 70.41 };
+  const s = textOf(projectBlocks(at70, 'completed', [
+    game({ member_points: 1847 }),
+    game({ np_comm_id: 'NPWR002', title: 'Sekiro', member_points: 900 }),
+  ]));
+  assert.match(s, /\*\*\+1,292\*\* points banked/);
+  assert.match(s, /\*\*\+630\*\* points banked/);
+});
+
 test('the first person here to finish something is told so', () => {
   const b = projectBlocks(member, 'completed', [
     game({ completed_here: 1, member_points: 1847 }),

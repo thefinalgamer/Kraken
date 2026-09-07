@@ -21,7 +21,7 @@ const commands = [
         name: 'psn-id',
         description: 'Your PSN online ID, exactly as it appears on your profile',
         type: 3,
-        required: false,
+        required: true,
       },
     ],
   },
@@ -62,7 +62,7 @@ const commands = [
   },
   {
     name: 'flag',
-    description: 'Mods only. Mark a game, one edition, or one trophy as no longer earnable',
+    description: 'Mods only. Mark a game, edition or trophy as no longer earnable, or rename one',
     // MANAGE_MESSAGES (8192), NOT Manage Server like /unlink and /addmember.
     // Those two rewrite who somebody is on the board; this moderates content,
     // which is the same authority as deleting a message. Leon was made a mod
@@ -106,6 +106,22 @@ const commands = [
       {
         name: 'note',
         description: 'What is unobtainable and why. Leave empty to clear the flag',
+        type: 3,
+        required: false,
+      },
+      {
+        /**
+         * OWNER ONLY, enforced in the handler rather than here. Discord's
+         * `default_member_permissions` is per COMMAND, not per option, so the
+         * only way to gate one option harder than the rest is to check it when
+         * it runs. A mod who tries gets told why.
+         *
+         * It rides on /flag because Martin asked for it there and it is the
+         * same shape of job: a human correcting what the scan believes about a
+         * game. `reset` puts Sony's name back.
+         */
+        name: 'namechange',
+        description: 'Owner only. Rename the game on the board. Say "reset" to put PSN\'s name back',
         type: 3,
         required: false,
       },
@@ -162,6 +178,35 @@ const commands = [
         description: 'Your channel name or link. Leave empty to stop watching.',
         type: 3,
         required: false,
+      },
+    ],
+  },
+  {
+    /**
+     * The fail-safe for PSN being slow to reorder a recently-played list.
+     *
+     * No `default_member_permissions`: it only ever changes your OWN bar, the
+     * same as /twitch, so gating it would be gating somebody out of their own
+     * overlay.
+     */
+    name: 'setgame',
+    description: 'Tell your overlay what you are playing, when PSN has not caught up yet',
+    options: [
+      {
+        /**
+         * NOT REQUIRED, because running it bare is how you take the pin off -
+         * the same shape as /twitch. A separate /unsetgame would be a second
+         * command to learn for the thing people do least often.
+         *
+         * The autocomplete offers YOUR games and its value is an np_comm_id
+         * rather than a title, because a pin is about one trophy list and
+         * "God of War" does not say which of three.
+         */
+        name: 'game',
+        description: 'Which game the bar should show. Leave empty to go back to automatic',
+        type: 3,
+        required: false,
+        autocomplete: true,
       },
     ],
   },

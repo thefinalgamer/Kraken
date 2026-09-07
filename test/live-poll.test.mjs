@@ -379,3 +379,164 @@ test('changing game does not carry the last game points across', async () => {
   const plays = writes.filter((w) => w.sql.includes('live_play'));
   assert.notEqual(JSON.parse(plays[0].args[0]).points, 9999, 'a clean slate for a new game');
 });
+
+// ------------------------------------------------------------ game pins ----
+
+/**
+ * `/setgame`, and the two ways it undoes itself.
+ *
+ * The bar's game comes from PSN's recently-played list, ordered by
+ * `lastUpdatedDateTime`, which does not move until a trophy pops. Somebody
+ * coming back to a DLC in a game they finished eighteen months ago therefore
+ * streams under the name of whatever they last earned something in. Martin:
+ * "sometimes people come back to a dlc and it wont update for ages".
+ *
+ * The pin is the fix. The half worth testing hardest is that it LEAVES, because
+ * a pin nobody clears is a bar that lies for a week - worse than the bug.
+ */
+const playOf = (writes) => {
+  const plays = writes.filter((w) => w.sql.includes('live_play'));
+  return plays.length ? JSON.parse(plays[plays.length - 1].args[0]) : null;
+};
+
+const TWO_TITLES = [
+  {
+    npCommunicationId: 'NPWR_A',
+    trophyTitleName: 'inFAMOUS 2',
+    trophyTitlePlatform: 'PS3',
+    earnedTrophies: { bronze: 30, silver: 8, gold: 4, platinum: 0 },
+  },
+  {
+    npCommunicationId: 'NPWR_B',
+    trophyTitleName: 'Ghost of Tsushima',
+    trophyTitlePlatform: 'PS5',
+    progress: 71,
+    earnedTrophies: { bronze: 20, silver: 6, gold: 2, platinum: 0 },
+  },
+];
+
+test('a pin beats PSN ordering, which is the whole bug', async () => {
+  // PSN says inFAMOUS 2 is what they touched last. They are on the Ghost of
+  // Tsushima DLC and have said so.
+  const { env, writes } = harness({
+    member: { ...LIVE_MEMBER, live_pin: 'NPWR_B' },
+    titles: TWO_TITLES,
+    known: [{ np_comm_id: 'NPWR_A', earned_total: 42 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
+  });
+  await pollMember(env, { ...LIVE_MEMBER, live_pin: 'NPWR_B' });
+
+  const play = playOf(writes);
+  assert.equal(play.id, 'NPWR_B', 'the pinned game, not PSN\'s first');
+  assert.equal(play.counts, true, 'and PSN had figures for it, so they are used');
+  assert.equal(play.progress, 71);
+});
+
+test('a pin PSN has not caught up with carries the id and no counts', async () => {
+  /**
+   * The case the feature exists for: the pinned game is not in the recent list
+   * AT ALL, because PSN has not reordered anything yet. Writing zeroes would
+   * paint 0 / 52 over the scan's real numbers, which is a worse lie than the
+   * wrong game was, so the note says it has no counts and the overlay keeps
+   * what the scan left.
+   */
+  const SETTLED = [
+    { np_comm_id: 'NPWR_A', earned_total: 42 },
+    { np_comm_id: 'NPWR_B', earned_total: 28 },
+  ];
+  const { env, writes } = harness({
+    member: { ...LIVE_MEMBER, live_pin: 'NPWR_ZZZ' },
+    titles: TWO_TITLES,
+    known: SETTLED,
+  });
+  await pollMember(env, { ...LIVE_MEMBER, live_pin: 'NPWR_ZZZ' });
+
+  const play = playOf(writes);
+  assert.equal(play.id, 'NPWR_ZZZ');
+  assert.equal(play.counts, false, 'and it says so rather than writing zeroes');
+  assert.equal(play.progress, undefined, 'no invented progress');
+  assert.equal(play.bronze, undefined, 'no invented counts');
+});
+
+test('a trophy in a different game takes the pin off, and the bar follows', async () => {
+  /**
+   * `moved` is a game whose count went up since the last poll - proof from data
+   * already in hand that they are playing it. If that is not the pinned game,
+   * the pin has been overtaken by events.
+   */
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_B' };
+  const { env, writes } = harness({
+    member: pinned,
+    titles: TWO_TITLES,
+    // inFAMOUS 2 is up on what we stored; Ghost of Tsushima is not.
+    known: [{ np_comm_id: 'NPWR_A', earned_total: 10 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
+  });
+  await pollMember(env, pinned);
+
+  const cleared = writes.filter((w) => w.sql.includes('live_pin = NULL'));
+  assert.equal(cleared.length, 1, 'the pin is dropped');
+  assert.deepEqual(cleared[0].args, ['acct-1']);
+
+  assert.equal(playOf(writes).id, 'NPWR_A', 'and the bar moves to what they are actually on');
+});
+
+test('a trophy in the pinned game leaves the pin alone', async () => {
+  // The other half. Earning something in the game you pinned is not a reason
+  // to stop believing you.
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_A' };
+  const { env, writes } = harness({ member: pinned, titles: TWO_TITLES });
+  await pollMember(env, pinned);
+
+  assert.equal(writes.filter((w) => w.sql.includes('live_pin = NULL')).length, 0);
+  assert.equal(playOf(writes).id, 'NPWR_A');
+});
+
+test('no pin is exactly the behaviour that shipped before', async () => {
+  const { env, writes } = harness({ titles: TWO_TITLES });
+  await pollMember(env, LIVE_MEMBER);
+
+  const play = playOf(writes);
+  assert.equal(play.id, 'NPWR_A', 'PSN\'s first title');
+  assert.equal(play.counts, true);
+  assert.equal(writes.filter((w) => w.sql.includes('live_pin')).length, 0, 'and no pin write');
+});
+
+test('points carry across polls for the pinned game, not for the one PSN prefers', async () => {
+  // The carry-forward keys off what the note is ABOUT. Keyed off PSN's first
+  // title instead, a pinned game would blank its points every ten seconds.
+  const pinned = {
+    ...LIVE_MEMBER,
+    live_pin: 'NPWR_ZZZ',
+    live_play: JSON.stringify({ id: 'NPWR_ZZZ', points: 613 }),
+  };
+  const { env, writes } = harness({
+    member: pinned,
+    titles: TWO_TITLES,
+    known: [
+      { np_comm_id: 'NPWR_A', earned_total: 42 },
+      { np_comm_id: 'NPWR_B', earned_total: 28 },
+    ],
+  });
+  await pollMember(env, pinned);
+
+  assert.equal(playOf(writes).points, 613, 'carried, not blanked');
+});
+
+test('a pin PSN cannot see still goes when a trophy lands somewhere else', async () => {
+  /**
+   * The pin being invisible to PSN must not make it immortal. This is the shape
+   * that would strand somebody: they pin a DLC, get bored, start something
+   * else, and the bar would keep their old answer forever because the pinned
+   * game never appears in the list to be compared against.
+   */
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_ZZZ' };
+  const { env, writes } = harness({
+    member: pinned,
+    titles: TWO_TITLES,
+    known: [{ np_comm_id: 'NPWR_A', earned_total: 10 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
+  });
+  await pollMember(env, pinned);
+
+  assert.equal(writes.filter((w) => w.sql.includes('live_pin = NULL')).length, 1);
+  assert.equal(playOf(writes).id, 'NPWR_A', 'and the bar lands on what they are really playing');
+  assert.equal(playOf(writes).counts, true, 'with real counts again');
+});

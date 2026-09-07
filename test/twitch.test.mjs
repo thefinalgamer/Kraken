@@ -111,7 +111,12 @@ test('it writes who came on and who went off, and nothing else', async () => {
   // anybody going live.
   const members = writes.filter((w) => w.sql.includes('UPDATE members'));
   const changed = members.filter((w) => w.sql.includes('live_since = ?'));
-  const touched = members.filter((w) => !w.sql.includes('live_since = ?'));
+  // The pin clear is its own statement, deliberately outside the batch, so it
+  // is counted on its own rather than mistaken for a third state change.
+  const pins = members.filter((w) => w.sql.includes('live_pin = NULL'));
+  const touched = members.filter(
+    (w) => !w.sql.includes('live_since = ?') && !w.sql.includes('live_pin = NULL'),
+  );
 
   assert.equal(changed.length, 2, 'two states moved');
   assert.deepEqual(changed.map((w) => w.args.at(-1)).sort(), ['a1', 'a2']);
@@ -121,6 +126,28 @@ test('it writes who came on and who went off, and nothing else', async () => {
 
   assert.equal(touched.length, 1, 'the unchanged one is only stamped');
   assert.match(touched[0].sql, /live_checked_at = \?/);
+});
+
+test('going off air takes the game pin with it, and only for whoever went off', async () => {
+  /**
+   * A pin nobody clears is a bar that lies for a week, which is worse than the
+   * bug /setgame fixes. Leon is the one who went off, so Leon is the only one
+   * whose pin goes - Pelzio just came ON and is the person most likely to have
+   * set one two minutes ago.
+   */
+  const { env, writes } = harness({ streams: [live('pelzio')] });
+  await checkLive(env);
+
+  const pins = writes.filter((w) => w.sql.includes('live_pin = NULL'));
+  assert.equal(pins.length, 1, 'one statement, for everybody who ended');
+  assert.deepEqual(pins[0].args, ['a2'], 'and only Leon is in it');
+});
+
+test('nobody going off air means no pin statement at all', async () => {
+  // The ordinary tick. It must not cost a write to clear nothing.
+  const { env, writes } = harness({ streams: [live('pelzio'), live('jfl__leon')] });
+  await checkLive(env);
+  assert.equal(writes.filter((w) => w.sql.includes('live_pin')).length, 0);
 });
 
 test('a rerun is not somebody at a console', async () => {

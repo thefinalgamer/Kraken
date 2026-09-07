@@ -30,15 +30,36 @@ crons = ["*/5 * * * *"]
 [vars]
 # Public, non-secret configuration. Secrets go in via `wrangler secret put`.
 
-# Set this to a Discord role id to gate /register during the soft launch.
-# Only members with the role can join the board; leave empty to open it up.
-HUNTER_ROLE_ID = "1538606682039648327"
+# Set this to a Discord role id to gate /register. Only members with the role
+# can join the board; leave empty to open it up.
+#
+# EMPTY ON PURPOSE since 7 September. It held the role id through the soft
+# launch and nobody turned it off afterwards, so every member who tried to join
+# was told the board was "still in testing" and to ask a mod - months after it
+# stopped being true. Martin found it as a bug report, which is what a stale
+# launch flag always looks like from the outside.
+#
+# Put the role id back to close the board again. The check itself still works.
+HUNTER_ROLE_ID = ""
 
 # The #leaderboard channel and the server it lives in. Only used to build the
 # "Open #leaderboard" link on /leaderboard, so the private peek can hand you
 # back to the pinned board. Both are needed or the button is simply omitted.
 DISCORD_GUILD_ID = "1351956287222714389"
 DISCORD_LEADERBOARD_CHANNEL_ID = "1539046348496838686"
+
+# Your Discord user id. The one thing gated on being YOU rather than on being a
+# mod: `/flag namechange:`, which renames a game on the board. A wrong flag is a
+# warning nobody needed; a wrong rename is a game seventy people can no longer
+# find by typing its name.
+#
+# The jobs already read this from the Actions environment for the owner DM, so
+# it is the same value. Not a secret - a Discord user id is public. Leave it
+# empty and the rename falls back to Manage Server.
+#
+# To find it: Discord Settings, Advanced, turn on Developer Mode, then right
+# click your own name and Copy User ID.
+DISCORD_OWNER_ID = "357630122721017857"
 
 # How many members per page on /leaderboard. Was 10 when each row was a card;
 # rows are single lines now, so 25 fits comfortably inside Discord's 4,000

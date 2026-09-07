@@ -709,6 +709,16 @@ export const PROJECT_FILTER = {
 export async function postProjects(db, member, result, { first = false } = {}) {
   if (first || !result?.changelog?.length) return;
 
+  // Re-read completion rather than trusting the member object, which was loaded
+  // BEFORE the scan ran. Finishing a game is exactly the thing that moves
+  // completion, so the stale value would under-report the card by the amount
+  // the card is celebrating. One cheap read, and a failure just falls back to
+  // the in-memory figure.
+  const fresh = await db
+    .one('SELECT completion FROM members WHERE psn_account_id = ?', [member.psn_account_id])
+    .catch(() => null);
+  const who = { ...member, completion: fresh?.completion ?? member.completion };
+
   const wanted = {
     new: env.DISCORD_NEW_PROJECTS_CHANNEL_ID,
     completed: env.DISCORD_COMPLETED_CHANNEL_ID,
@@ -722,8 +732,8 @@ export async function postProjects(db, member, result, { first = false } = {}) {
     if (!entries.length) continue;
 
     try {
-      const games = await enrichGames(db, member, entries);
-      const blocks = projectBlocks(member, kind, games);
+      const games = await enrichGames(db, who, entries);
+      const blocks = projectBlocks(who, kind, games);
       if (blocks) await rest(`/channels/${channel}/messages`, { body: message([blocks]) });
     } catch (err) {
       console.error(`Could not post ${kind} projects:`, err.message);

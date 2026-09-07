@@ -483,6 +483,116 @@ export const trophyRow = (env, npCommId, trophyId) =>
 export const gameById = (env, npCommId) =>
   first(env, 'SELECT * FROM games WHERE np_comm_id = ?', [npCommId]);
 
+/**
+ * Rename a game, or put Sony's name back.
+ *
+ * WHY THIS IS A COMMAND AND NOT A CONSOLE EDIT. `UPDATE games SET title = ...`
+ * in the D1 console works for exactly as long as it takes somebody who owns the
+ * game to run /update: the scan's upsert ends `title = excluded.title` and
+ * Sony's abbreviation walks straight back in. Migration 026 adds the lock the
+ * scan reads; this is what sets it.
+ *
+ * EVERY EDITION SHARING THE NAME, like the unobtainable flag and for the same
+ * reason. Renaming the PS5 stack and leaving the PS4 one on Sony's abbreviation
+ * splits a title that the whole rest of the bot groups BY NAME - /flag, the
+ * versions dropdown, the game card. `npCommId` scopes it to one when that is
+ * genuinely what is meant.
+ *
+ * `title_psn` is backfilled from the current title first, because a games row
+ * inserted since migration 026 has never been through an upsert and carries a
+ * null there. Without it, undoing a rename on a freshly discovered game would
+ * blank the title entirely.
+ *
+ * Passing a null name is the undo: the lock comes off and Sony's name goes
+ * back, so the same command reverses itself the way the flag does.
+ *
+ * Returns the rows it moved, so the reply can name them rather than guess.
+ */
+export async function renameGame(env, { title, npCommId = null }, name) {
+  const scoped = Boolean(npCommId);
+  const where = scoped ? 'np_comm_id = ?' : 'title = ? COLLATE NOCASE';
+  const key = scoped ? npCommId : title;
+
+  const before = await all(
+    env,
+    `SELECT np_comm_id, title, platform, title_psn FROM games WHERE ${where}`,
+    [key],
+  );
+  if (!before.length) return [];
+
+  await env.DB.prepare(`UPDATE games SET title_psn = COALESCE(title_psn, title) WHERE ${where}`)
+    .bind(key)
+    .run();
+
+  if (name) {
+    await env.DB.prepare(`UPDATE games SET title = ?, title_locked = 1 WHERE ${where}`)
+      .bind(name, key)
+      .run();
+  } else {
+    await env.DB.prepare(
+      `UPDATE games SET title = COALESCE(title_psn, title), title_locked = 0 WHERE ${where}`,
+    )
+      .bind(key)
+      .run();
+  }
+
+  return all(
+    env,
+    'SELECT np_comm_id, title, platform, title_psn FROM games WHERE np_comm_id IN (' +
+      before.map(() => '?').join(',') +
+      ')',
+    before.map((r) => r.np_comm_id),
+  );
+}
+
+/**
+ * A hunter's own games, for the /setgame picker.
+ *
+ * BY np_comm_id, NOT BY TITLE, which is the difference between this and
+ * myRecentGames. That one groups by name because /game and /flag are questions
+ * about a title; a pin is an instruction about ONE trophy list, and "God of War"
+ * on its own does not say which of three.
+ *
+ * Only games they actually have a row for. The overlay reads the pinned game
+ * out of member_games, so pinning something they do not own would leave the bar
+ * with a name and nothing else - and the command says so rather than accepting
+ * it and looking broken later.
+ *
+ * Ordered by what they touched last, so the game they came back to this evening
+ * is near the top before they have typed anything.
+ */
+export const myGamesForPin = (env, accountId, query = '', limit = 25) =>
+  all(
+    env,
+    `SELECT g.np_comm_id, g.title, g.platform, g.trophy_count,
+            mg.progress, mg.earned_total, mg.last_played_at
+       FROM member_games mg
+       JOIN games g ON g.np_comm_id = mg.np_comm_id
+      WHERE mg.psn_account_id = ?
+        AND TRIM(COALESCE(g.title, '')) <> ''
+        AND (? = '' OR g.title LIKE ? COLLATE NOCASE)
+      ORDER BY CASE WHEN g.title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+               COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC
+      LIMIT ?`,
+    [accountId, query, `%${query}%`, `${query}%`, limit],
+  );
+
+/**
+ * Pin the overlay to a game, or take the pin off.
+ *
+ * The poll prefers this over PSN's recently-played ordering, which is ordered
+ * by `lastUpdatedDateTime` and therefore does not move until a trophy pops -
+ * so somebody returning to a DLC in an old game gets the last game they earned
+ * anything in, sometimes for hours. Martin: "sometimes people come back to a
+ * dlc and it wont update for ages".
+ *
+ * See migration 027 for what takes it off again without being asked.
+ */
+export const setGamePin = (env, accountId, npCommId) =>
+  env.DB.prepare('UPDATE members SET live_pin = ?, live_pin_at = ? WHERE psn_account_id = ?')
+    .bind(npCommId ?? null, npCommId ? Date.now() : null, accountId)
+    .run();
+
 export const findGame = (env, query) =>
   first(
     env,

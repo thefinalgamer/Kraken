@@ -835,7 +835,19 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
    * It is null until the poll has priced the game, so a game the board has
    * never scanned falls back to the scan's own number rather than to zero.
    */
-  const shown = playing && live
+  /**
+   * A PINNED GAME PSN HAS NOT CAUGHT UP WITH CARRIES NO COUNTS.
+   *
+   * `/setgame` exists for the case where PSN's recently-played list does not
+   * have the game near the top - that is the bug it fixes - so the poll can
+   * write a note naming a game it has no fresh figures for, and it says so with
+   * `counts: false`. Merging that would paint 0 / 52 over the scan's real
+   * numbers, which is a worse lie than the wrong game was.
+   *
+   * The absence of the field means an older note, from before pins existed.
+   * Those always carried counts, so only an explicit false opts out.
+   */
+  const shown = playing && live && live.counts !== false
     ? {
         ...playing,
         progress: live.progress,

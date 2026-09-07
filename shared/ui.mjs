@@ -15,7 +15,7 @@
  * Ten member cards per page sits comfortably inside all of these.
  */
 
-import { nextCompletionStep, applyCompletion } from './scoring.mjs';
+import { nextCompletionStep, applyCompletion, displayBanked } from './scoring.mjs';
 import { closingState, closingLabel, isUrgent, DEAD, CLOSING } from './closing.mjs';
 import { supporterTier, supporterLabel } from './supporter.mjs';
 
@@ -972,7 +972,7 @@ export function projectBlocks(member, kind, games) {
             `## ${icon} ${md(member.psn_online_id)} ${verb} ${md(g.title)}`,
             `-# ${g.platform || 'PlayStation'} · ${n(g.trophy_count)} trophies` +
               (g.estimated ? ' · rarity not published by PSN, values are estimates' : ''),
-            projectStats(g, started),
+            projectStats(g, started, member.completion),
           ],
           thumbnail(g.icon_url || FALLBACK_AVATAR, g.title),
         ),
@@ -1008,7 +1008,7 @@ export function projectBlocks(member, kind, games) {
       `${icon} **${md(g.title)}**${clockMark(g)} - ` +
       (started
         ? `${n(g.trophy_count)} trophies · **${n(g.max_points)}** points at 100% · ${localLine(g)}`
-        : `**+${n(g.member_points)}** points banked · ${finisherLine(g)}`);
+        : `**+${n(displayBanked(g.member_points, member.completion))}** points banked · ${finisherLine(g)}`);
     if (used + line.length + 2 > 3200) break;
     kept.push(line);
     used += line.length + 2;
@@ -1027,14 +1027,38 @@ export function projectBlocks(member, kind, games) {
   );
 }
 
-/** The stats block on a single-game card. */
-function projectStats(g, started) {
+/**
+ * The stats block on a single-game card.
+ *
+ * THE BANKED LINE IS DELIBERATELY TWO CURRENCIES, and it is the only place on
+ * the board that is. Everywhere else a fraction is multiplied on both halves,
+ * because half in the member's currency and half in the game's reads as a lie.
+ * This card is the exception because both-halves-multiplied breaks it: a 100%'d
+ * game pays every point it holds, so the fraction reads "290 of 290" whatever
+ * the member's completion is, and a fraction that is always full says nothing.
+ *
+ * Martin read the old "335 of 335" as "you got the lot", and he had not. So the
+ * top half is what the completion multiplier actually paid and the bottom half
+ * is the game's full worth, with the line underneath naming the gap and what
+ * closes it. Two currencies with the difference spelled out beats one currency
+ * that hides it.
+ */
+function projectStats(g, started, completion) {
   const lines = [];
   if (started) {
     lines.push(`**Worth** ${n(g.max_points)} points at 100%`);
     lines.push(`**Your progress** ${g.progress ?? 0}% · ${n(g.earned_total ?? 0)} trophies`);
   } else {
-    lines.push(`**Banked** ${n(g.member_points)} of ${n(g.max_points)} points`);
+    const worth = Number(g.max_points) || 0;
+    const banked = displayBanked(g.member_points, completion);
+    const locked = Math.max(0, worth - banked);
+    lines.push(`**Banked** ${n(banked)} of ${n(worth)} points`);
+    // Only when there is a gap. displayBanked falls back to the raw figure for
+    // a member whose completion has not been written yet, and "the other 0
+    // unlock" under a full fraction is noise.
+    if (locked > 0) {
+      lines.push(`-# The other ${n(locked)} unlock as your overall completion climbs.`);
+    }
     if (g.days_taken != null) {
       lines.push(`**Took** ${g.days_taken === 0 ? 'under a day' : `${n(g.days_taken)} days`}`);
     }

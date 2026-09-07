@@ -1,0 +1,32 @@
+-- A hunter telling the overlay what they are actually playing.
+--
+-- WHAT GOES WRONG WITHOUT IT. The bar's game comes from PSN, not from Twitch:
+-- the poll takes the first title in the recently-played list, which is ordered
+-- by `lastUpdatedDateTime`. That field only moves when a trophy pops. So
+-- somebody coming back to a DLC in a game they finished eighteen months ago
+-- gets the LAST game they earned anything in on the bar, sometimes for hours,
+-- until the first trophy of the session lands and drags the order back.
+--
+-- Martin: "sometimes people come back to a dlc and it wont update for ages".
+--
+-- `/setgame` writes the pin. The poll prefers it over PSN's ordering while it
+-- is set, so the bar is right from the first minute of the stream instead of
+-- from the first trophy.
+--
+-- IT CLEARS ITSELF, which is the half that matters. A pin nobody remembers to
+-- remove is a bar that lies for a week, and that is strictly worse than the bug
+-- it fixes. Two things drop it, both in worker/src/live.mjs:
+--
+--   - a trophy earned in a DIFFERENT game. That is proof they moved on, from
+--     the same data the poll already has in hand.
+--   - going off air. A pin is a stream-time fix, so it does not outlive the
+--     stream that needed it.
+--
+-- `live_pin_at` is not read by anything yet. It is here so the reply can say
+-- when it was set and so a stuck pin can be found in one query later.
+--
+-- Run once against the live database:
+--   npx wrangler d1 execute platinum-intel --remote --file migrations/027-game-pin.sql
+
+ALTER TABLE members ADD COLUMN live_pin TEXT;
+ALTER TABLE members ADD COLUMN live_pin_at INTEGER;

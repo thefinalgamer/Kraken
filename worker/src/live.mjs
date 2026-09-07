@@ -160,8 +160,49 @@ export async function pollMember(env, member) {
      * award the points. A wrong line on an overlay is a shrug; a wrong score is
      * forever.
      */
-    const top = titles[0];
+    /**
+     * THE PIN BEATS PSN'S ORDERING, because PSN's ordering is the bug.
+     *
+     * `titles` comes back sorted by `lastUpdatedDateTime`, which only moves
+     * when a trophy pops. Somebody coming back to a DLC in a game they finished
+     * eighteen months ago is therefore shown the LAST game they earned anything
+     * in, sometimes for hours, until the first trophy of the session drags the
+     * order back. `/setgame` is the fail-safe for that, and this is where it
+     * takes effect.
+     *
+     * THE PINNED GAME MAY NOT BE IN THIS LIST AT ALL. That is the whole point:
+     * if PSN had it near the top there would be nothing to fix. So when it is
+     * missing, the note carries the id and NOTHING ELSE, and `counts: false`
+     * tells the overlay to keep the scan's figures rather than merging zeroes
+     * over them. A bar reading 0 / 52 would be a worse lie than the wrong game.
+     */
+    const pinned = String(member.live_pin ?? '').trim();
+    const fromPsn = pinned ? titles.find((t) => t.npCommunicationId === pinned) : null;
+    const top = pinned ? fromPsn : titles[0];
     const e = top?.earnedTrophies ?? {};
+
+    /**
+     * A TROPHY IN A DIFFERENT GAME TAKES THE PIN OFF.
+     *
+     * A pin nobody remembers to clear is a bar that lies for a week, which is
+     * strictly worse than the bug it fixes. `moved` is a game whose count went
+     * up since the last poll - proof they are playing it, from data already in
+     * hand - so if that is not the pinned game, the pin has been overtaken by
+     * events and goes.
+     *
+     * The other half of this lives in twitch.mjs: going off air drops it too,
+     * because a pin is a stream-time fix and should not outlive the stream.
+     */
+    let pinDropped = false;
+    if (pinned && moved && moved.npCommunicationId !== pinned) {
+      await env.DB.prepare(
+        'UPDATE members SET live_pin = NULL, live_pin_at = NULL WHERE psn_account_id = ?',
+      )
+        .bind(member.psn_account_id)
+        .run()
+        .catch(() => {});
+      pinDropped = true;
+    }
 
     /**
      * THE POINTS CARRY OVER BETWEEN POLLS.
@@ -174,26 +215,38 @@ export async function pollMember(env, member) {
      * Only for the SAME game. Somebody changing disc gets a clean slate rather
      * than the last game's total sitting under the new game's name.
      */
+    // What the note is ABOUT, which is the pin when there is one and PSN's
+    // first title otherwise. Everything below keys off this rather than off
+    // `top`, because a pin PSN has not caught up with has no `top` at all.
+    const showing = pinDropped ? titles[0]?.npCommunicationId ?? null
+      : pinned || (top?.npCommunicationId ?? null);
+
     let carried = null;
     try {
       const was = JSON.parse(member.live_play ?? 'null');
-      if (was && was.id && was.id === top?.npCommunicationId && Number.isFinite(was.points)) {
+      if (was && was.id && was.id === showing && Number.isFinite(was.points)) {
         carried = was.points;
       }
     } catch {
       // A mangled column is not worth a poll. It gets overwritten below.
     }
 
-    const play = {
-      id: top?.npCommunicationId ?? null,
-      at: now,
-      progress: Number(top?.progress) || 0,
-      platinum: Number(e.platinum) || 0,
-      gold: Number(e.gold) || 0,
-      silver: Number(e.silver) || 0,
-      bronze: Number(e.bronze) || 0,
-      points: carried,
-    };
+    const counted = pinDropped ? titles[0] : top;
+    const ce = counted?.earnedTrophies ?? e;
+
+    const play = counted
+      ? {
+          id: showing,
+          at: now,
+          counts: true,
+          progress: Number(counted.progress) || 0,
+          platinum: Number(ce.platinum) || 0,
+          gold: Number(ce.gold) || 0,
+          silver: Number(ce.silver) || 0,
+          bronze: Number(ce.bronze) || 0,
+          points: carried,
+        }
+      : { id: showing, at: now, counts: false, points: carried };
 
     await env.DB.prepare('UPDATE members SET live_play = ? WHERE psn_account_id = ?')
       .bind(JSON.stringify(play), member.psn_account_id)
@@ -273,7 +326,7 @@ export async function pollMember(env, member) {
      * ONLY WHEN THE WHOLE SET IS PRICED. A game the board has never scanned has
      * no rows in `trophies`, and a confident 0 is far worse than a stale 245.
      */
-    if (moved.npCommunicationId === top?.npCommunicationId) {
+    if (moved.npCommunicationId === play.id) {
       const { results: priced = [] } = await env.DB.prepare(
         'SELECT trophy_id, points FROM trophies WHERE np_comm_id = ?',
       )

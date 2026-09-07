@@ -269,9 +269,23 @@ export const FAQ = [
       'Transform.\n\n' +
       '**Things vanish off the bar when I make it bigger.**\n' +
       'On purpose. At 150% there is more on the bar than fits across a 1920 canvas, so ' +
-      'it drops the least useful things first: the hours placeholder, then your trophy ' +
-      'counts for the game, then the gap to the next rank. The game, your progress, your ' +
-      'points and your rank never go.\n\n' +
+      'it drops the least useful things first: the boost, then your trophy counts for ' +
+      'the game, then the gap to the next rank. The game, your progress, your points ' +
+      'and your rank never go.\n\n' +
+      '**The bar is showing the wrong game.**\n' +
+      'Run `/setgame` and pick the right one. This happens when you go back to a game ' +
+      'you have not touched in a while, usually for DLC: the bar follows PlayStation, ' +
+      'and PlayStation does not move a game up your recently played list until you earn ' +
+      'something in it. So until your first trophy of the session lands, it still thinks ' +
+      'you are on whatever you played last.\n\n' +
+      '**Do I have to undo `/setgame`?**\n' +
+      'No. It comes off by itself the moment you earn a trophy in something else, and ' +
+      'again when your stream ends. `/setgame` on its own takes it off early if you want ' +
+      'to.\n\n' +
+      '**Does it use my Twitch category?**\n' +
+      'No, and this is worth knowing because it surprises people. The bar reads what ' +
+      'PlayStation says you are playing, not what your stream is labelled. Changing your ' +
+      'category does nothing to it either way.\n\n' +
       '**What is the purple?**\n' +
       'Trophies earned in front of an audience. On the overlay it means tonight; on the ' +
       'website it means ever, on your progress bars and on the trophy cards themselves. ' +

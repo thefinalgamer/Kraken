@@ -152,7 +152,7 @@ async function handleCommand(interaction, env, ctx) {
     case 'addmember':  return addMember(interaction, env, ctx, opt('member'), opt('psn-id'));
     case 'flag':       return flagGame(interaction, env, userId, {
       title: opt('game'), note: opt('note'), closes: opt('closes'),
-      version: opt('version'), trophy: opt('trophy'),
+      version: opt('version'), trophy: opt('trophy'), rename: opt('namechange'),
     });
     case 'supporter':  return setSupporterStar(interaction, env, opt('member'), opt('months'));
     case 'faq':        return faq(env);
@@ -167,21 +167,36 @@ async function handleCommand(interaction, env, ctx) {
       position: opt('position'), board: opt('board'),
     });
     case 'twitch':     return twitch(env, userId, opt('channel'));
+    case 'setgame':    return setGame(env, userId, opt('game'));
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
 
 /**
- * Registration, gated by role during the soft launch so the board can be built
- * up a few people at a time rather than 300 first scans landing at once.
+ * Registration. Open to the whole server unless HUNTER_ROLE_ID is set, which it
+ * is not: the gate existed so the soft launch could add a few people at a time
+ * rather than take 300 first scans at once, and that job finished long ago.
  */
 async function register(interaction, env, ctx, userId, psnId) {
+  /**
+   * The role gate, and it is OFF unless somebody deliberately turns it on.
+   *
+   * It said "the leaderboard is still in testing" for months after it stopped
+   * being in testing, because `HUNTER_ROLE_ID` kept the soft-launch role id and
+   * nobody thought to clear it. Every member who tried to join was turned away
+   * by a flag whose job had finished. Martin reported it as a bug, which is
+   * exactly what a stale launch flag looks like from the outside.
+   *
+   * So the message no longer mentions testing OR a date it might open. If this
+   * is on, it is on because somebody set it on purpose today, and the only
+   * useful thing to say is which role is missing.
+   */
   if (env.HUNTER_ROLE_ID) {
     const roles = interaction.member?.roles ?? [];
     if (!roles.includes(env.HUNTER_ROLE_ID)) {
       return errorReply(
-        'The leaderboard is still in testing and only open to invited members for now. ' +
-          'Ask a mod if you want in early.',
+        `The board is invite only right now. Ask a mod for the <@&${env.HUNTER_ROLE_ID}> role ` +
+          'and run `/register` again.',
       );
     }
   }
@@ -398,6 +413,116 @@ async function unlink(interaction, env, targetId) {
  * read from later. Nobody gets to switch that on for somebody else, which is
  * why there is no member option on this command for mods.
  */
+/**
+ * Pin the overlay to a game. /setgame
+ *
+ * THE BUG THIS IS A FAIL-SAFE FOR. The bar's game comes from PSN, never from
+ * the Twitch category: the poll takes the first entry in the recently-played
+ * list, which PSN orders by `lastUpdatedDateTime`. That timestamp does not move
+ * until a trophy pops. So somebody loading up a DLC in a game they finished
+ * eighteen months ago streams under the name of whatever they last earned
+ * something in, until the session's first trophy drags the order back. Martin:
+ * "sometimes people come back to a dlc and it wont update for ages".
+ *
+ * SELF ONLY, like /twitch. Somebody else's overlay is on somebody else's
+ * canvas, and nobody gets to relabel it.
+ *
+ * IT CLEARS ITSELF, which matters more than it sets. A pin nobody removes is a
+ * bar that lies for a week - worse than the bug. The poll drops it the moment a
+ * trophy lands in a different game, and the live check drops it when the stream
+ * ends. Running it bare is the third way, for the case where somebody notices
+ * before either of those happen.
+ */
+async function setGame(env, userId, npCommId) {
+  const me = await db.memberByDiscordId(env, userId);
+  if (!me) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  const wanted = String(npCommId ?? '').trim();
+
+  const clear = async (heading, body, colour) => {
+    try {
+      await db.setGamePin(env, me.psn_account_id, null);
+    } catch (err) {
+      if (/live_pin|no such column/i.test(String(err?.message ?? ''))) {
+        return errorReply(
+          'The pin columns are not in the database yet. Run migration `027-game-pin.sql`.',
+        );
+      }
+      throw err;
+    }
+    return reply([container([text(`### ${heading}\n${body}`)], colour)], { ephemeral: true });
+  };
+
+  // Bare means take it off, the same way a bare /twitch stops watching a
+  // channel. A separate /unsetgame would be a second command to learn for the
+  // thing people do least often.
+  if (!wanted) {
+    return clear(
+      'Back to automatic',
+      'The bar follows PSN again, whatever you pick up next.\n\n' +
+        '-# It updates when your first trophy of the session lands. Run `/setgame` with a ' +
+        'game if you would rather not wait.',
+      COLOR.grey,
+    );
+  }
+
+  /**
+   * Checked against THEIR library, not against `games`. The overlay reads the
+   * pinned game out of member_games, so a game they do not own would leave the
+   * bar with a name and no numbers - and an autocomplete can be typed into
+   * rather than picked from.
+   */
+  const mine = await db
+    .myGamesForPin(env, me.psn_account_id, '', 500)
+    .catch(() => null);
+
+  if (mine === null) {
+    return errorReply(
+      'The pin columns are not in the database yet. Run migration `027-game-pin.sql`.',
+    );
+  }
+
+  const picked = mine.find((g) => g.np_comm_id === wanted);
+  if (!picked) {
+    return errorReply(
+      'Pick a game from the dropdown rather than typing it. It has to be one the board has ' +
+        'already scanned for you, or the bar has a name and no numbers.',
+    );
+  }
+
+  try {
+    await db.setGamePin(env, me.psn_account_id, picked.np_comm_id);
+  } catch (err) {
+    if (/live_pin|no such column/i.test(String(err?.message ?? ''))) {
+      return errorReply(
+        'The pin columns are not in the database yet. Run migration `027-game-pin.sql`.',
+      );
+    }
+    throw err;
+  }
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `### Bar set to ${md(picked.title)}\n` +
+              `**${md(picked.platform || 'PlayStation')}** · ${picked.progress ?? 0}% · ` +
+              `${n(picked.earned_total ?? 0)} of ${n(picked.trophy_count ?? 0)} trophies\n\n` +
+              'It shows up on the next refresh, about ten seconds.\n\n' +
+              '-# This comes off by itself when you earn a trophy in something else, and when ' +
+              'your stream ends. `/setgame` on its own takes it off now.',
+          ),
+        ],
+        COLOR.green,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
 async function twitch(env, userId, channel) {
   const me = await db.memberByDiscordId(env, userId);
   if (!me) {
@@ -574,8 +699,9 @@ async function overlay(env, userId, { position, board }) {
           text(
             '-# Neither source names this server. They are your numbers, and the only way ' +
               'anybody finds out where they come from is you telling them.\n' +
-              '-# The game on the bar follows your last update rather than your disc tray, ' +
-              'for now.',
+              '-# The game on the bar comes from PlayStation, not from your Twitch ' +
+              'category. If it is showing the wrong one, `/setgame` fixes it and takes ' +
+              'itself off again.',
           ),
         ],
         COLOR.blurple,
@@ -781,7 +907,7 @@ async function flagTrophy(env, userId, { match, edition, trophyId, note, closesA
 }
 
 
-async function flagGame(interaction, env, userId, { title, note, closes, version, trophy }) {
+async function flagGame(interaction, env, userId, { title, note, closes, version, trophy, rename }) {
   // MANAGE_MESSAGES, not MANAGE_GUILD.
   //
   // Martin made JFL__Leon a mod and he still could not run this. The gate was
@@ -835,6 +961,124 @@ async function flagGame(interaction, env, userId, { title, note, closes, version
         `That version is **${edition.title}**, not **${match.title}**. Pick the game again.`,
       );
     }
+  }
+
+  /**
+   * RENAMING A GAME. `/flag <game> namechange:<what it should say>`
+   *
+   * Sony's own abbreviations are what land in `games.title` and Leon found two
+   * that are simply wrong. There was no way to fix one: a hand edit in the D1
+   * console loses to the scan's upsert the next time anybody who owns the game
+   * runs /update.
+   *
+   * OWNER ONLY, and Martin asked for that in the same breath as the feature -
+   * "i think only i should do it :)". It is a different kind of authority from
+   * the rest of this command. A wrong flag is a warning nobody needed and the
+   * game still works; a wrong rename is a game seventy people can no longer
+   * find by typing its name, on a board where the autocomplete, the versions
+   * dropdown and the flag itself all group BY NAME.
+   *
+   * `DISCORD_OWNER_ID` is the gate. Until it is set the fallback is Manage
+   * Server, which the mod gate above does not require - so a Manage Messages
+   * mod is still refused on an unconfigured deploy, and the feature is not
+   * dead on arrival either.
+   */
+  const wantsRename = rename != null && String(rename).trim() !== '';
+  if (wantsRename) {
+    /**
+     * NOT ALONGSIDE A FLAG. Accepting `namechange:` with `note:` and quietly
+     * doing one of them is the same class of bug parseClosingDate refuses a bad
+     * date for: the owner believes they did two things and finds out later they
+     * did one.
+     */
+    if (clean || String(closes ?? '').trim() || String(trophy ?? '').trim()) {
+      return errorReply(
+        'One thing at a time. `namechange:` renames the game and nothing else, so run it on ' +
+          'its own and flag afterwards.',
+      );
+    }
+
+    const owner = String(env.DISCORD_OWNER_ID ?? '').trim();
+    const isOwner = owner
+      ? String(userId) === owner
+      : (perms & MANAGE_GUILD) === MANAGE_GUILD;
+    if (!isOwner) {
+      return errorReply(
+        'Renaming a game is owner only. Flagging is not, so the rest of `/flag` still works.',
+      );
+    }
+
+    /**
+     * The undo, spelled as a word rather than as an empty box, because an empty
+     * `namechange:` is indistinguishable from not passing it at all and this
+     * command already means something else with everything blank.
+     */
+    const raw = String(rename).trim();
+    const undo = /^(reset|revert|original|psn)$/i.test(raw);
+
+    if (!undo) {
+      // Newlines and backticks would break the card it is printed on, and a
+      // 300-character "title" is somebody pasting the wrong thing.
+      if (/[\r\n`]/.test(raw)) {
+        return errorReply('A title cannot contain line breaks or backticks.');
+      }
+      if (raw.length > 120) {
+        return errorReply(`That is ${raw.length} characters. Titles cap at 120.`);
+      }
+    }
+
+    let moved;
+    try {
+      moved = await db.renameGame(
+        env,
+        { title: match.title, npCommId: edition?.np_comm_id ?? null },
+        undo ? null : raw,
+      );
+    } catch (err) {
+      /**
+       * Migration 026 adds the two columns this needs. Every other feature that
+       * arrived with a migration carries this seatbelt, and the message names
+       * the file rather than printing SQLite at somebody.
+       */
+      if (/title_psn|title_locked|no such column/i.test(String(err?.message ?? ''))) {
+        return errorReply(
+          'The rename columns are not in the database yet. Run migration ' +
+            '`026-title-override.sql` and try again.',
+        );
+      }
+      throw err;
+    }
+
+    if (!moved.length) return errorReply(`I have no game called **${md(match.title)}**.`);
+
+    const scope = edition
+      ? ` on **${md(edition.platform ?? 'PlayStation')}** only.`
+      : moved.length > 1
+        ? ` - all **${moved.length}** editions of the title.`
+        : '.';
+
+    return reply(
+      [
+        container(
+          [
+            text(
+              (undo
+                ? `### Name reset\n**${md(match.title)}** is back to what PSN calls it, ` +
+                  `**${md(moved[0].title)}**${scope}`
+                : `### Renamed\n**${md(match.title)}** now reads **${md(raw)}**${scope}`) +
+                (undo
+                  ? ''
+                  : `\n\n-# PSN still calls it ${md(moved[0].title_psn || 'the same thing')}, ` +
+                    'and the next scan will not overwrite this.' +
+                    '\n-# `/flag <game> namechange:reset` puts it back.') +
+                '\n\n-# Pages cache for five minutes, so give the site a moment.',
+            ),
+          ],
+          undo ? COLOR.grey : COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
   }
 
   /**
@@ -2026,7 +2270,14 @@ async function handleAutocomplete(interaction, env) {
   // silently get a list of game titles.
   const isMember = interaction.data.name === 'rivals' && MEMBER_FIELDS.has(option?.name);
   const isFlagField = interaction.data.name === 'flag' && FLAG_FIELDS.has(option?.name);
-  if (!option || !(isMember || isFlagField || GAME_FIELDS.has(option.name))) {
+  /**
+   * /setgame shares the option NAME with /flag and /game and means something
+   * different by it: those want a title, this wants one np_comm_id, because a
+   * pin is an instruction about a single trophy list. Checked before the
+   * GAME_FIELDS branch or it would quietly get titles from the whole database.
+   */
+  const isPin = interaction.data.name === 'setgame' && option?.name === 'game';
+  if (!option || !(isMember || isFlagField || isPin || GAME_FIELDS.has(option.name))) {
     return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
   }
 
@@ -2112,6 +2363,26 @@ async function handleAutocomplete(interaction, env) {
             value: String(t.trophy_id).slice(0, 100),
           })),
         ],
+      },
+    };
+  }
+
+  if (isPin) {
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+    const me = userId ? await db.memberByDiscordId(env, userId) : null;
+    if (!me?.psn_account_id) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+
+    const rows = await db.myGamesForPin(env, me.psn_account_id, focused, 25).catch(() => []);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows.slice(0, 25).map((g) => ({
+          // The platform and the progress are what tell two stacks of one game
+          // apart, and they are the two things somebody pinning a game already
+          // has in their head.
+          name: `${g.title} · ${g.platform || 'PlayStation'} · ${g.progress ?? 0}%`.slice(0, 100),
+          value: String(g.np_comm_id).slice(0, 100),
+        })),
       },
     };
   }

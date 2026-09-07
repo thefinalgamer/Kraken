@@ -65,6 +65,15 @@ CREATE TABLE IF NOT EXISTS games (
   unobtainable_note TEXT,                 -- 'servers closed May 2024, 3 MP trophies'
   flagged_by        TEXT,                 -- discord id of whoever said so
   flagged_at        INTEGER,
+  -- A name a human chose, and the lock that stops the scan undoing it. Sony's
+  -- own abbreviations land in `title` and some are wrong enough to be
+  -- unreadable, but the scan's upsert would overwrite any hand edit on the next
+  -- /update. See migrations/026-title-override.sql.
+  --
+  -- `title` stays THE display name whether it is overridden or not, so nothing
+  -- that reads a game has to know this exists.
+  title_psn         TEXT,                 -- what PSN last called it
+  title_locked      INTEGER,              -- 1 = the owner named it, leave it alone
   refreshed_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_games_title     ON games(title);

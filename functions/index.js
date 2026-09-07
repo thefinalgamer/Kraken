@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, flag, ordinal, navButtons,
   closingState, closingLabel, isUrgent,
-  gameHref,
+  gameHref, chevron,
 } from './_lib/page.js';
 
 const TOTALS = `
@@ -344,13 +344,46 @@ function liveStrip(rows, channels = []) {
     </a>`;
   };
 
-  /**
-   * One dot per group of three, each an anchor to that group's first card.
-   * Drawn only when there is somewhere to go, so the usual night with one
-   * person live carries no furniture at all.
-   */
   const pages = Math.ceil(rows.length / LIVE_PER_VIEW);
-  const dots = pages > 1
+
+  /**
+   * THE ARROWS, because nobody found the dots.
+   *
+   * Martin, relaying the server: "the tiny buttons on the bottom people can not
+   * see them". They were 22 by 4 pixels of --rule underneath a row of 16:9
+   * stills, which is a control that only reads as a control once you already
+   * know it is one.
+   *
+   * THEY ARE ANCHORS, NOT BUTTONS, and that is the constraint that shapes the
+   * whole design. This site ships no JavaScript, so there is no such thing as
+   * "one page forward from wherever you are" - an anchor goes to a FIXED card
+   * and nothing can tell it where the shelf currently sits. A CSS :target trick
+   * could fake it, and would then be wrong the instant somebody dragged or
+   * scrolled the shelf, which is the primary way this thing is used.
+   *
+   * So they go to the two places that are correct no matter where the shelf is:
+   * the first card, and the first card of the last group. At two pages - which
+   * is four to six people live, and the busiest this server realistically gets -
+   * that IS back and forward, and it is never wrong. Past that the dots take
+   * over for the middle.
+   *
+   * A shelf that fits on screen gets neither. There is nowhere to go.
+   */
+  const lastPage = (pages - 1) * LIVE_PER_VIEW;
+  const arrows = pages > 1
+    ? `<a class="lvgo back" href="#lv0" aria-label="Back to the newest stream">${chevron('back')}</a>
+       <a class="lvgo fwd" href="#lv${lastPage}" aria-label="The rest of the streams">${chevron('fwd')}</a>`
+    : '';
+
+  /**
+   * The dots survive, at three pages and up, and only there.
+   *
+   * With two pages the arrows already reach everything and a row of two dots
+   * underneath them is furniture repeating what the arrows just said. With
+   * three or more there is a middle the arrows cannot reach, and that is a job
+   * worth keeping them for.
+   */
+  const dots = pages > 2
     ? `<nav class="lvdots" aria-label="More live streams">${Array.from(
         { length: pages },
         (_, p) => `<a href="#lv${p * LIVE_PER_VIEW}" aria-label="Streams from ${
@@ -366,6 +399,7 @@ function liveStrip(rows, channels = []) {
     </h2>
     <div class="lvwrap">
       <div class="lvs">${rows.map(card).join('')}</div>
+      ${arrows}
     </div>
     ${dots}
   </section>`;

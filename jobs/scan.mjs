@@ -753,7 +753,25 @@ async function scanGame(
        VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(np_comm_id) DO UPDATE SET
          np_service_name = excluded.np_service_name,
-         title = excluded.title,
+         /*
+          * A LOCKED TITLE IS NOT OVERWRITTEN.
+          *
+          * Sony's own abbreviations land in this column and some of them are
+          * wrong enough to be unreadable. /flag namechange: lets the owner
+          * fix one, and this line is what makes the fix stick: without it the
+          * next /update by anybody who owns the game quietly restores Sony's
+          * name. A hand edit in the D1 console loses to exactly this clause,
+          * which is why the command exists at all.
+          *
+          * NO BACKTICKS IN HERE. This comment is inside a template literal, so
+          * one would close the string and take the rest of the statement with
+          * it - which is exactly what happened while this was being written.
+          *
+          * title_psn is written EITHER WAY, locked or not, so the original is
+          * never lost and a rename is always undoable. See migration 026.
+          */
+         title_psn = excluded.title,
+         title = CASE WHEN games.title_locked = 1 THEN games.title ELSE excluded.title END,
          platform = excluded.platform,
          icon_url = excluded.icon_url,
          trophy_count = excluded.trophy_count,

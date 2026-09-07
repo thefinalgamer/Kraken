@@ -153,6 +153,8 @@ export async function checkLive(env) {
 
   const now = Date.now();
   const writes = [];
+  // Whoever went off air on this tick. Used after the batch to drop game pins.
+  const ended = [];
 
   for (const r of rows) {
     const on = live.get(String(r.twitch_login).toLowerCase()) ?? null;
@@ -178,6 +180,7 @@ export async function checkLive(env) {
      * So the window is kept, and swept for a while afterwards.
      */
     const justEnded = wasOn && !on;
+    if (justEnded) ended.push(r.psn_account_id);
 
     writes.push(
       !on && !wasOn
@@ -200,6 +203,31 @@ export async function checkLive(env) {
   }
 
   await env.DB.batch(writes);
+
+  /**
+   * A GAME PIN DOES NOT OUTLIVE THE STREAM THAT NEEDED IT.
+   *
+   * `/setgame` is a fail-safe for PSN being slow to reorder somebody's
+   * recently-played list, which only matters while a bar is on screen. Left
+   * standing it would show the wrong game on the next stream instead, so going
+   * off air takes it off. The poll drops it too, the moment a trophy lands in
+   * a different game. See migration 027.
+   *
+   * SEPARATE FROM THE BATCH ON PURPOSE. `live_pin` arrives in migration 027 and
+   * a batch is all-or-nothing: folded into the writes above, a database that
+   * has not run it yet would lose the entire live check rather than one pin
+   * clear. Same seatbelt every migration since 024 carries.
+   */
+  if (ended.length) {
+    await env.DB.prepare(
+      'UPDATE members SET live_pin = NULL, live_pin_at = NULL WHERE psn_account_id IN (' +
+        ended.map(() => '?').join(',') +
+        ')',
+    )
+      .bind(...ended)
+      .run()
+      .catch(() => {});
+  }
 
   /**
    * THE CATCH-UP SWEEP.

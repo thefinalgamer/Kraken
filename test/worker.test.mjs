@@ -458,12 +458,28 @@ test('a closing date on a single trophy is refused, not ignored', () => {
   assert.match(fn, /if \(closesAt\) \{[\s\S]{0,200}errorReply/, 'it errors');
 });
 
+/**
+ * flagGame's source, bounded by the NEXT function rather than by a character
+ * count. These assertions used to slice a flat 9,000 characters, which is fine
+ * until somebody adds a branch: `namechange:` pushed the closing-date logic past
+ * the window and three tests went red having found nothing rather than having
+ * found something wrong. A window that shrinks as the function grows is a test
+ * that stops testing without saying so.
+ */
+const flagSrc = (() => {
+  const at = SRC.indexOf('async function flagGame');
+  const end = SRC.indexOf('async function ', at + 10);
+  const body = SRC.slice(at, end === -1 ? undefined : end);
+  assert.ok(body.length > 2000, 'the slice actually covers the function');
+  return body;
+})();
+
 test('a typed-in version is checked against the database, not trusted', () => {
   // A mod can type into an autocomplete box instead of picking from it.
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
-  assert.match(fn.slice(0, 6000), /db\.gameById\(env, wanted\)/, 'the id is looked up');
-  assert.match(fn.slice(0, 6000), /is not an edition I know/, 'and rejected if it is not real');
-  assert.match(fn.slice(0, 6000), /Pick the game again/, 'and if it belongs to another title');
+  const fn = flagSrc;
+  assert.match(fn, /db\.gameById\(env, wanted\)/, 'the id is looked up');
+  assert.match(fn, /is not an edition I know/, 'and rejected if it is not real');
+  assert.match(fn, /Pick the game again/, 'and if it belongs to another title');
 });
 
 test('a closing date with a note counts down — it does not kill the game today', () => {
@@ -476,25 +492,25 @@ test('a closing date with a note counts down — it does not kill the game today
    * countdown the mod thought they were setting never mattered because the game
    * was already dead. A note is now the REASON for the countdown.
    */
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
-  assert.match(fn.slice(0, 9000), /on: Boolean\(clean\) && !closesAt/,
+  const fn = flagSrc;
+  assert.match(fn, /on: Boolean\(clean\) && !closesAt/,
     'a date means not yet, whatever else was typed');
-  assert.ok(!/on: Boolean\(clean\),/.test(fn.slice(0, 9000)),
+  assert.ok(!/on: Boolean\(clean\),/.test(fn),
     'and the old unconditional form is gone');
 });
 
 test('a note with no date still means broken now', () => {
   // The other half. A moderator writing a note and no date is saying the game
   // is already gone, which is what /flag was built for.
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
-  assert.match(fn.slice(0, 9000), /### ⚠️ \$\{match\.title\} flagged/, 'the dead reply exists');
-  assert.ok(!/Also counting down/.test(fn.slice(0, 9000)),
+  const fn = flagSrc;
+  assert.match(fn, /### ⚠️ \$\{match\.title\} flagged/, 'the dead reply exists');
+  assert.ok(!/Also counting down/.test(fn),
     'and it no longer mentions a countdown, because that path cannot be reached');
 });
 
 test('the countdown reply carries the reason and says nothing is dead yet', () => {
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
-  const window = fn.slice(0, 9000);
+  const fn = flagSrc;
+  const window = fn;
   assert.match(window, /if \(closesAt\) \{/, 'one branch for every dated flag');
   assert.match(window, /clean \? `\\n\\n> \$\{clean\}` : ''/, 'the mod\'s words are shown back');
   assert.match(window, /Nothing is unobtainable yet/, 'and the state is stated plainly');
@@ -504,7 +520,7 @@ test('a closing date is scoped to one edition when a version is given', () => {
   // Sea of Thieves on PS4 can die while the PS5 list carries on. The date has
   // to follow the same scoping the dead flag does, or a mod scopes the flag and
   // silently sets a countdown on all three editions anyway.
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  const fn = flagSrc;
   const call = fn.slice(fn.indexOf('db.setUnobtainable'), fn.indexOf('if (!clean && !closesAt)'));
   assert.match(call, /closesAt,/, 'the date goes through');
   assert.match(call, /npCommId: edition\?\.np_comm_id \?\? null/, 'with the edition beside it');
@@ -521,7 +537,7 @@ test('clearing a game clears its flagged trophies too, and counts them', () => {
    * have been told is already solved — Martin only found this because the
    * warning was still visibly sitting on the trophy.
    */
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
+  const fn = flagSrc;
   const branch = fn.slice(fn.indexOf('if (!clean && !closesAt)'), fn.indexOf('const spread'));
   assert.match(branch, /db\.clearTrophyFlags\(env, \{/, 'the bare clear reaches the trophies');
   assert.match(branch, /npCommId: edition\?\.np_comm_id \?\? null/, 'scoped like everything else');
@@ -533,6 +549,88 @@ test('the clear reply warns about the five-minute page cache', () => {
   // Game pages are cached at the edge for 300s. A mod who clears a flag,
   // refreshes, and still sees it will report the clear as broken — which is
   // exactly the report that found the bug above.
-  const fn = SRC.slice(SRC.indexOf('async function flagGame'));
-  assert.match(fn.slice(0, 9000), /Pages cache for five minutes/);
+  const fn = flagSrc;
+  assert.match(fn, /Pages cache for five minutes/);
+});
+
+// ------------------------------------------------------- the stale flag ----
+
+test('the register gate no longer tells anybody the board is in testing', () => {
+  /**
+   * `HUNTER_ROLE_ID` kept the soft-launch role id for months after the soft
+   * launch finished, so every member who tried to join was told "the leaderboard
+   * is still in testing" and to ask a mod. Martin reported it as a bug, which is
+   * exactly what a stale launch flag looks like from the outside.
+   *
+   * The flag is now empty in wrangler.toml, and the message it would print if
+   * anybody turned it back on says which role is missing rather than making a
+   * claim about the state of the project that will rot the same way.
+   */
+  const whole = SRC.slice(
+    SRC.indexOf('async function register'),
+    SRC.indexOf('function verificationPrompt'),
+  );
+  assert.ok(whole.length > 200, 'the slice covers the function');
+
+  // Comments are exempt, the same way test/copy.test.mjs exempts them: the
+  // block above this gate quotes the old line to explain why it went, and a
+  // test that cannot tell an explanation from the thing it explains would force
+  // the reasoning out of the file.
+  const fn = whole.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.ok(!/still in testing/i.test(fn), 'the testing line is gone');
+  assert.ok(!/want in early/i.test(fn), 'and so is the invite-list wording');
+  assert.match(fn, /invite only/i, 'it says what is true instead');
+  assert.match(fn, /HUNTER_ROLE_ID/, 'and still names the role that is missing');
+});
+
+test('the board is open: HUNTER_ROLE_ID ships empty', () => {
+  const toml = readFileSync(fileURLToPath(new URL('../wrangler.toml', import.meta.url)), 'utf8');
+  assert.match(toml, /^HUNTER_ROLE_ID = ""$/m, 'the gate is off');
+  // The other half of the same session. An empty owner id silently widens the
+  // rename to anybody with Manage Server.
+  assert.match(toml, /^DISCORD_OWNER_ID = "\d{5,}"$/m, 'and the owner is set');
+});
+
+// ------------------------------------------------------------- /setgame ----
+
+test('/setgame is wired end to end', () => {
+  const names = declared();
+  assert.match(SRC, /case 'setgame':\s*return setGame\(/, 'dispatched');
+  assert.ok(names.has('setGame'), 'to a function that exists');
+
+  const reg = readFileSync(
+    fileURLToPath(new URL('../jobs/register-commands.mjs', import.meta.url)),
+    'utf8',
+  );
+  assert.match(reg, /name: 'setgame'/, 'and Discord knows about it');
+  // No permission gate: it only ever changes your own bar, like /twitch.
+  const block = reg.slice(reg.indexOf("name: 'setgame'"), reg.indexOf("name: 'overlay'"));
+  assert.ok(!/default_member_permissions/.test(block), 'and it is not mod only');
+});
+
+test('a pin is checked against the hunter\'s own library, not against games', () => {
+  // The overlay reads the pinned game out of member_games. A game they do not
+  // own would leave the bar with a name and no numbers, and an autocomplete can
+  // be typed into rather than picked from.
+  const fn = SRC.slice(SRC.indexOf('async function setGame'), SRC.indexOf('async function twitch'));
+  assert.ok(fn.length > 500, 'the slice covers the function');
+  assert.match(fn, /myGamesForPin/, 'it asks for their games');
+  assert.match(fn, /Pick a game from the dropdown/, 'and refuses anything else');
+  assert.match(fn, /027-game-pin/, 'a missing migration is named, not printed as SQLite');
+});
+
+test('the setgame picker offers np_comm_ids, not titles', () => {
+  /**
+   * It shares the option NAME with /flag and /game and means something
+   * different by it: a pin is an instruction about ONE trophy list, and
+   * "God of War" does not say which of three. Checked before the GAME_FIELDS
+   * branch or it would quietly hand back titles from the whole database.
+   */
+  const fn = SRC.slice(SRC.indexOf('async function handleAutocomplete'));
+  assert.match(fn, /const isPin = interaction\.data\.name === 'setgame'/);
+  assert.ok(
+    fn.indexOf('isPin ||') < fn.indexOf('GAME_FIELDS.has(option.name)'),
+    'and it is checked before the title branch',
+  );
+  assert.match(fn, /value: String\(g\.np_comm_id\)/, 'the value is an id');
 });

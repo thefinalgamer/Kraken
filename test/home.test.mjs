@@ -386,3 +386,76 @@ test('the strip survives a database that has not run migration 019', async () =>
   const out = await res.text();
   assert.ok(!bodyOf(out).includes('class="live"'));
 });
+
+// --------------------------------------------------- the shelf controls ----
+
+/** n live streamers, so the page count can be dialled. */
+const manyLive = (count) =>
+  Array.from({ length: count }, (_, i) => ({
+    psn_online_id: `Streamer${i}`,
+    avatar_url: null,
+    twitch_login: `streamer${i}`,
+    rank: i + 1,
+    points: 1000 - i,
+    live_since: Date.now() - (i + 1) * 60000,
+    live_game: 'Ghost of Yotei',
+    live_viewers: 10 + i,
+    live_thumb: `https://static-cdn.jtvnw.net/${i}-640x360.jpg`,
+    live_mature: 0,
+  }));
+
+test('a shelf that fits on screen carries no controls at all', async () => {
+  // Three across is the whole shelf. There is nowhere to go, so neither the
+  // arrows nor the dots are furniture worth drawing.
+  const body = bodyOf((await render({ live: manyLive(3) })).out);
+  assert.ok(!body.includes('class="lvgo'), 'no arrows');
+  assert.ok(!body.includes('class="lvdots"'), 'no dots');
+});
+
+test('two groups gets arrows and NOT dots', async () => {
+  /**
+   * The server could not find the dots: "the tiny buttons on the bottom people
+   * can not see them". At two pages the arrows reach everything, so a row of
+   * two dots underneath is furniture repeating what the arrows just said.
+   */
+  const body = bodyOf((await render({ live: manyLive(5) })).out);
+  assert.match(body, /class="lvgo back" href="#lv0"/, 'back to the first card');
+  assert.match(body, /class="lvgo fwd" href="#lv3"/, 'forward to the second group');
+  assert.ok(!body.includes('class="lvdots"'), 'and no dots to duplicate them');
+});
+
+test('three groups keeps the dots, because the arrows cannot reach the middle', async () => {
+  /**
+   * The arrows are ANCHORS, not buttons. With no JavaScript there is no "one
+   * page forward from wherever you are" — an anchor goes to a fixed card. So
+   * they go to the two places that are right whatever the shelf has been
+   * dragged to, and the dots cover the middle.
+   */
+  const body = bodyOf((await render({ live: manyLive(9) })).out);
+  assert.match(body, /class="lvgo fwd" href="#lv6"/, 'forward lands on the LAST group');
+  assert.match(body, /class="lvdots"/, 'and the middle is still reachable');
+  assert.match(body, /href="#lv3"/, 'by its own dot');
+});
+
+test('the arrows are anchors into the shelf, never a script', async () => {
+  // The whole site has never shipped a byte of JavaScript and this control did
+  // not earn the first one.
+  const { out } = await render({ live: manyLive(6) });
+  assert.ok(!/<script/i.test(out), 'no script tag anywhere on the page');
+  assert.ok(!/onclick=/i.test(out), 'and nothing inline either');
+});
+
+test('the arrows do not spend the VS colours', async () => {
+  /**
+   * The teal-to-brass pair means one thing on this site: you on one side, them
+   * on the other, split down the middle. Left and right on a shelf are not two
+   * opposing parties, they are the same list twice, and spending that pair here
+   * would spend the one place it means something.
+   */
+  const { out } = await render({ live: manyLive(6) });
+  const css = out.slice(out.indexOf('<style'), out.indexOf('</style>'));
+  const rule = css.slice(css.indexOf('.lvgo{'), css.indexOf('.lvgo svg'));
+  assert.ok(rule.length > 100, 'the slice covers the rule');
+  assert.ok(!rule.includes('--brass'), 'no brass on the arrows');
+  assert.match(rule, /var\(--kraken\)/, 'the site accent instead');
+});

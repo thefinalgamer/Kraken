@@ -1,0 +1,81 @@
+<title>Odometer</title>
+<style>
+:root{
+  --deep:#08100f; --ground:#0c1618; --panel:#122024; --edge:#1c3036;
+  --ink:#e6efec; --soft:#93a8a6; --faint:#7d939a;
+  /* --faint was #63797a, which measured 3.61:1 against the panel. WCAG AA wants
+     4.5:1 for text this size, so every timestamp, trophy count and axis label on
+     the site was below the line — Martin noticed before any tooling did.
+     #7d939a is 5.18:1 and still sits clearly behind --soft (6.67) and
+     --ink (14.25), so the three-step hierarchy survives the fix. */
+  --kraken:#20b899; --brass:#d8ab3e; --rule:#16272b;
+  /* Tonight. Used only for things that happened in front of an audience, which
+     is why it is nowhere else on the site. */
+  --live:#b07dff;
+  --up:#4ec98a; --down:#e0645f;
+}
+.totals{
+  display:flex;flex-wrap:wrap;gap:10px;margin:30px 0 22px;padding:0;list-style:none;
+}
+.totals div{
+  flex:1 1 150px;border:1px solid var(--edge);border-radius:10px;background:var(--panel);
+  padding:12px 14px;text-align:center;
+}
+.totals dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.totals dd{margin:3px 0 0;font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* THE ODOMETER. See odometer() in this file for why it is built this way.
+
+   THE RESTING STATE IS THE ANSWER. .ost carries the transform that puts the
+   right digit in the window, and the animation only moves where it STARTS - one
+   full turn above - so it falls into a position that was already correct. A
+   browser that runs no animation shows the number and does not spin, which is
+   the opposite of what a counter animated up from zero does when it fails.
+
+   1em windows, so line-height:1 on the digits is load-bearing: anything else
+   and the strip steps by the wrong distance and every number lands between two
+   digits. */
+.odo{display:inline-flex;align-items:flex-end;line-height:1}
+.od{
+  display:inline-block;height:1em;overflow:hidden;
+  vertical-align:bottom;
+}
+.ost{
+  display:block;line-height:1;
+  transform:translateY(calc(var(--d) * -1em));
+  animation:odoroll .9s cubic-bezier(.16,.84,.34,1) both;
+  animation-delay:calc(var(--i) * 40ms);
+}
+.ost i{display:block;font-style:normal;line-height:1;height:1em}
+.osep{display:inline-block}
+@keyframes odoroll{
+  from{transform:translateY(calc((var(--d) + 10) * -1em))}
+}
+/* Motion is the whole feature, so there is nothing to soften: it is switched
+   off entirely and the resting transform prints the number. */
+@media (prefers-reduced-motion:reduce){
+  .ost{animation:none}
+}
+
+
+body{background:var(--ground);color:var(--ink);margin:0;padding:30px 20px 70px;
+  font:400 15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:19px;margin:0 0 4px}
+p.lede{color:var(--soft);font-size:13.5px;margin:0 0 8px;max-width:64ch}
+h3{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--brass);
+  margin:34px 0 6px;font-weight:700}
+.note{color:var(--faint);font-size:12.5px;margin:0 0 10px;max-width:72ch}
+.still .ost{animation:none}
+</style>
+<div class="wrap">
+  <h1>Headline figures</h1>
+  <p class="lede">Reload the page to see it again. Your real numbers.</p>
+  <dl class="totals"><div><dt>Hunters</dt><dd><span class="odo" role="img" aria-label="75"><span class="od"><span class="ost" style="--d:7;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:5;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>Points banked</dt><dd><span class="odo" role="img" aria-label="14,401,549"><span class="od"><span class="ost" style="--d:1;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:4;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:4;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:1;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:5;--i:7"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:4;--i:8"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:9;--i:9"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>Platinums</dt><dd><span class="odo" role="img" aria-label="70,100"><span class="od"><span class="ost" style="--d:7;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:1;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>Games owned</dt><dd><span class="odo" role="img" aria-label="87,140"><span class="od"><span class="ost" style="--d:8;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:7;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:1;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:4;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>100% completions</dt><dd><span class="odo" role="img" aria-label="72,297"><span class="od"><span class="ost" style="--d:7;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:2;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:2;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:9;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:7;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div></dl>
+
+  <h3>With the animation switched off</h3>
+  <p class="note">Reduced motion, an old engine, a screenshot tool. The resting transform is the
+    answer, so the number is right and it simply does not spin — the opposite of what a counter
+    animated up from zero does when it fails.</p>
+  <dl class="totals still"><div><dt>Hunters</dt><dd><span class="odo" role="img" aria-label="75"><span class="od"><span class="ost" style="--d:7;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:5;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>Points banked</dt><dd><span class="odo" role="img" aria-label="14,401,549"><span class="od"><span class="ost" style="--d:1;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:4;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:4;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:1;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:5;--i:7"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:4;--i:8"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:9;--i:9"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>Platinums</dt><dd><span class="odo" role="img" aria-label="70,100"><span class="od"><span class="ost" style="--d:7;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:1;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>Games owned</dt><dd><span class="odo" role="img" aria-label="87,140"><span class="od"><span class="ost" style="--d:8;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:7;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:1;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:4;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:0;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div><div><dt>100% completions</dt><dd><span class="odo" role="img" aria-label="72,297"><span class="od"><span class="ost" style="--d:7;--i:0"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:2;--i:1"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="osep">,</span><span class="od"><span class="ost" style="--d:2;--i:3"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:9;--i:4"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span><span class="od"><span class="ost" style="--d:7;--i:5"><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></span></span></dd></div></dl>
+</div>

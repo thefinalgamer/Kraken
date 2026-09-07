@@ -83,16 +83,34 @@ const GAME = `SELECT ${GAME_COLS} FROM games WHERE np_comm_id = ? LIMIT 1`;
  * somebody who streams", it is "earned while people were watching", which is a
  * different and much better fact.
  *
- * ONE ROW PER TROPHY, and the name of whoever did it first. Reads the partial
- * index from migration 024, so it touches only flagged rows: a handful, growing
- * one at a time, live.
+ * ONE HUNTER'S OWN LIVE TROPHIES, AND ONLY ON THEIR PAGE.
+ *
+ * This asked the whole server - one row per trophy, whoever did it first - and
+ * the mark then went on every copy of the game page including the bare
+ * catalogue one, which is the bug Martin reported twice. First: "this isnt his
+ * profile this is just the games profile HAHA". Then, when the fix only added a
+ * name to it: "it should never be on the game catalog without looking through
+ * someones profile".
+ *
+ * He is right and the second report is the better rule. Purple is a fact about
+ * a night in somebody's stream, so it belongs on the page that is about
+ * somebody. The route is profile, then game, then the trophies - and the query
+ * is now scoped to that hunter to match, which is what makes a bare mark
+ * honest again: on a page whose header is JFL__Leon, every purple card can only
+ * mean JFL__Leon, so there is no name to add and nothing left to misread.
+ *
+ * NOT RUN AT ALL without a hunter. See the Promise.all below: no `as`, no
+ * query, no marks, one less read on the page most people land on first.
+ *
+ * Reads the partial index from migration 024, so it touches only flagged rows:
+ * a handful, growing one at a time, live.
  */
 const ON_STREAM = `
-  SELECT mt.trophy_id, MIN(mt.earned_at) AS at,
-         (SELECT m.psn_online_id FROM members m
-           WHERE m.psn_account_id = mt.psn_account_id) AS who
+  SELECT mt.trophy_id, MIN(mt.earned_at) AS at
     FROM member_trophies mt
    WHERE mt.np_comm_id = ? AND mt.on_stream = 1
+     AND mt.psn_account_id = (SELECT m.psn_account_id FROM members m
+                               WHERE m.psn_online_id = ? COLLATE NOCASE)
    GROUP BY mt.trophy_id`;
 
 /**
@@ -330,6 +348,17 @@ function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null }
   const onAir = live?.get(Number(t.trophy_id)) ?? null;
 
   /**
+   * NO NAME ON THE MARK, and no way to need one.
+   *
+   * It carried a name for about an hour. That was the wrong fix to the right
+   * complaint: the problem was never that the badge failed to say who, it was
+   * that a badge about one person's stream was appearing on a page that is not
+   * about a person. Scoping the query to the hunter whose page this is (see
+   * ON_STREAM) fixes the cause rather than annotating the symptom, and a mark
+   * that can only ever mean the name already in the header has nothing to add.
+   */
+
+  /**
    * WHOSE LIVE MOMENT IT WAS, named unless the page already says.
    *
    * The name came off this mark once and it was right to: on /game/x?as=JFL__Leon
@@ -344,9 +373,6 @@ function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null }
    * filtered to. Browsing cold, or looking at Leon's page at a trophy somebody
    * else popped on stream, both get the name.
    */
-  const airWho = onAir?.who ? String(onAir.who) : '';
-  const airMine =
-    !!airWho && !!whose && airWho.toLowerCase() === String(whose).toLowerCase();
 
   return `<li class="tc m-${metal}${secret ? ' secret' : ''}${
     // The single-hunter highlight steps aside while two are being compared: the
@@ -374,18 +400,14 @@ function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null }
         ${secret ? '<span class="secretmark">Secret</span>' : ''}
         ${
           /**
-           * THE NAME CAME OFF. It read "EARNED LIVE BY JFL__LEON" and Martin
-           * cut it: on a page already filtered to one hunter it says something
-           * the reader knows, in the widest possible way, on every card it
-           * touches. The name survives in the tooltip for the case where it is
-           * genuinely news, which is somebody browsing the game cold.
+           * TWO WORDS. It read "EARNED LIVE BY JFL__LEON" once, on a page whose
+           * whole header is JFL__Leon, on every card it touched. The name is in
+           * the tooltip and nowhere else.
            */
           onAir
             ? `<span class="livemark" title="${esc(
-                `${airWho || 'Somebody here'} earned this live on stream`,
-              )}">&#9679; Live${
-                airWho && !airMine ? ` &middot; <b class="lwho">${esc(airWho)}</b>` : ''
-              }</span>`
+                `${whose || 'They'} earned this live on stream`,
+              )}">&#9679; Live</span>`
             : ''
         }
         ${
@@ -572,12 +594,18 @@ export async function onRequestGet({ params, env, request }) {
     as ? env.DB.prepare(VIEWER).bind(as, g.np_comm_id).first() : Promise.resolve(null),
     vsName ? env.DB.prepare(VIEWER).bind(vsName, g.np_comm_id).first() : Promise.resolve(null),
     /**
-     * Wrapped, because `on_stream` arrives in migration 024 and a game page
-     * must not go down on a database that has not run it. Same seatbelt as the
-     * flags and the live strip: one un-run migration costs one detail, never a
-     * page.
+     * SKIPPED ENTIRELY WITHOUT A HUNTER, which is the rule and also a free
+     * saving: the bare catalogue page is the one most people land on first and
+     * it no longer pays for a query whose answer it is not allowed to draw.
+     *
+     * Still wrapped, because `on_stream` arrives in migration 024 and a game
+     * page must not go down on a database that has not run it. Same seatbelt as
+     * the flags and the live strip: one un-run migration costs one detail,
+     * never a page.
      */
-    env.DB.prepare(ON_STREAM).bind(g.np_comm_id).all().catch(() => ({ results: [] })),
+    as
+      ? env.DB.prepare(ON_STREAM).bind(g.np_comm_id, as).all().catch(() => ({ results: [] }))
+      : Promise.resolve({ results: [] }),
   ]);
 
   const live = new Map(onStream.map((r) => [Number(r.trophy_id), r]));

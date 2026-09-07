@@ -1,0 +1,735 @@
+<title>Live shelf arrows</title>
+<style>
+:root{
+  --deep:#08100f; --ground:#0c1618; --panel:#122024; --edge:#1c3036;
+  --ink:#e6efec; --soft:#93a8a6; --faint:#7d939a;
+  /* --faint was #63797a, which measured 3.61:1 against the panel. WCAG AA wants
+     4.5:1 for text this size, so every timestamp, trophy count and axis label on
+     the site was below the line — Martin noticed before any tooling did.
+     #7d939a is 5.18:1 and still sits clearly behind --soft (6.67) and
+     --ink (14.25), so the three-step hierarchy survives the fix. */
+  --kraken:#20b899; --brass:#d8ab3e; --rule:#16272b;
+  /* Tonight. Used only for things that happened in front of an audience, which
+     is why it is nowhere else on the site. */
+  --live:#b07dff;
+  --up:#4ec98a; --down:#e0645f;
+}
+/* LIVE NOW.
+   Cards, not a list. It was a list first and it read as an afterthought next to
+   the trophy cards and the deck: a name and a dot is a fact about a person,
+   while a still of what is on their screen with the viewer count on it is the
+   thing itself. Only drawn when somebody actually is live, so it never sits
+   empty at the top of the page. */
+.live{width:100%;margin:4px 0 8px}
+.live h2{
+  display:flex;align-items:center;gap:8px;margin:0 0 10px;
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);font-weight:700;
+}
+.live .dot{
+  width:8px;height:8px;border-radius:50%;background:var(--down);flex:none;
+  box-shadow:0 0 0 0 rgba(224,100,95,.55);animation:pulse 2.4s ease-out infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(224,100,95,.5)}
+  70%{box-shadow:0 0 0 7px rgba(224,100,95,0)}
+  100%{box-shadow:0 0 0 0 rgba(224,100,95,0)}
+}
+/* THE SHELF.
+   Three across, the next one peeking past the right edge so it is obvious there
+   is more, and it drags. Snapping is what makes a sideways scroller feel like a
+   shelf rather than a runaway div.
+
+   overflow-x:auto PROMOTES THE OTHER AXIS to auto as well, which is exactly the
+   bug that turned the games table into a scroll box when a popup opened inside
+   it. Nothing here is taller than the row and the lift on hover is paid for
+   with padding, so there is never anything to scroll vertically. */
+.lvwrap{position:relative;margin:0 -2px}
+.lvs{
+  display:grid;grid-auto-flow:column;
+  /* Three across MINUS a sliver, so the fourth card is visibly waiting at the
+     edge. Exactly three would fill the width and the shelf would look like it
+     ends there, which is the whole thing this is meant to avoid. */
+  grid-auto-columns:calc((100% - 2 * 12px - 52px) / 3);
+  gap:12px;padding:4px 2px 6px;
+  overflow-x:auto;overscroll-behavior-x:contain;
+  scroll-snap-type:x mandatory;scroll-padding-left:2px;
+  scrollbar-width:none;
+}
+.lvs::-webkit-scrollbar{display:none}
+/* scroll-margin-block, because an anchor scrolls EVERY scrollable ancestor to
+   bring its target into view, the document included. Without it, clicking an
+   arrow on a shelf that sits near the top of the page can jog the whole page up
+   to pin the card to the viewport edge. The margin gives the browser room to
+   decide the card is already visible and move only the shelf. */
+.lv{scroll-snap-align:start;scroll-margin-block:140px}
+/* The edge fade, which is the whole "there is more behind this" signal. It sits
+   over the shelf and must never eat a click meant for the card under it. */
+.lvwrap::after{
+  content:"";position:absolute;top:0;right:-2px;bottom:6px;width:56px;
+  pointer-events:none;
+  background:linear-gradient(90deg,rgba(12,22,24,0),var(--ground));
+}
+@media (max-width:760px){
+  .lvs{grid-auto-columns:86%}
+}
+/* THE ARROWS.
+   The dots were 22 by 4 pixels of --rule under a row of 16:9 stills and the
+   server could not see them: "the tiny buttons on the bottom people can not see
+   them". These sit ON the shelf, at the edges, where every video wall anybody
+   has ever used puts them.
+
+   ONE COLOUR, and it is the site's teal rather than the teal-to-brass pair off
+   the VS mark. That pair means something specific - you on one side, them on
+   the other, split down the middle - and left and right on a shelf are not two
+   opposing parties, they are the same list twice. Spending the VS colours here
+   would be spending the one place they mean something.
+
+   CENTRED ON THE CARD, not on the picture. Half a card lower would need a magic
+   number for the height of the name row underneath, and that number would be
+   wrong the first time the row changed. */
+.lvgo{
+  position:absolute;z-index:3;top:50%;transform:translateY(-50%);
+  width:42px;height:42px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(8,16,15,.78);border:1px solid var(--edge);
+  color:var(--kraken);text-decoration:none;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  transition:background .16s ease,border-color .16s ease,transform .16s ease;
+}
+.lvgo svg{width:20px;height:20px;display:block}
+.lvgo.back{left:8px}
+.lvgo.fwd{right:8px}
+.lvgo:hover,.lvgo:focus-visible{
+  background:var(--panel);border-color:var(--kraken);
+  transform:translateY(-50%) scale(1.07);
+}
+/* The right-hand fade is the "there is more" signal and the forward arrow now
+   sits inside it. Widened so the arrow has ground under it rather than floating
+   on the edge of a thumbnail. */
+.lvwrap:has(.lvgo)::after{width:78px}
+@media (max-width:760px){
+  /* Smaller and tucked tighter. A phone swipes, so these are a hint that the
+     shelf moves rather than the main way of moving it. */
+  .lvgo{width:34px;height:34px}
+  .lvgo svg{width:17px;height:17px}
+  .lvgo.back{left:5px}
+  .lvgo.fwd{right:5px}
+}
+
+/* The dots, now only when there are three or more groups - see liveStrip().
+   Bigger than they were, because the reason they were missed was partly that
+   they were four pixels tall. */
+.lvdots{display:flex;gap:7px;justify-content:center;margin:9px 0 0}
+.lvdots a{
+  width:26px;height:6px;border-radius:99px;background:var(--edge);
+  transition:background .16s ease;
+}
+.lvdots a:hover,.lvdots a:focus-visible{background:var(--kraken)}
+
+/* THE QUIET STATE.
+   The dot stops pulsing and goes grey, because a red live light over "nobody is
+   streaming" is the kind of small lie that makes people stop trusting the rest
+   of the page. Naming the regulars turns an empty box into an answer to "come
+   back when". */
+.live.off .dot{background:var(--rule);animation:none}
+.lvempty{
+  border:1px solid var(--edge);border-radius:12px;background:var(--panel);
+  padding:14px 16px;
+}
+.lvnone{margin:0;color:var(--soft);font-size:14px}
+.lvwho{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 0}
+.lvwho a{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:5px 11px 5px 5px;border-radius:99px;
+  border:1px solid var(--rule);background:var(--ground);
+  text-decoration:none;font-size:13px;font-weight:600;
+}
+.lvwho a:hover{border-color:var(--faint)}
+.lvwho img{border-radius:50%;flex:none}
+.lvrest{
+  display:inline-flex;align-items:center;padding:5px 11px;border-radius:99px;
+  color:var(--faint);font-size:12.5px;border:1px dashed var(--rule);
+}
+.lvhint{margin:10px 0 0;color:var(--faint);font-size:12.5px}
+.live h2 .count{
+  margin-left:2px;padding:1px 7px;border-radius:99px;
+  background:rgba(224,100,95,.16);border:1px solid rgba(224,100,95,.4);
+  color:var(--down);font-size:10.5px;letter-spacing:.04em;
+}
+.lv{
+  display:block;text-decoration:none;border-radius:12px;overflow:hidden;
+  border:1px solid var(--edge);background:var(--panel);
+  transition:border-color .16s ease, transform .16s ease;
+}
+.lv:hover{border-color:var(--faint);transform:translateY(-2px)}
+.lv .shot{
+  position:relative;display:block;aspect-ratio:16/9;overflow:hidden;background:var(--deep);
+}
+/* The still, and the slow drift across it.
+   A frozen frame looks like a broken video; two per cent of movement over
+   twenty seconds reads as alive without ever pulling focus from the page. */
+.lv .shot img{
+  width:100%;height:100%;object-fit:cover;display:block;
+  animation:driftshot 24s ease-in-out infinite alternate;
+}
+@keyframes driftshot{ from{transform:scale(1.02) translate3d(0,0,0)} to{transform:scale(1.08) translate3d(-1.5%,-1%,0)} }
+.lv .noshot{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(120% 120% at 20% 15%, rgba(32,184,153,.18), transparent 60%),
+    linear-gradient(160deg,#14262a,#0a1416);
+}
+.lv .shot::after{
+  content:"";position:absolute;inset:auto 0 0 0;height:62%;
+  background:linear-gradient(180deg,rgba(8,16,15,0),rgba(8,16,15,.86));
+}
+.lv .tag{
+  position:absolute;top:9px;left:9px;z-index:2;
+  display:inline-flex;align-items:center;gap:6px;
+  padding:3px 8px;border-radius:5px;background:var(--down);
+  color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.1em;
+}
+.lv .tag .dot{width:5px;height:5px;background:#fff;animation:none;box-shadow:none}
+.lv .watching{
+  position:absolute;top:9px;right:9px;z-index:2;
+  padding:3px 8px;border-radius:5px;background:rgba(8,16,15,.72);
+  color:var(--ink);font-size:11px;font-variant-numeric:tabular-nums;
+}
+.lv .up{
+  position:absolute;bottom:8px;right:10px;z-index:2;
+  color:var(--ink);font-size:11.5px;font-variant-numeric:tabular-nums;opacity:.85;
+}
+.lv .meta{display:flex;align-items:center;gap:10px;padding:10px 12px;min-width:0}
+.lv .meta img{border-radius:50%;flex:none}
+.lv .txt{min-width:0;display:flex;flex-direction:column;flex:1}
+.lv .nm{font-weight:700;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv .gm{color:var(--faint);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv .pos{
+  flex:none;text-align:right;color:var(--brass);font-weight:800;font-size:14px;
+  font-variant-numeric:tabular-nums;line-height:1.15;
+}
+.lv .pos .pts{display:block;color:var(--faint);font-weight:400;font-size:11px}
+
+
+
+/* preview chrome only */
+body{background:var(--ground);color:var(--ink);
+  font:400 15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  margin:0;padding:26px 18px 60px}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+.lede{color:var(--soft);font-size:13.5px;margin:0 0 26px;max-width:62ch}
+h3{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--brass);
+  margin:34px 0 4px;font-weight:700}
+.note{color:var(--faint);font-size:12.5px;margin:0 0 12px;max-width:70ch}
+.av{width:34px;height:34px;border-radius:50%;flex:none;
+  background:linear-gradient(140deg,#1d3b40,#0e1e22);border:1px solid var(--edge)}
+.lv .noshot{background:
+  radial-gradient(120% 120% at 20% 15%, hsl(var(--h) 60% 45% / .34), transparent 62%),
+  linear-gradient(160deg,#14262a,#0a1416)}
+.old .lvdots a{width:22px;height:4px;background:var(--rule)}
+hr{border:0;border-top:1px solid var(--edge);margin:36px 0 0}
+.alt .lvgo{color:var(--brass)}
+.alt .lvgo.back{color:var(--kraken)}
+.alt .lvgo:hover{border-color:currentColor}
+</style>
+<div class="wrap">
+  <h1>Live now &mdash; shelf controls</h1>
+  <p class="lede">The real stylesheet, pulled straight out of <code>page.js</code>.
+    Thumbnails are stand-ins. Hover the arrows.</p>
+
+  <h3>What ships now</h3>
+  <p class="note">Six live, so two groups. Arrows on the shelf, no dots &mdash; at two
+    groups the arrows already reach everything, so dots would repeat them.</p>
+  <section class="live">
+  <h2><span class="dot"></span>Live now <span class="count">6</span></h2>
+  <div class="lvwrap"><div class="lvs"><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:320"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">5 watching</span>
+        <span class="up">46m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">formalkilling</span>
+          <span class="gm">New World: Aeternum</span>
+        </span>
+        <span class="pos">55th<span class="pts">18,999</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:190"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">14 watching</span>
+        <span class="up">4h 24m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">JFL__Leon</span>
+          <span class="gm">Ghost of Y&#333;tei</span>
+        </span>
+        <span class="pos">31st<span class="pts">184,751</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:40"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">7 watching</span>
+        <span class="up">4h 45m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">UncleUrbi</span>
+          <span class="gm">Persona 4 Golden</span>
+        </span>
+        <span class="pos">54th<span class="pts">24,800</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:260"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">31 watching</span>
+        <span class="up">1h 02m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">th3finalgamer--</span>
+          <span class="gm">ASTRO BOT</span>
+        </span>
+        <span class="pos">1st<span class="pts">901,204</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:15"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">37 watching</span>
+        <span class="up">2h 15m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">Pelziowo</span>
+          <span class="gm">Elden Ring</span>
+        </span>
+        <span class="pos">2nd<span class="pts">748,220</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:285"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">3 watching</span>
+        <span class="up">38m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">StinkyMinkie</span>
+          <span class="gm">inFAMOUS 2</span>
+        </span>
+        <span class="pos">19th<span class="pts">96,410</span></span>
+      </span>
+    </a></div><a class="lvgo back " href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></a><a class="lvgo fwd " href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></a></div>
+  
+</section>
+
+  <h3>Nine live &mdash; three groups</h3>
+  <p class="note">Now there is a middle the arrows cannot reach, so the dots come back.
+    Bigger than before: 26&times;6 instead of 22&times;4.</p>
+  <section class="live">
+  <h2><span class="dot"></span>Live now <span class="count">9</span></h2>
+  <div class="lvwrap"><div class="lvs"><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:320"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">5 watching</span>
+        <span class="up">46m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">formalkilling</span>
+          <span class="gm">New World: Aeternum</span>
+        </span>
+        <span class="pos">55th<span class="pts">18,999</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:190"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">14 watching</span>
+        <span class="up">4h 24m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">JFL__Leon</span>
+          <span class="gm">Ghost of Y&#333;tei</span>
+        </span>
+        <span class="pos">31st<span class="pts">184,751</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:40"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">7 watching</span>
+        <span class="up">4h 45m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">UncleUrbi</span>
+          <span class="gm">Persona 4 Golden</span>
+        </span>
+        <span class="pos">54th<span class="pts">24,800</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:260"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">31 watching</span>
+        <span class="up">1h 02m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">th3finalgamer--</span>
+          <span class="gm">ASTRO BOT</span>
+        </span>
+        <span class="pos">1st<span class="pts">901,204</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:15"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">37 watching</span>
+        <span class="up">2h 15m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">Pelziowo</span>
+          <span class="gm">Elden Ring</span>
+        </span>
+        <span class="pos">2nd<span class="pts">748,220</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:285"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">3 watching</span>
+        <span class="up">38m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">StinkyMinkie</span>
+          <span class="gm">inFAMOUS 2</span>
+        </span>
+        <span class="pos">19th<span class="pts">96,410</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:320"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">5 watching</span>
+        <span class="up">46m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">formalkilling</span>
+          <span class="gm">New World: Aeternum</span>
+        </span>
+        <span class="pos">55th<span class="pts">18,999</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:190"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">14 watching</span>
+        <span class="up">4h 24m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">JFL__Leon</span>
+          <span class="gm">Ghost of Y&#333;tei</span>
+        </span>
+        <span class="pos">31st<span class="pts">184,751</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:40"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">7 watching</span>
+        <span class="up">4h 45m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">UncleUrbi</span>
+          <span class="gm">Persona 4 Golden</span>
+        </span>
+        <span class="pos">54th<span class="pts">24,800</span></span>
+      </span>
+    </a></div><a class="lvgo back " href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></a><a class="lvgo fwd " href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></a></div>
+  <nav class="lvdots"><a href="#"></a><a href="#"></a><a href="#"></a></nav>
+</section>
+
+  <h3>Three live &mdash; nothing to page through</h3>
+  <p class="note">No controls at all. There is nowhere to go.</p>
+  <section class="live">
+  <h2><span class="dot"></span>Live now <span class="count">3</span></h2>
+  <div class="lvwrap"><div class="lvs"><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:320"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">5 watching</span>
+        <span class="up">46m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">formalkilling</span>
+          <span class="gm">New World: Aeternum</span>
+        </span>
+        <span class="pos">55th<span class="pts">18,999</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:190"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">14 watching</span>
+        <span class="up">4h 24m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">JFL__Leon</span>
+          <span class="gm">Ghost of Y&#333;tei</span>
+        </span>
+        <span class="pos">31st<span class="pts">184,751</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:40"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">7 watching</span>
+        <span class="up">4h 45m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">UncleUrbi</span>
+          <span class="gm">Persona 4 Golden</span>
+        </span>
+        <span class="pos">54th<span class="pts">24,800</span></span>
+      </span>
+    </a></div></div>
+  
+</section>
+
+  <hr>
+  <h3>The old dots, for comparison</h3>
+  <p class="note">This is what the server could not see: 22&times;4 pixels of
+    <code>--rule</code> under a row of 16:9 stills.</p>
+  <div class="old"><section class="live">
+  <h2><span class="dot"></span>Live now <span class="count">6</span></h2>
+  <div class="lvwrap"><div class="lvs"><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:320"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">5 watching</span>
+        <span class="up">46m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">formalkilling</span>
+          <span class="gm">New World: Aeternum</span>
+        </span>
+        <span class="pos">55th<span class="pts">18,999</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:190"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">14 watching</span>
+        <span class="up">4h 24m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">JFL__Leon</span>
+          <span class="gm">Ghost of Y&#333;tei</span>
+        </span>
+        <span class="pos">31st<span class="pts">184,751</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:40"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">7 watching</span>
+        <span class="up">4h 45m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">UncleUrbi</span>
+          <span class="gm">Persona 4 Golden</span>
+        </span>
+        <span class="pos">54th<span class="pts">24,800</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:260"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">31 watching</span>
+        <span class="up">1h 02m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">th3finalgamer--</span>
+          <span class="gm">ASTRO BOT</span>
+        </span>
+        <span class="pos">1st<span class="pts">901,204</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:15"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">37 watching</span>
+        <span class="up">2h 15m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">Pelziowo</span>
+          <span class="gm">Elden Ring</span>
+        </span>
+        <span class="pos">2nd<span class="pts">748,220</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:285"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">3 watching</span>
+        <span class="up">38m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">StinkyMinkie</span>
+          <span class="gm">inFAMOUS 2</span>
+        </span>
+        <span class="pos">19th<span class="pts">96,410</span></span>
+      </span>
+    </a></div></div>
+  <nav class="lvdots"><a href="#"></a><a href="#"></a></nav>
+</section></div>
+
+  <h3>If you want the VS colours anyway</h3>
+  <p class="note">Teal back, brass forward. My argument against is below, but here it is
+    so you can judge it rather than take my word.</p>
+  <div class="alt"><section class="live">
+  <h2><span class="dot"></span>Live now <span class="count">6</span></h2>
+  <div class="lvwrap"><div class="lvs"><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:320"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">5 watching</span>
+        <span class="up">46m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">formalkilling</span>
+          <span class="gm">New World: Aeternum</span>
+        </span>
+        <span class="pos">55th<span class="pts">18,999</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:190"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">14 watching</span>
+        <span class="up">4h 24m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">JFL__Leon</span>
+          <span class="gm">Ghost of Y&#333;tei</span>
+        </span>
+        <span class="pos">31st<span class="pts">184,751</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:40"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">7 watching</span>
+        <span class="up">4h 45m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">UncleUrbi</span>
+          <span class="gm">Persona 4 Golden</span>
+        </span>
+        <span class="pos">54th<span class="pts">24,800</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:260"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">31 watching</span>
+        <span class="up">1h 02m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">th3finalgamer--</span>
+          <span class="gm">ASTRO BOT</span>
+        </span>
+        <span class="pos">1st<span class="pts">901,204</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:15"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">37 watching</span>
+        <span class="up">2h 15m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">Pelziowo</span>
+          <span class="gm">Elden Ring</span>
+        </span>
+        <span class="pos">2nd<span class="pts">748,220</span></span>
+      </span>
+    </a><a class="lv" href="#">
+      <span class="shot">
+        <span class="noshot" style="--h:285"></span>
+        <span class="tag"><span class="dot"></span>LIVE</span>
+        <span class="watching">3 watching</span>
+        <span class="up">38m</span>
+      </span>
+      <span class="meta">
+        <span class="av"></span>
+        <span class="txt">
+          <span class="nm">StinkyMinkie</span>
+          <span class="gm">inFAMOUS 2</span>
+        </span>
+        <span class="pos">19th<span class="pts">96,410</span></span>
+      </span>
+    </a></div><a class="lvgo back " href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></a><a class="lvgo fwd " href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></a></div>
+  
+</section></div>
+</div>

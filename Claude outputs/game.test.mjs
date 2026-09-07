@@ -650,75 +650,78 @@ test('the count comes from the rows on the page, not a second query', async () =
 });
 
 
-test('a trophy earned in front of an audience is marked, and says who', async () => {
+test('the live mark needs a hunter, and belongs to that hunter', async () => {
   /**
    * `on_stream` is set by the live poll and only by the live poll, which cannot
    * run unless Twitch says the member is on air. So this is not "earned by
    * somebody who streams", it is "earned while people were watching", which is
    * a different and much better fact, and nothing else on the internet records
    * it.
+   *
+   * It is also a fact about ONE PERSON'S NIGHT, which is why it only appears on
+   * a page that is about a person. Martin reported the bare catalogue page
+   * twice: "this isnt his profile this is just the games profile HAHA", and
+   * then, when the first fix only added a name to it, "it should never be on
+   * the game catalog without looking through someones profile".
    */
-  const { out } = await render({
-    onStream: [{ trophy_id: 2, at: Date.now() - 3600000, who: 'JFL__Leon' }],
-  });
+  const { out } = await render(
+    { viewer: VIEWER, onStream: [{ trophy_id: 2, at: Date.now() - 3600000 }] },
+    '?as=JFL__Leon',
+  );
   const body = bodyOf(out);
 
-  assert.match(body, /class="livemark"/, 'the mark is there');
-  /**
-   * ON THE BARE GAME PAGE THE MARK IS NAMED. This is /game/NPWR07110_00 with no
-   * ?as=, so there is no hunter in the header and an unattributed "Live" reads
-   * as though the page belongs to whoever popped it. Martin, on exactly this
-   * screen: "this isnt his profile this is just the games profile HAHA".
-   *
-   * The name is in a span of its own so the pill's uppercase does not rewrite a
-   * PSN id somebody chose the capitals of.
-   */
-  assert.match(body, /class="livemark"[^>]*>&#9679; Live &middot; <b class="lwho">JFL__Leon<\/b><\/span>/);
-  assert.match(body, /title="JFL__Leon earned this live on stream"/);
+  assert.match(body, /class="livemark"[^>]*>&#9679; Live<\/span>/, 'two words, no name');
+  assert.match(body, /title="JFL__Leon earned this live on stream"/, 'the name is in the tooltip');
   assert.match(body, /class="tc [^"]*onair/, 'and the card carries the purple edge');
 
   // Exactly one of them. The other trophies are ordinary.
   assert.equal([...body.matchAll(/class="livemark"/g)].length, 1);
 });
 
-test('the live mark drops the name on the page that already says it', async () => {
+test('the bare catalogue page carries no live mark and no purple', async () => {
   /**
-   * The other half of the same rule. Filtered to JFL__Leon, every purple card
-   * naming JFL__Leon is shouting something the header said once already, which
-   * is why the name came off in the first place. It stays off HERE and nowhere
-   * else.
+   * The rule Martin landed on, and it is a better one than naming the badge:
+   * the problem was never that it failed to say who, it was that a badge about
+   * one person's stream was on a page that is not about a person. The purple
+   * edge goes with it - a stripe with nothing explaining it is the same puzzle
+   * in a quieter form.
    */
-  const { out } = await render(
-    { viewer: VIEWER, onStream: [{ trophy_id: 2, at: Date.now() - 3600000, who: 'JFL__Leon' }] },
-    '?as=JFL__Leon',
-  );
-  const body = bodyOf(out);
+  const body = bodyOf((await render({ onStream: [{ trophy_id: 2, at: Date.now() }] })).out);
 
-  assert.match(body, /class="livemark"[^>]*>&#9679; Live<\/span>/);
-  assert.ok(!body.includes('class="lwho"'), 'no name in the pill');
-  // Still in the tooltip, which costs nothing and answers the question anyway.
-  assert.match(body, /title="JFL__Leon earned this live on stream"/);
+  assert.ok(!body.includes('class="livemark"'), 'no badge');
+  assert.ok(!/class="tc [^"]*onair/.test(body), 'and no purple edge either');
 });
 
-test('somebody else\'s live moment is named even on a hunter\'s own page', async () => {
+test('an unfiltered page does not even ask about live trophies', async () => {
   /**
-   * The case a plain "is the page filtered?" test would get wrong. Leon's view
-   * of Bloodborne showing a trophy StinkyMinkie popped on stream is not Leon's
-   * moment, and a bare "Live" under his name would claim it for him.
+   * The rule, enforced where it costs rather than where it shows. The bare
+   * catalogue page is the one most people land on first and it no longer pays
+   * for a query whose answer it is not allowed to draw.
    */
-  const { out } = await render(
-    { viewer: VIEWER, onStream: [{ trophy_id: 2, at: Date.now() - 3600000, who: 'StinkyMinkie' }] },
-    '?as=JFL__Leon',
-  );
-  assert.match(bodyOf(out), /<b class="lwho">StinkyMinkie<\/b>/);
+  const src = await readFile(new URL('../functions/game/[id].js', import.meta.url), 'utf8');
+  assert.match(src, /as\s*\?\s*env\.DB\.prepare\(ON_STREAM\)/, 'the query is gated on `as`');
+  assert.match(src, /mt\.psn_account_id = \(SELECT/, 'and scoped to that hunter');
 });
 
-test('a live mark with no name attached still renders', async () => {
-  // The member row behind the id could be gone. The purple is still true.
-  const { out } = await render({ onStream: [{ trophy_id: 2, at: Date.now(), who: null }] });
-  const body = bodyOf(out);
-  assert.match(body, /class="livemark"[^>]*>&#9679; Live<\/span>/);
-  assert.match(body, /title="Somebody here earned this live on stream"/);
+test('nothing anywhere reads on_stream for the whole server at once', async () => {
+  /**
+   * THE RULE, in one place, across every page that touches the column.
+   *
+   * Purple is a fact about one person's night. An `on_stream` query with no
+   * account in its WHERE is the shape of the bug that reached Martin twice, so
+   * this fails the build rather than waiting for a third screenshot.
+   *
+   * The hunter page has always been scoped; the game page was not. Both are
+   * checked here so a future page cannot quietly add a third.
+   */
+  const files = ['../functions/game/[id].js', '../functions/hunter/[name].js'];
+  for (const f of files) {
+    const src = await readFile(new URL(f, import.meta.url), 'utf8');
+    const at = src.indexOf('const ON_STREAM = `');
+    if (at === -1) continue;
+    const sql = src.slice(at, src.indexOf('`;', at));
+    assert.match(sql, /psn_account_id/, `${f} scopes its live query to one hunter`);
+  }
 });
 
 test('no live marks at all when nobody has earned one on stream', async () => {

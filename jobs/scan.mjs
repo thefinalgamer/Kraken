@@ -193,11 +193,11 @@ async function main() {
 
     await db.run(
       'UPDATE members SET psn_account_id = ?, psn_online_id = ?, avatar_url = ? WHERE discord_id = ?',
-      [account.accountId, account.onlineId, account.avatarUrl ?? null, discordId],
+      [account.accountId, account.onlineId, https(account.avatarUrl), discordId],
     );
     member.psn_account_id = account.accountId;
     member.psn_online_id = account.onlineId;
-    member.avatar_url = account.avatarUrl ?? null;
+    member.avatar_url = https(account.avatarUrl);
     console.log(`Resolved ${account.onlineId} to account ${account.accountId}`);
   }
 
@@ -785,7 +785,7 @@ async function scanGame(
         title.npServiceName ?? null,
         cleanTitle(title.trophyTitleName),
         title.trophyTitlePlatform ?? null,
-        title.trophyTitleIconUrl ?? null,
+        https(title.trophyTitleIconUrl),
         rated.length,
         rated.some((t) => t.type === 'platinum') ? 1 : 0,
         rated.reduce((n, t) => n + t.points, 0),
@@ -1221,6 +1221,26 @@ async function recomputeRanks() {
 }
 
 // ---------------------------------------------------------------- utils ----
+
+/**
+ * Store image URLs as https, because that is the only way they can be shown.
+ *
+ * PSN hands out avatars on two plain-http hosts - static-resource.np.community
+ * and psn-rsc.prod.dl - and game art on two https ones. The site is https and a
+ * Twitch panel is https, so an http image is mixed content: silently upgraded
+ * by some browsers, blocked outright by others, and never simply loaded.
+ *
+ * Fixing it here means the database stops accumulating rows that cannot be
+ * rendered. `functions/_lib/page.js` has the same upgrade for everything
+ * already stored; this is the end that stops the pile growing.
+ */
+const https = (url) => {
+  const raw = String(url ?? '').trim();
+  if (!raw) return null;
+  if (raw.startsWith('https://')) return raw;
+  if (raw.startsWith('http://')) return `https://${raw.slice(7)}`;
+  return null;
+};
 
 const placeholders = (n) => Array.from({ length: n }, () => '?').join(',');
 

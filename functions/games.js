@@ -20,6 +20,7 @@
 
 import {
   page, html, esc, n, crumb, closingState, closingLabel, isUrgent, deadTitle,
+  secureUrl,
 } from './_lib/page.js';
 
 const PER_PAGE = 50;
@@ -167,7 +168,7 @@ function row(g) {
   return `<tr class="${stripe(g)}">
     <td class="gi">${
       g.icon_url
-        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="56" height="56">`
+        ? `<img class="ico" src="${esc(secureUrl(g.icon_url))}" alt="" loading="lazy" width="56" height="56">`
         : '<span class="ico"></span>'
     }</td>
     <td class="gt">

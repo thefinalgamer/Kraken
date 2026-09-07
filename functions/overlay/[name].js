@@ -30,7 +30,7 @@
  * so this step cannot hurt the board.
  */
 
-import { esc, n, barShade, SHADE_VAR, mendQuery } from '../_lib/page.js';
+import { esc, n, barShade, SHADE_VAR, mendQuery, secureUrl } from '../_lib/page.js';
 import { displayBanked, applyCompletion } from '../../shared/scoring.mjs';
 import { localMultiplier } from '../../shared/scoring.mjs';
 
@@ -389,7 +389,7 @@ function leftZone(g, { points = '', onStream = 0 } = {}) {
     <span class="seg">
       ${
         g.icon_url
-          ? `<img class="cover" src="${esc(g.icon_url)}" alt="" width="30" height="30">`
+          ? `<img class="cover" src="${esc(secureUrl(g.icon_url))}" alt="" width="30" height="30">`
           : '<span class="cover"></span>'
       }
       ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}

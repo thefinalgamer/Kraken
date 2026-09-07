@@ -28,7 +28,7 @@
 
 import {
   page, html, esc, n, pct, cup, miniCups, trophyGlyph, crumb, gameHref,
-  closingState, closingLabel, isUrgent, barShade,
+  closingState, closingLabel, isUrgent, barShade, secureUrl,
 } from '../_lib/page.js';
 import { displayBanked, hasCompletion } from '../../shared/scoring.mjs';
 
@@ -389,7 +389,7 @@ function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null }
     <span class="tcin">
       ${
         t.icon_url
-          ? `<img class="tic" src="${esc(t.icon_url)}" alt="" loading="lazy" width="52" height="52">`
+          ? `<img class="tic" src="${esc(secureUrl(t.icon_url))}" alt="" loading="lazy" width="52" height="52">`
           : `<span class="tic cup ${metal}">${trophyGlyph()}</span>`
       }
       <span class="tcb">
@@ -474,7 +474,7 @@ function ownerRow(o, id, viewing) {
   return `<tr class="sh-${shade}">
     <td class="gi">${
       o.avatar_url
-        ? `<img class="av" src="${esc(o.avatar_url)}" alt="" loading="lazy" width="34" height="34">`
+        ? `<img class="av" src="${esc(secureUrl(o.avatar_url))}" alt="" loading="lazy" width="34" height="34">`
         : '<span class="av"></span>'
     }</td>
     <td class="gt"><a class="who" href="/hunter/${encodeURIComponent(
@@ -773,7 +773,7 @@ export async function onRequestGet({ params, env, request }) {
               <summary class="tgroup">
                 <span class="caret" aria-hidden="true">&#9654;</span>${
                   meta?.icon_url
-                    ? `<img src="${esc(meta.icon_url)}" alt="" loading="lazy" width="26" height="26">`
+                    ? `<img src="${esc(secureUrl(meta.icon_url))}" alt="" loading="lazy" width="26" height="26">`
                     : ''
                 }<span class="gname">${esc(label)}</span>
                 <span class="gmeta">${meta2}</span>
@@ -796,7 +796,7 @@ export async function onRequestGet({ params, env, request }) {
     <section class="ghero">
       ${
         g.icon_url
-          ? `<img class="bigico" src="${esc(g.icon_url)}" alt="" width="96" height="96">`
+          ? `<img class="bigico" src="${esc(secureUrl(g.icon_url))}" alt="" width="96" height="96">`
           : '<span class="bigico"></span>'
       }
       <div class="gh">
@@ -863,7 +863,7 @@ export async function onRequestGet({ params, env, request }) {
         ? `<div class="viewbar">
              <span class="whochip">${
                viewer.avatar_url
-                 ? `<img class="av" src="${esc(viewer.avatar_url)}" alt="" width="24" height="24">`
+                 ? `<img class="av" src="${esc(secureUrl(viewer.avatar_url))}" alt="" width="24" height="24">`
                  : '<span class="av"></span>'
              }<b>${esc(viewer.psn_online_id)}</b><span class="pc">${
                Number(viewer.progress) || 0

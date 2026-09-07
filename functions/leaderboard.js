@@ -18,6 +18,7 @@
 
 import {
   page, html, esc, n, pct, flag, tierFor, TIER, ordinal, crumb, supporterStar,
+  secureUrl,
 } from './_lib/page.js';
 
 const BOARD = `
@@ -48,7 +49,7 @@ function row(m, total) {
     ${movement(m.rank, m.prev_rank)}
     <td>
       <span class="hunter">
-        ${m.avatar_url ? `<img class="av" src="${esc(m.avatar_url)}" alt="" loading="lazy" width="26" height="26">` : '<span class="av"></span>'}
+        ${m.avatar_url ? `<img class="av" src="${esc(secureUrl(m.avatar_url))}" alt="" loading="lazy" width="26" height="26">` : '<span class="av"></span>'}
         <span class="name">${country ? `${country} ` : ''}<a href="/hunter/${encodeURIComponent(
           m.psn_online_id,
         )}">${esc(m.psn_online_id)}</a>${supporterStar(m.supporter_months)}</span>

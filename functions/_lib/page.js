@@ -142,6 +142,44 @@ export function odometer(value, label = '') {
     .join('')}</span>`;
 }
 
+/**
+ * An image URL the browser will actually load.
+ *
+ * PSN SERVES SOME OF ITS IMAGES OVER PLAIN HTTP and the scan stores what it is
+ * given. Two of the four hosts in this database are http:
+ *
+ *   https://image.api.playstation.com          game art, newer titles
+ *   https://psnobj.prod.dl.playstation.net     game art, older titles
+ *   http://static-resource.np.community.playstation.net   avatars
+ *   http://psn-rsc.prod.dl.playstation.net                avatars
+ *
+ * This site is https, so those last two are mixed content. Browsers have not
+ * simply loaded them for years: Chrome silently upgrades a mixed image to https
+ * and blocks it if that fails, and other browsers block it outright. So the
+ * avatars either already worked over https by luck, or have been invisible to
+ * some members this whole time, and nothing in the page said which.
+ *
+ * Upgrading here makes it deterministic rather than a browser policy we do not
+ * control. It can never be worse than what it replaces: an http image inside an
+ * https page was never going to load as http.
+ *
+ * IT IS ALSO WHAT MAKES THE TWITCH PANEL POSSIBLE. An extension declares its
+ * image hosts in a Content Security Policy allowlist, and an https page cannot
+ * usefully allowlist an http origin - so without this the panel could not show
+ * an avatar at all.
+ *
+ * Anything that is not http or https comes back empty. A `javascript:` or
+ * `data:` URL has no business in a src attribute built from a database column
+ * somebody else's API filled in.
+ */
+export function secureUrl(url) {
+  const raw = String(url ?? '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('https://')) return raw;
+  if (raw.startsWith('http://')) return `https://${raw.slice(7)}`;
+  return '';
+}
+
 /** One count with its cup. `metal` is p | g | s | b. */
 export const cup = (metal, count, label) =>
   `<span class="cup ${metal}" title="${esc(label)}">${trophyGlyph()}${n(count)}</span>`;

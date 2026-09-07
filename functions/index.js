@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, flag, ordinal, navButtons,
   closingState, closingLabel, isUrgent,
-  gameHref, chevron, odometer,
+  gameHref, chevron, odometer, secureUrl,
 } from './_lib/page.js';
 
 const TOTALS = `
@@ -143,7 +143,7 @@ const hunterLink = (name) => `/hunter/${encodeURIComponent(name)}`;
 
 const avatar = (url, size = 26) =>
   url
-    ? `<img class="av" src="${esc(url)}" alt="" loading="lazy" width="${size}" height="${size}">`
+    ? `<img class="av" src="${esc(secureUrl(url))}" alt="" loading="lazy" width="${size}" height="${size}">`
     : '<span class="av"></span>';
 
 /**
@@ -314,7 +314,7 @@ function liveStrip(rows, channels = []) {
       <span class="shot">
         ${
           showThumb
-            ? `<img src="${esc(m.live_thumb)}" alt="" loading="lazy" width="640" height="360">`
+            ? `<img src="${esc(secureUrl(m.live_thumb))}" alt="" loading="lazy" width="640" height="360">`
             : '<span class="noshot"></span>'
         }
         <span class="tag"><span class="dot" aria-hidden="true"></span>LIVE</span>

@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
   closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
-  barShade,
+  barShade, secureUrl,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -543,7 +543,7 @@ function dealCard(g, { mine, who, completion, i }) {
       <div class="dface dfront${mine ? '' : ' wild'}">
         <span class="dcover">${
           g.icon_url
-            ? `<img src="${esc(g.icon_url)}" alt="" loading="lazy" width="160" height="160">`
+            ? `<img src="${esc(secureUrl(g.icon_url))}" alt="" loading="lazy" width="160" height="160">`
             : ''
         }<span class="dpool">${mine ? 'Backlog' : 'Wildcard'}</span>${
     g.platform ? `<span class="dplat">${esc(g.platform)}</span>` : ''
@@ -677,7 +677,7 @@ function gameRow(g, who, completion, live = 0) {
   return `<tr class="sh-${shade}">
     <td class="gi">${
       g.icon_url
-        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="56" height="56">`
+        ? `<img class="ico" src="${esc(secureUrl(g.icon_url))}" alt="" loading="lazy" width="56" height="56">`
         : '<span class="ico"></span>'
     }</td>
     <td class="gt">
@@ -764,7 +764,7 @@ function vsCard(x, side) {
   return `<div class="vscard ${side}">
     ${
       x.avatar_url
-        ? `<img class="vsav" src="${esc(x.avatar_url)}" alt="" width="44" height="44" loading="lazy">`
+        ? `<img class="vsav" src="${esc(secureUrl(x.avatar_url))}" alt="" width="44" height="44" loading="lazy">`
         : '<span class="vsav"></span>'
     }
     <div class="vswho">
@@ -816,7 +816,7 @@ function vsRow(g, meName, themName, myCompletion) {
   return `<li class="vsrow">
     ${
       g.icon_url
-        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="46" height="46">`
+        ? `<img class="ico" src="${esc(secureUrl(g.icon_url))}" alt="" loading="lazy" width="46" height="46">`
         : '<span class="ico"></span>'
     }
     <div class="vsg">
@@ -1367,7 +1367,7 @@ export async function onRequestGet({ params, env, request }) {
     <section class="hero">
       ${
         m.avatar_url
-          ? `<img class="bigav" src="${esc(m.avatar_url)}" alt="" width="76" height="76">`
+          ? `<img class="bigav" src="${esc(secureUrl(m.avatar_url))}" alt="" width="76" height="76">`
           : '<span class="bigav"></span>'
       }
       <h1>${country ? `${country} ` : ''}${esc(m.psn_online_id)}${supporterStar(

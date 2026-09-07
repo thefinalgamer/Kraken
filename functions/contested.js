@@ -26,7 +26,7 @@
 
 import {
   page, html, esc, n, pct, crumb, gameHref,
-  closingState, closingLabel, isUrgent,
+  closingState, closingLabel, isUrgent, secureUrl,
 } from './_lib/page.js';
 import { localMultiplier } from '../shared/scoring.mjs';
 import { CONTESTED_MIN_OWNERS } from '../shared/contested.mjs';
@@ -124,7 +124,7 @@ function row(g, closest, position) {
     <td class="pos">${n(position)}</td>
     <td class="gi">${
       g.icon_url
-        ? `<img class="ico" src="${esc(g.icon_url)}" alt="" loading="lazy" width="56" height="56">`
+        ? `<img class="ico" src="${esc(secureUrl(g.icon_url))}" alt="" loading="lazy" width="56" height="56">`
         : '<span class="ico"></span>'
     }</td>
     <td class="gt">

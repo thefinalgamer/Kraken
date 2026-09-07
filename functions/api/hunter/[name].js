@@ -26,6 +26,7 @@
  */
 
 import { applyCompletion } from '../../../shared/scoring.mjs';
+import { secureUrl } from '../../_lib/page.js';
 
 /** How long the edge may serve a copy. See the header comment. */
 const CACHE = 30;
@@ -192,7 +193,7 @@ const gameOut = (g, extra = {}) =>
         id: g.np_comm_id,
         title: g.title,
         platform: g.platform ?? null,
-        icon: g.icon_url ?? null,
+        icon: secureUrl(g.icon_url) || null,
         trophies: num(g.trophy_count),
         earned: num(g.earned_total) ?? 0,
         progress: num(g.progress) ?? 0,
@@ -305,14 +306,14 @@ export async function onRequestGet({ params, env }) {
     (r?.results ?? []).map((x) => ({
       rank: num(x.rank),
       name: x.psn_online_id,
-      avatar: x.avatar_url ?? null,
+      avatar: secureUrl(x.avatar_url) || null,
       points: num(x.points) ?? 0,
     }));
 
   return json({
     hunter: {
       name: m.psn_online_id,
-      avatar: m.avatar_url ?? null,
+      avatar: secureUrl(m.avatar_url) || null,
       rank,
       of: num(total?.c) ?? 0,
       points,
@@ -361,14 +362,14 @@ export async function onRequestGet({ params, env }) {
           at: (num(m.platinum) ?? 0) + 1,
           need: num(milestone.need),
           title: milestone.title,
-          icon: milestone.icon_url ?? null,
+          icon: secureUrl(milestone.icon_url) || null,
         }
       : null,
 
     closing: (closing?.results ?? []).map((g) => ({
       id: g.np_comm_id,
       title: g.title,
-      icon: g.icon_url ?? null,
+      icon: secureUrl(g.icon_url) || null,
       closesAt: num(g.closes_at),
       left: Math.max(0, (num(g.trophy_count) ?? 0) - (num(g.earned_total) ?? 0)),
       points: Math.max(0, (num(g.max_points) ?? 0) - (num(g.points) ?? 0)),
@@ -377,7 +378,7 @@ export async function onRequestGet({ params, env }) {
     list: (list?.results ?? []).map((g) => ({
       id: g.np_comm_id,
       title: g.title,
-      icon: g.icon_url ?? null,
+      icon: secureUrl(g.icon_url) || null,
       platform: g.platform ?? null,
       points: num(g.max_points) ?? 0,
       ownedHere: num(g.local_started) ?? 0,

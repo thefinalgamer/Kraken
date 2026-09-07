@@ -31,7 +31,7 @@
  */
 
 import { esc, n, barShade, SHADE_VAR, mendQuery } from '../_lib/page.js';
-import { displayBanked } from '../../shared/scoring.mjs';
+import { displayBanked, applyCompletion } from '../../shared/scoring.mjs';
 import { localMultiplier } from '../../shared/scoring.mjs';
 
 /**
@@ -46,7 +46,7 @@ import { localMultiplier } from '../../shared/scoring.mjs';
 const REFRESH = 60;
 
 const MEMBER = `
-  SELECT psn_account_id, psn_online_id, rank, points, completion,
+  SELECT psn_account_id, psn_online_id, rank, points, raw_points, completion,
          platinum, gold, silver, bronze, projects, completed, live_play,
          live_since, live_checked_at
     FROM members
@@ -280,6 +280,10 @@ body{
    question anybody looks at their own rank to answer. */
 .gap{color:var(--ink);font-size:.82em;font-variant-numeric:tabular-nums;opacity:.92}
 .gap b{color:var(--brass);font-weight:800}
+/* Overtaken on points, not yet on the board. The accent rather than brass,
+   because brass is the thing still to do and this is the thing just done.
+   Uppercase so a word carries the weight the number it replaced did. */
+.gap.past b{color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
 .mult small{font-weight:700;font-size:.78em;letter-spacing:.06em;text-transform:uppercase;
   opacity:.92;margin-left:.35em}
 .mult{display:inline-flex;align-items:center;padding:.15em .55em;border-radius:99px;
@@ -456,7 +460,7 @@ function gamePoints(m, g) {
  * Ours: what the game is paying extra, where they sit, and how far the next
  * place is.
  */
-function midZone(m, g, total, ahead) {
+function midZone(m, g, total, ahead, points) {
   /**
    * ONE SEGMENT, NOT TWO. "31st" and the chase belong together.
    *
@@ -481,9 +485,23 @@ function midZone(m, g, total, ahead) {
          * left sitting on its own with no context at all.
          */
         ahead
-          ? `<span class="gap s-gap"><b>${n(
-              Math.max(0, Number(ahead.points) - Number(m.points)),
-            )}</b> to ${n(ahead.rank)}${ordinalMark(ahead.rank)}</span>`
+          ? (() => {
+              /**
+               * THE RANK ITSELF DOES NOT MOVE, only the gap. Ranks are awarded
+               * by the rescore and nothing else, so a bar that promoted somebody
+               * to 30th before the board had would be the one number on this
+               * project that is a claim rather than a reading.
+               *
+               * What it can say honestly is that the gap is gone. "PAST 30TH"
+               * is true the moment it is, it is the most interesting thing that
+               * happens on this bar all night, and it says plainly that the
+               * next update is where it counts.
+               */
+              const gap = Number(ahead.points) - Number(points);
+              return gap > 0
+                ? `<span class="gap s-gap"><b>${n(gap)}</b> to ${n(ahead.rank)}${ordinalMark(ahead.rank)}</span>`
+                : `<span class="gap s-gap past"><b>past</b> ${n(ahead.rank)}${ordinalMark(ahead.rank)}</span>`;
+            })()
           : `<span class="of">of ${n(total)}</span>`
       }
     </span>
@@ -861,6 +879,42 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
     : playing;
 
   /**
+   * THE CHASE MOVES LIVE TOO, and it is the same bug as the game points were.
+   *
+   * Martin, on the gold figure: "leons points to earn to the next rank never
+   * moved untill he /update". He is right, and it is the exact complaint he
+   * made about the game's points a few days earlier - "half the numbers are
+   * live and half are frozen, with nothing saying which, is worse than one that
+   * is honestly stale all over". The game segment was fixed then; the rank
+   * segment was left behind, so the bar now updated the trophy that was earned
+   * and not the one number that says what earning it was FOR.
+   *
+   * NOTHING IS INVENTED, and the arithmetic is the board's own. `members` holds
+   * `raw_points`, the pre-multiplier sum. `playing.points` is what the scan
+   * recorded for this game, in the same currency. `live.points` is what the
+   * poll priced the same game at seconds ago, over the same stored
+   * `trophies.points` column the scan and the rescore both sum.
+   *
+   * So: swap the game's stale share of the raw total for its live one, then run
+   * the WHOLE thing through `applyCompletion` exactly as the rescore does.
+   * Applying the multiplier to the total rather than to the difference matters:
+   * it floors once, where the rescore floors once, so the figure on the bar is
+   * the figure the next update will land on rather than one either side of it.
+   *
+   * Falls back to the stored total whenever any part is missing - a game the
+   * board has never priced, a poll that has not run, a member mid-first-scan.
+   */
+  const livePoints = (() => {
+    const stored = Number(member.points) || 0;
+    const raw = Number(member.raw_points);
+    if (!live || !playing || !Number.isFinite(raw) || !Number.isFinite(live.points)) return stored;
+    const was = Number(playing.points) || 0;
+    const now = Number(live.points) || 0;
+    if (now === was) return stored;
+    return applyCompletion(raw - was + now, member.completion);
+  })();
+
+  /**
    * Only while they are actually on air. Off stream there is no "tonight" to
    * count, and the query is skipped rather than returning a zero nobody asked
    * for.
@@ -885,7 +939,7 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
 
   const body = `<div class="bar ${pos}">
     ${leftZone(shown, { points: showMid ? gamePoints(member, shown) : '', onStream })}
-    ${showMid ? midZone(member, shown, totals?.c ?? 0, ahead) : '<span class="spacer"></span>'}
+    ${showMid ? midZone(member, shown, totals?.c ?? 0, ahead, livePoints) : '<span class="spacer"></span>'}
     ${rightZone(member)}
   </div>`;
 

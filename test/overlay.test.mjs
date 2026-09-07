@@ -4,8 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { bodyOf } from './helpers.mjs';
+
+/** Same thousands separator the page uses, so expectations read like the bar. */
+const n = (v) => Number(v).toLocaleString('en-GB');
 import { localMultiplier } from '../shared/scoring.mjs';
-import { displayBanked } from '../shared/scoring.mjs';
+import { displayBanked, applyCompletion } from '../shared/scoring.mjs';
 
 /**
  * The stream overlay. GET /overlay/<name>
@@ -709,4 +712,82 @@ test('a bar with no waitUntil still renders', async () => {
   const { res, out } = await render();
   assert.equal(res.status, 200);
   assert.ok(out.includes('class="bar'), 'the bar is there without a doorbell');
+});
+
+// ------------------------------------------------------- the live chase ----
+
+/**
+ * The gold figure moves while they play, which it did not.
+ *
+ * Martin: "leons points to earn to the next rank never moved untill he
+ * /update". Same complaint he made about the game's points days earlier - a
+ * segment where half the numbers are live and half are frozen, with nothing
+ * saying which, is worse than one that is honestly stale all over. The game
+ * points were fixed then and the rank segment was left behind.
+ */
+const RAW = { ...MEMBER, raw_points: 160150 };
+
+/** A live note for the game being played, priced by the poll. */
+const playNote = (points) =>
+  JSON.stringify({
+    id: PLAYING.np_comm_id, at: Date.now(), counts: true,
+    progress: 90, platinum: 0, gold: 8, silver: 12, bronze: 23, points,
+  });
+
+test('earning points in the game closes the gap without an update', async () => {
+  /**
+   * The arithmetic is the board's own: swap the game's stale share of the raw
+   * total for its live one, then run the WHOLE thing through applyCompletion
+   * exactly as the rescore does. Flooring once, where the rescore floors once,
+   * is what makes the bar agree with the update that follows it.
+   */
+  const live = 1410 + 300; // the poll priced 300 more than the scan stored
+  const expected = applyCompletion(160150 - 1410 + live, MEMBER.completion);
+  const body = bodyOf(
+    (await render({
+      member: { ...RAW, live_play: playNote(live) },
+      ahead: { rank: 1, points: 152000 },
+    })).out,
+  );
+
+  assert.match(body, new RegExp(`${n(152000 - expected)}</b> to 1st`), 'the live gap');
+  assert.ok(!body.includes('3,780</b> to 1st'), 'and not the stored one');
+});
+
+test('with no live note the chase is exactly what it always was', async () => {
+  // The fallback has to be the old behaviour, not an approximation of it.
+  const body = bodyOf((await render({ member: RAW, ahead: { rank: 1, points: 152000 } })).out);
+  assert.match(body, /3,780<\/b> to 1st/);
+});
+
+test('a member with no raw_points falls back rather than reading NaN', async () => {
+  // Mid-first-scan, or a row an older build left behind. Every part of the sum
+  // has to be present or the stored total stands.
+  const body = bodyOf(
+    (await render({
+      member: { ...MEMBER, live_play: playNote(9999) },
+      ahead: { rank: 1, points: 152000 },
+    })).out,
+  );
+  assert.match(body, /3,780<\/b> to 1st/, 'the stored figure, not a broken one');
+});
+
+test('overtaking on points says so, and does not award the rank', async () => {
+  /**
+   * Ranks are the rescore's to give and nothing else's, so a bar that promoted
+   * somebody before the board had would be the one number on this project that
+   * is a claim rather than a reading. What it can say honestly is that the gap
+   * is gone - which is the most interesting thing that happens on this bar all
+   * night.
+   */
+  const body = bodyOf(
+    (await render({
+      member: { ...RAW, live_play: playNote(1410 + 40000) },
+      ahead: { rank: 1, points: 152000 },
+    })).out,
+  );
+
+  assert.match(body, /class="gap s-gap past"/, 'the segment changes state');
+  assert.match(body, /<b>past<\/b> 1st/, 'and says what happened');
+  assert.match(body, /class="rank">2<sup>/, 'while the rank itself stays put');
 });

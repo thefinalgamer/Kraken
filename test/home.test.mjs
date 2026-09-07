@@ -158,9 +158,15 @@ test('the two feeds ask for different kinds of event', async () => {
 
 test('the totals are the stored ones, grouped', async () => {
   const { out } = await render();
-  assert.ok(out.includes('12,809,536'), 'points');
-  assert.ok(out.includes('68,060'), 'platinums');
-  assert.ok(out.includes('>64<'), 'hunters');
+  /**
+   * Read off the aria-label, because the digits themselves are now odometer
+   * strips and every one of them contains 0123456789. The label is the
+   * canonical value in every sense - it is what a screen reader says, and it is
+   * what the number resolves to whether the animation runs or not.
+   */
+  assert.match(out, /aria-label="12,809,536"/, 'points');
+  assert.match(out, /aria-label="68,060"/, 'platinums');
+  assert.match(out, /aria-label="64"/, 'hunters');
 
   // These two are SUMS ACROSS MEMBERS, so the labels must not claim distinct
   // counts. 83,809 games owned between 64 people is true; "83,809 games
@@ -458,4 +464,51 @@ test('the arrows do not spend the VS colours', async () => {
   assert.ok(rule.length > 100, 'the slice covers the rule');
   assert.ok(!rule.includes('--brass'), 'no brass on the arrows');
   assert.match(rule, /var\(--kraken\)/, 'the site accent instead');
+});
+
+// ------------------------------------------------------- the odometer ----
+
+test('a headline figure resolves correctly with no animation at all', async () => {
+  /**
+   * THE POINT OF THE WHOLE BUILD. The resting transform puts the right digit in
+   * the window and the animation only changes where it starts, so reduced
+   * motion, an old engine or a screenshot tool shows the number and simply does
+   * not spin.
+   *
+   * The usual way to build this animates a counter up from zero, and every one
+   * of those failure cases renders a zero instead. This asserts the digits are
+   * positioned by markup rather than by keyframes.
+   */
+  const { out } = await render();
+  const body = bodyOf(out);
+
+  // 12,809,536 -> the strips carry the digits in order, separators between.
+  const odo = body.slice(body.indexOf('aria-label="12,809,536"'));
+  const set = [...odo.slice(0, 3000).matchAll(/--d:(\d);/g)].map((m) => m[1]).join('');
+  assert.equal(set.slice(0, 8), '12809536', 'each digit is placed by its own --d');
+
+  const css = out.slice(out.indexOf('<style'), out.indexOf('</style>'));
+  assert.match(css, /\.ost\{[^}]*transform:translateY\(calc\(var\(--d\) \* -1em\)\)/,
+    'the resting state is the answer');
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\s*\.ost\{animation:none\}/,
+    'and motion switches off cleanly');
+});
+
+test('only the five headline figures roll', async () => {
+  /**
+   * Seventy-five leaderboard rows spinning at once is a slot machine. Five,
+   * once, at the top of the page.
+   */
+  const body = bodyOf((await render()).out);
+  assert.equal([...body.matchAll(/class="odo"/g)].length, 5);
+
+  const board = body.slice(body.indexOf('class="top"'));
+  assert.ok(!board.includes('class="odo"'), 'nothing in the leaderboard rolls');
+});
+
+test('the odometer is one label to a screen reader, not ten digits ten times', async () => {
+  const body = bodyOf((await render()).out);
+  const one = body.slice(body.indexOf('<span class="odo"'));
+  assert.match(one.slice(0, 200), /role="img" aria-label="/, 'labelled as one thing');
+  assert.match(one.slice(0, 400), /class="od" aria-hidden="true"/, 'and the strips are hidden');
 });

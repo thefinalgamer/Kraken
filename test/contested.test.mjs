@@ -114,6 +114,24 @@ test('a full week prints every line', () => {
   assert.match(out, /4\*\* joined/);
 });
 
+test('a mover whose board rank did not change is phrased, not arrowed', () => {
+  /**
+   * Movement is measured against the members present both weeks, so somebody
+   * can overtake a rival in the same week a newcomer lands above them both and
+   * come out on the rank they started on. An arrow would print "3rd → 3rd".
+   */
+  const out = s(
+    digestBlocks(week({ climber: { onlineId: 'Cat', from: 3, to: 3, moved: 1, points: 900 } })),
+  );
+  assert.match(out, /Cat\*\* - up 1 place to 3rd/);
+  assert.doesNotMatch(out, /3rd → 3rd/);
+
+  const many = s(
+    digestBlocks(week({ faller: { onlineId: 'Bee', from: 9, to: 9, moved: -3 } })),
+  );
+  assert.match(many, /Bee\*\* - down 3 places to 9th/, 'and it counts and pluralises');
+});
+
 test('crossing a completion point is deliberately not in it', () => {
   // Martin: "i would remove Crossed a point it will end up getting too
   // cluttered". With sixty-odd members it would have been half the card.

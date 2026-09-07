@@ -1,0 +1,358 @@
+<title>Panel — the four additions</title>
+<style>
+:root{
+  --deep:#08100f; --ground:#0c1618; --panel:#122024; --edge:#1c3036;
+  --ink:#e6efec; --soft:#93a8a6; --faint:#7d939a;
+  --kraken:#20b899; --brass:#d8ab3e; --rule:#16272b;
+  --live:#b07dff; --up:#4ec98a; --down:#e0645f;
+  --plat:#a9cdff; --gold:#f2c65a; --silver:#dbe3e6; --bronze:#e0a06a;
+}
+*{box-sizing:border-box}
+body{background:#0a0f12;color:var(--ink);margin:0;padding:26px 20px 60px;
+  font:400 15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.page{max-width:1500px;margin:0 auto}
+h1{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+.lede{color:var(--soft);font-size:13.5px;margin:0 0 4px;max-width:72ch}
+.lede b{color:var(--ink)}
+.rail{display:flex;gap:26px;flex-wrap:wrap;margin:26px 0 0;align-items:flex-start}
+.slot{width:318px;flex:none}
+.slot > h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brass);
+  margin:0 0 8px;font-weight:700}
+.slot > p{color:var(--faint);font-size:12px;margin:9px 0 0;line-height:1.5}
+.slot > p b{color:var(--soft)}
+
+.panel{width:318px;height:496px;overflow:hidden;background:var(--ground);
+  border:1px solid var(--edge);border-radius:8px;display:flex;flex-direction:column;font-size:13px}
+.ph{display:flex;align-items:center;gap:8px;padding:9px 11px;
+  border-bottom:1px solid var(--rule);background:var(--deep);flex:none}
+.mark{width:22px;height:22px;border-radius:6px;flex:none;
+  background:linear-gradient(140deg,var(--kraken),#0e6b58);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;color:var(--deep)}
+.ph .nm{font-weight:700;font-size:12.5px}
+.ph .sub{color:var(--faint);font-size:10.5px;margin-left:auto;letter-spacing:.06em;text-transform:uppercase}
+.ph .sub.on{color:var(--live)}
+.ph .sub.off{color:var(--faint)}
+
+.tabs{display:flex;border-bottom:1px solid var(--rule);background:var(--deep);flex:none}
+.tabs a{flex:1;text-align:center;padding:7px 0 6px;text-decoration:none;color:var(--faint);
+  border-bottom:2px solid transparent}
+.tabs a svg{width:15px;height:15px;display:block;margin:0 auto 2px}
+.tabs a span{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+.tabs a.on{color:var(--kraken);border-bottom-color:var(--kraken);background:rgba(32,184,153,.07)}
+
+.body{padding:11px;overflow:hidden;flex:1;display:flex;flex-direction:column;gap:8px}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:9px;padding:9px 11px}
+.lbl{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.big{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+.big small{font-size:11px;font-weight:600;color:var(--faint);margin-left:2px}
+.pct{font-variant-numeric:tabular-nums;color:var(--soft);font-size:12px}
+.art{border-radius:6px;flex:none;border:1px solid var(--edge)}
+.a1{background:linear-gradient(150deg,#2a3f52,#101d24)}
+.a2{background:linear-gradient(150deg,#3a2233,#140d16)}
+.a3{background:linear-gradient(150deg,#243a2c,#0d1712)}
+.a4{background:linear-gradient(150deg,#3a3320,#161207)}
+.game{display:flex;gap:9px;align-items:center}
+.gtxt{min-width:0;flex:1}
+.gtxt .t{font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtxt .m{color:var(--faint);font-size:11px;margin-top:2px}
+.chip{display:inline-block;padding:1px 5px;border-radius:4px;border:1px solid var(--edge);
+  color:var(--faint);font-size:9px;font-weight:700;letter-spacing:.06em;vertical-align:1px}
+.bar{height:6px;border-radius:99px;background:var(--rule);overflow:hidden;margin:8px 0 5px}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--bronze)}
+
+/* the milestone strip */
+.miles{display:flex;align-items:center;gap:8px;padding:7px 11px;border-radius:9px;
+  background:rgba(169,205,255,.09);border:1px solid rgba(169,205,255,.34)}
+.miles svg{width:15px;height:15px;flex:none;color:var(--plat)}
+.miles .n{font-size:15px;font-weight:800;color:var(--plat);font-variant-numeric:tabular-nums;line-height:1}
+.miles .t{font-size:11.5px;color:var(--soft);line-height:1.3}
+.miles .t b{color:var(--ink);font-weight:700}
+
+/* closing games */
+.warn{border-color:rgba(224,100,95,.4);background:rgba(224,100,95,.07)}
+.warn .lbl{color:var(--down)}
+.cl{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(224,100,95,.16)}
+.cl:first-of-type{border-top:0;padding-top:5px}
+.cl .art{width:26px;height:26px;border-radius:5px}
+.cl .txt{min-width:0;flex:1}
+.cl .t{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl .m{color:var(--faint);font-size:10.5px}
+.cl .d{flex:none;font-size:10.5px;font-weight:800;color:var(--down);text-align:right;line-height:1.25}
+.cl .d.later{color:var(--brass)}
+
+/* tonight / last */
+.tonight{border-color:rgba(176,125,255,.4);background:rgba(176,125,255,.09)}
+.tonight .lbl{color:var(--live)}
+.tonight .v{font-size:15px;font-weight:800;color:var(--live);font-variant-numeric:tabular-nums}
+.tonight .s{color:var(--soft);font-size:11.5px}
+
+.chase{display:flex;align-items:baseline;gap:7px}
+.chase .rk{font-size:17px;font-weight:800;color:var(--brass);font-variant-numeric:tabular-nums}
+.chase .rk sup{font-size:9px}
+.chase .to{color:var(--soft);font-size:11.5px;font-variant-numeric:tabular-nums}
+.chase .to b{color:var(--ink)}
+
+/* board */
+.br{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--rule)}
+.br:first-child{border-top:0}
+.br .pos{color:var(--faint);font-size:11px;width:2.4em;flex:none;font-variant-numeric:tabular-nums}
+.br .nm{flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br .pt{font-size:12px;font-variant-numeric:tabular-nums;color:var(--soft)}
+.br.me{background:rgba(216,171,62,.1);margin:0 -11px;padding:7px 11px;border-radius:6px;border-top:0}
+.br.me .nm{color:var(--brass);font-weight:800}
+.br.me .pos{color:var(--brass);font-weight:700}
+.br.me .pt{color:var(--ink);font-weight:700}
+.br.you{background:rgba(32,184,153,.12);margin:0 -11px;padding:7px 11px;border-radius:6px;border-top:0}
+.br.you .nm{color:var(--kraken);font-weight:800}
+.br.you .pos{color:var(--kraken);font-weight:700}
+.br.you .pt{color:var(--ink);font-weight:700}
+.gapdot{text-align:center;color:var(--faint);font-size:11px;letter-spacing:.3em;padding:2px 0}
+
+/* beat the streamer */
+.duel{display:flex;align-items:center;gap:0;padding:9px 11px;border-radius:9px;
+  background:var(--panel);border:1px solid var(--edge)}
+.duel .side{flex:1;min-width:0;text-align:center}
+.duel .side .w{font-size:11.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.duel .side .r{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15}
+.duel .side .r sup{font-size:9px}
+.duel .side.you .r{color:var(--kraken)}
+.duel .side.him .r{color:var(--brass)}
+.duel .vs{flex:none;padding:0 10px;font-weight:900;font-size:14px;font-style:italic;
+  color:var(--soft);transform:skewX(-11deg)}
+.duelgap{text-align:center;color:var(--soft);font-size:11.5px;margin-top:6px;
+  padding-top:6px;border-top:1px solid var(--rule);font-variant-numeric:tabular-nums}
+.duelgap b{color:var(--ink)}
+
+.btn{display:block;text-align:center;text-decoration:none;padding:8px;border-radius:8px;
+  font-size:12px;font-weight:700;border:1px solid var(--edge);color:var(--ink);background:var(--panel)}
+.btn.go{background:var(--kraken);border-color:var(--kraken);color:var(--deep)}
+.foot{margin-top:auto;display:flex;flex-direction:column;gap:6px}
+.foot .fine{color:var(--faint);font-size:10px;text-align:center;line-height:1.45}
+.pitch{color:var(--soft);font-size:11.5px;line-height:1.5;margin:0}
+.pitch b{color:var(--ink)}
+</style>
+
+<div class="page">
+  <h1>The four I would actually add</h1>
+  <p class="lede">Same 318 &times; 496 box. The first one is the <b>gap</b> rather than a feature &mdash;
+    panels sit on a channel page all week, and most people who see it arrive when he is not live.</p>
+
+  <div class="rail">
+
+    <!-- ======================= 1. OFFLINE ======================= -->
+    <div class="slot">
+      <h3>1 &middot; Now, offline</h3>
+      <div class="panel">
+        <div class="ph"><span class="mark">K</span><span class="nm">Platinum Intel</span>
+          <span class="sub off">Offline</span></div>
+        <nav class="tabs">
+          <a class="on" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg><span>Now</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>List</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6" stroke-linecap="round"/></svg><span>Hunter</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="12" width="4.6" height="9" rx="1"/><rect x="9.7" y="6" width="4.6" height="15" rx="1"/><rect x="16.4" y="9" width="4.6" height="12" rx="1"/></svg><span>Board</span></a>
+        </nav>
+        <div class="body">
+
+          <div class="card">
+            <span class="lbl">Working on</span>
+            <div class="game" style="margin-top:6px">
+              <span class="art a1" style="width:38px;height:38px"></span>
+              <span class="gtxt">
+                <span class="t">Ghost of Y&#333;tei</span>
+                <span class="m"><span class="chip">PS5</span> &nbsp;13 of 30 &middot; 47 / 168 pts</span>
+              </span>
+            </div>
+            <div class="bar"><i style="width:36%"></i></div>
+          </div>
+
+          <div class="miles">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h12v6a6 6 0 0 1-12 0V2zM11 14h2v4h-2zM7 20h10v2H7z"/></svg>
+            <span><span class="n">2 trophies</span>
+            <span class="t" style="display:block">from his <b>215th platinum</b></span></span>
+          </div>
+
+          <div class="card warn">
+            <span class="lbl">Closing soon, and he owns them</span>
+            <div class="cl">
+              <span class="art a3" style="width:26px;height:26px"></span>
+              <span class="txt"><span class="t">2XKO</span>
+                <span class="m">4 trophies left &middot; 240 pts</span></span>
+              <span class="d">2 days</span>
+            </div>
+            <div class="cl">
+              <span class="art a4" style="width:26px;height:26px"></span>
+              <span class="txt"><span class="t">PGA TOUR 2K23</span>
+                <span class="m">11 left &middot; 615 pts</span></span>
+              <span class="d later">12 Mar</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <span class="lbl">Last stream, Tuesday</span>
+            <div class="row" style="margin-top:3px">
+              <span class="big" style="color:var(--live)">3<small>trophies</small></span>
+              <span class="pct">4h 24m &middot; +7 pts</span>
+            </div>
+          </div>
+
+          <div class="foot">
+            <a class="btn" href="#">Full profile &rsaquo;</a>
+          </div>
+        </div>
+      </div>
+      <p><b>The one you actually need.</b> No stale live block, nothing pretending he is on air,
+        and three reasons to come back: what he is mid-way through, what he is close to, and
+        what runs out if he leaves it.</p>
+    </div>
+
+    <!-- ======================= 2. LIVE + MILESTONE ======================= -->
+    <div class="slot">
+      <h3>2 &middot; Now, live</h3>
+      <div class="panel">
+        <div class="ph"><span class="mark">K</span><span class="nm">Platinum Intel</span>
+          <span class="sub on">&#9679; Live</span></div>
+        <nav class="tabs">
+          <a class="on" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg><span>Now</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>List</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6" stroke-linecap="round"/></svg><span>Hunter</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="12" width="4.6" height="9" rx="1"/><rect x="9.7" y="6" width="4.6" height="15" rx="1"/><rect x="16.4" y="9" width="4.6" height="12" rx="1"/></svg><span>Board</span></a>
+        </nav>
+        <div class="body">
+
+          <div class="card">
+            <div class="game">
+              <span class="art a1" style="width:42px;height:42px"></span>
+              <span class="gtxt">
+                <span class="t">Ghost of Y&#333;tei</span>
+                <span class="m"><span class="chip">PS5</span> &nbsp;13 of 30 &middot; 4 of us own it</span>
+              </span>
+            </div>
+            <div class="bar"><i style="width:36%"></i></div>
+            <div class="row"><span class="pct">36% &middot; 47 / 168 pts</span>
+              <span class="pct" style="color:var(--brass)">&times;1.10</span></div>
+          </div>
+
+          <div class="miles">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h12v6a6 6 0 0 1-12 0V2zM11 14h2v4h-2zM7 20h10v2H7z"/></svg>
+            <span><span class="n">2 trophies</span>
+            <span class="t" style="display:block">from his <b>215th platinum</b></span></span>
+          </div>
+
+          <div class="card tonight">
+            <div class="row"><span class="lbl">Tonight, on stream</span><span class="v">+7</span></div>
+            <div class="s" style="margin-top:2px">3 trophies, one of them 4.1% rare</div>
+          </div>
+
+          <div class="card">
+            <span class="lbl">On the board</span>
+            <div class="chase" style="margin-top:4px">
+              <span class="rk">32<sup>nd</sup></span>
+              <span class="to"><b>9,119</b> to 31st</span>
+            </div>
+          </div>
+
+          <div class="foot">
+            <a class="btn" href="#">Full profile &rsaquo;</a>
+          </div>
+        </div>
+      </div>
+      <p>The milestone strip is the only addition. It is a countdown, so chat has a
+        reason to stay rather than drift &mdash; and it is the thing they will clip.
+        <b>The closing-games card is not here on purpose:</b> live, it is a distraction
+        from what he is actually doing.</p>
+    </div>
+
+    <!-- ======================= 3. BOARD, MEMBER ======================= -->
+    <div class="slot">
+      <h3>3 &middot; Board &mdash; viewer is a member</h3>
+      <div class="panel">
+        <div class="ph"><span class="mark">K</span><span class="nm">Platinum Intel</span>
+          <span class="sub">75 hunters</span></div>
+        <nav class="tabs">
+          <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg><span>Now</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>List</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6" stroke-linecap="round"/></svg><span>Hunter</span></a>
+          <a class="on" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="12" width="4.6" height="9" rx="1"/><rect x="9.7" y="6" width="4.6" height="15" rx="1"/><rect x="16.4" y="9" width="4.6" height="12" rx="1"/></svg><span>Board</span></a>
+        </nav>
+        <div class="body">
+
+          <div class="duel">
+            <span class="side you"><span class="r">44<sup>th</sup></span><span class="w">You</span></span>
+            <span class="vs">VS</span>
+            <span class="side him"><span class="r">31<sup>st</sup></span><span class="w">JFL__Leon</span></span>
+          </div>
+          <div class="card" style="margin-top:-4px;padding:7px 11px">
+            <div class="duelgap" style="margin:0;padding:0;border:0">
+              <b>12,406</b> points between you
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="br"><span class="pos">1st</span><span class="nm">coregamer1998</span><span class="pt">850,613</span></div>
+            <div class="br"><span class="pos">2nd</span><span class="nm">rayjenjoeryry_jr</span><span class="pt">828,878</span></div>
+            <div class="br"><span class="pos">3rd</span><span class="nm">RobThanatos</span><span class="pt">789,470</span></div>
+            <div class="gapdot">&middot;&nbsp;&middot;&nbsp;&middot;</div>
+            <div class="br me"><span class="pos">31st</span><span class="nm">JFL__Leon</span><span class="pt">184,751</span></div>
+            <div class="gapdot">&middot;&nbsp;&middot;&nbsp;&middot;</div>
+            <div class="br"><span class="pos">43rd</span><span class="nm">Batzclaw</span><span class="pt">174,902</span></div>
+            <div class="br you"><span class="pos">44th</span><span class="nm">th3finalgamer--</span><span class="pt">172,345</span></div>
+            <div class="br"><span class="pos">45th</span><span class="nm">StinkyMinkie</span><span class="pt">170,118</span></div>
+          </div>
+
+          <div class="foot">
+            <a class="btn" href="#">Compare properly &rsaquo;</a>
+            <p class="fine">Recognised you from your PSN link.</p>
+          </div>
+        </div>
+      </div>
+      <p>The board collapses around <b>two</b> rows now, not one. Twitch hands you an opaque
+        viewer id, so with a one-time opt-in you can recognise a member and show them their own
+        row. A leaderboard you are on is a different object from one you are looking at.</p>
+    </div>
+
+    <!-- ======================= 4. BOARD, STRANGER ======================= -->
+    <div class="slot">
+      <h3>4 &middot; Board &mdash; viewer is a stranger</h3>
+      <div class="panel">
+        <div class="ph"><span class="mark">K</span><span class="nm">Platinum Intel</span>
+          <span class="sub">75 hunters</span></div>
+        <nav class="tabs">
+          <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg><span>Now</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>List</span></a>
+          <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6" stroke-linecap="round"/></svg><span>Hunter</span></a>
+          <a class="on" href="#"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="12" width="4.6" height="9" rx="1"/><rect x="9.7" y="6" width="4.6" height="15" rx="1"/><rect x="16.4" y="9" width="4.6" height="12" rx="1"/></svg><span>Board</span></a>
+        </nav>
+        <div class="body">
+
+          <div class="card">
+            <div class="br"><span class="pos">1st</span><span class="nm">coregamer1998</span><span class="pt">850,613</span></div>
+            <div class="br"><span class="pos">2nd</span><span class="nm">rayjenjoeryry_jr</span><span class="pt">828,878</span></div>
+            <div class="br"><span class="pos">3rd</span><span class="nm">RobThanatos</span><span class="pt">789,470</span></div>
+            <div class="br"><span class="pos">4th</span><span class="nm">Brucemaan</span><span class="pt">768,402</span></div>
+            <div class="br"><span class="pos">5th</span><span class="nm">Nurse_Feel_Good</span><span class="pt">693,480</span></div>
+            <div class="gapdot">&middot;&nbsp;&middot;&nbsp;&middot;</div>
+            <div class="br me"><span class="pos">31st</span><span class="nm">JFL__Leon</span><span class="pt">184,751</span></div>
+          </div>
+
+          <div class="card">
+            <span class="lbl">What this is</span>
+            <p class="pitch" style="margin-top:5px">A PlayStation trophy board where rarity
+              decides the points, not the metal. <b>75 of us</b>, 14.4 million points banked,
+              every trophy scanned rather than typed in.</p>
+          </div>
+
+          <div class="foot">
+            <a class="btn go" href="#">Join Platinum Intel</a>
+            <a class="btn" href="#">See the whole board &rsaquo;</a>
+            <p class="fine">platinumintel.co.uk</p>
+          </div>
+        </div>
+      </div>
+      <p>Same tab, different reader. No empty "you" row telling somebody they are nobody &mdash;
+        the space goes to <b>what the place is</b> and a door. This is the only screen on the
+        whole panel written for a person who has never heard of you.</p>
+    </div>
+
+  </div>
+</div>

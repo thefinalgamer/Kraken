@@ -102,6 +102,46 @@ export const chevron = (dir = 'fwd') =>
   'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
   `<path d="${dir === 'back' ? 'M15 5 8 12l7 7' : 'M9 5l7 7-7 7'}"/></svg>`;
 
+/**
+ * A number that rolls up like an odometer when the page loads.
+ *
+ * NO JAVASCRIPT, and the way that is achieved is the whole design. Each digit
+ * is a strip of 0 to 9 inside a one-line window, and the strip is translated so
+ * the right digit sits in it. The animation only changes WHERE IT STARTS: one
+ * full turn higher, falling into the position the strip already had.
+ *
+ * That ordering is what makes it safe. The correct number is the resting state,
+ * written in the markup, so a browser that runs no animation at all - reduced
+ * motion, an old engine, a screenshot tool - shows the right figure and simply
+ * does not spin. The far more common way to build this animates a counter from
+ * zero, and every one of those cases renders a zero instead.
+ *
+ * SEPARATORS ARE REAL CHARACTERS between the strips, not part of them, which is
+ * the other reason for doing it this way: a CSS counter cannot group thousands,
+ * and "14401549" is a worse number than one that does not move.
+ *
+ * The digits settle left to right, forty milliseconds apart, because they land
+ * all at once otherwise and the eye reads that as a flicker rather than a roll.
+ *
+ * @param {number} value
+ * @param {string} label - what a screen reader should hear instead of ten
+ *   digits ten times. Defaults to the formatted number.
+ */
+export function odometer(value, label = '') {
+  const text = n(value);
+  const digits = [...text];
+
+  const strip = '0123456789'.split('').map((d) => `<i>${d}</i>`).join('');
+
+  return `<span class="odo" role="img" aria-label="${esc(label || text)}">${digits
+    .map((ch, i) =>
+      /\d/.test(ch)
+        ? `<span class="od" aria-hidden="true"><span class="ost" style="--d:${ch};--i:${i}">${strip}</span></span>`
+        : `<span class="osep" aria-hidden="true">${esc(ch)}</span>`,
+    )
+    .join('')}</span>`;
+}
+
 /** One count with its cup. `metal` is p | g | s | b. */
 export const cup = (metal, count, label) =>
   `<span class="cup ${metal}" title="${esc(label)}">${trophyGlyph()}${n(count)}</span>`;
@@ -1874,12 +1914,60 @@ p.warn.dead.whole b{color:#ff8e86}
 .totals dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 .totals dd{margin:3px 0 0;font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
 
+/* THE ODOMETER. See odometer() in this file for why it is built this way.
+
+   THE RESTING STATE IS THE ANSWER. .ost carries the transform that puts the
+   right digit in the window, and the animation only moves where it STARTS - one
+   full turn above - so it falls into a position that was already correct. A
+   browser that runs no animation shows the number and does not spin, which is
+   the opposite of what a counter animated up from zero does when it fails.
+
+   1em windows, so line-height:1 on the digits is load-bearing: anything else
+   and the strip steps by the wrong distance and every number lands between two
+   digits. */
+.odo{display:inline-flex;align-items:flex-end;line-height:1}
+.od{
+  display:inline-block;height:1em;overflow:hidden;
+  vertical-align:bottom;
+}
+.ost{
+  display:block;line-height:1;
+  transform:translateY(calc(var(--d) * -1em));
+  animation:odoroll .9s cubic-bezier(.16,.84,.34,1) both;
+  animation-delay:calc(var(--i) * 40ms);
+}
+.ost i{display:block;font-style:normal;line-height:1;height:1em}
+.osep{display:inline-block}
+@keyframes odoroll{
+  from{transform:translateY(calc((var(--d) + 10) * -1em))}
+}
+/* Motion is the whole feature, so there is nothing to soften: it is switched
+   off entirely and the resting transform prints the number. */
+@media (prefers-reduced-motion:reduce){
+  .ost{animation:none}
+}
+
 /* Two columns, so four panels land as a tidy 2x2 rather than three across with
    one stranded underneath. auto-fit did that: it fitted three at 1100px and
-   left the fourth alone in a half-empty row. */
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+   left the fourth alone in a half-empty row.
+
+   THE PAIRS ARE LEVEL, which they were not: align-items:start let every panel
+   size to its own content, so a note paragraph on one side left the two bottom
+   edges eight or seventeen pixels out. Small enough to look accidental rather
+   than designed, which is the worst amount to be wrong by. Martin: "these boxes
+   not being level correctly is sending my OCD mad".
+
+   Stretch is the grid default, so this is a deletion rather than an override:
+   both cells of a row take the height of the taller one. */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media (max-width:860px){ .cols{grid-template-columns:1fr} }
-.panel{border:1px solid var(--edge);border-radius:10px;background:var(--panel);padding:14px 16px 16px}
+/* A column, so the note underneath can be pushed to the floor of the stretched
+   panel rather than leaving a gap below itself. */
+.panel{
+  display:flex;flex-direction:column;
+  border:1px solid var(--edge);border-radius:10px;background:var(--panel);
+  padding:14px 16px 16px;
+}
 .panel h2{
   margin:0 0 10px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
   color:var(--faint);font-weight:700;display:flex;align-items:center;gap:10px;
@@ -1888,7 +1976,14 @@ p.warn.dead.whole b{color:#ff8e86}
   font-size:11px;letter-spacing:.06em;text-transform:none;font-weight:600}
 .panel h2 a:hover{text-decoration:underline}
 .panel .empty{padding:14px 0;color:var(--soft);text-align:left}
-.panel .note{margin:10px 0 0;color:var(--faint);font-size:12px;line-height:1.55}
+/* margin-top:auto puts the note on the floor when the panel has been stretched
+   past its content, and does nothing at all when it has not - so the single
+   column layout on a phone is unchanged. padding-top keeps the gap it used to
+   have as a margin, which auto has now taken over. */
+.panel .note{
+  margin:0;padding-top:10px;margin-top:auto;
+  color:var(--faint);font-size:12px;line-height:1.55;
+}
 
 ol.top{list-style:none;margin:0;padding:0}
 ol.top li{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--rule)}

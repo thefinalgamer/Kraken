@@ -814,15 +814,32 @@ export function digestBlocks(d) {
   const lines = [];
   const add = (label, value) => value && lines.push(`**${label}** ${value}`);
 
+  /**
+   * "7th → 4th" whenever the two ranks differ, which is nearly always, because
+   * an arrow between two places is the most readable form of this there is.
+   *
+   * THE EXCEPTION IS REAL AND WOULD OTHERWISE PRINT "3rd → 3rd". Movement is
+   * measured against the members who were here both weeks (see digest.mjs), so
+   * somebody can genuinely overtake a rival in the same week a newcomer lands
+   * above them both and come out on the same board rank they started on. They
+   * moved; the ruler moved with them. The words say what the arrow cannot.
+   */
+  const movement = (m) =>
+    m.from === m.to
+      ? `${m.moved > 0 ? 'up' : 'down'} ${Math.abs(m.moved)} place${
+          Math.abs(m.moved) === 1 ? '' : 's'
+        } to ${ordinal(m.to)}`
+      : `${ordinal(m.from)} → ${ordinal(m.to)}`;
+
   if (d.climber) {
     add(
       'Biggest climber',
-      `**${md(d.climber.onlineId)}** - ${ordinal(d.climber.from)} → ${ordinal(d.climber.to)}` +
+      `**${md(d.climber.onlineId)}** - ${movement(d.climber)}` +
         (d.climber.points ? `, ${signed(d.climber.points)}` : ''),
     );
   }
   if (d.faller) {
-    add('Biggest fall', `**${md(d.faller.onlineId)}** - ${ordinal(d.faller.from)} → ${ordinal(d.faller.to)}`);
+    add('Biggest fall', `**${md(d.faller.onlineId)}** - ${movement(d.faller)}`);
   }
   if (d.rarestPlat) {
     add(

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Platinum Intel</title>
+<!--
+  NO INLINE JAVASCRIPT ANYWHERE IN THIS FILE, and that is not a style choice.
+  Twitch serves extensions under script-src 'self' plus its own helper host, so
+  an inline <script> block or an onclick attribute is silently dropped and the
+  panel renders as a dead box. Every handler is attached in panel.js.
+
+  Everything the panel needs also has to be INSIDE THE ZIP - no CDN, no web
+  font, no external stylesheet. The one exception Twitch allows is the helper
+  below, which is how the panel learns whose channel it is on.
+-->
+<link rel="stylesheet" href="style.css">
+<script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="ph">
+    <span class="mark" aria-hidden="true">K</span>
+    <span class="nm">Platinum Intel</span>
+    <span class="sub" id="status"></span>
+  </header>
+
+  <!--
+    Buttons rather than anchors. An anchor inside an extension iframe that
+    loses its href handling navigates the frame, and there is no back button
+    in a 318 pixel box.
+  -->
+  <nav class="tabs" id="tabs" hidden>
+    <button type="button" data-tab="now" class="on" aria-label="Now">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>
+      <span>Now</span>
+    </button>
+    <button type="button" data-tab="list" aria-label="List">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      <span>List</span>
+    </button>
+    <button type="button" data-tab="hunter" aria-label="Hunter">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6" stroke-linecap="round"/></svg>
+      <span>Hunter</span>
+    </button>
+    <button type="button" data-tab="board" aria-label="Board">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="3" y="12" width="4.6" height="9" rx="1"/>
+        <rect x="9.7" y="6" width="4.6" height="15" rx="1"/>
+        <rect x="16.4" y="9" width="4.6" height="12" rx="1"/></svg>
+      <span>Board</span>
+    </button>
+  </nav>
+
+  <!-- Loading, unconfigured and broken all land here. Two of the three are not
+       faults, so none of them may look like one. -->
+  <section class="state" id="state">
+    <span class="spin" aria-hidden="true"></span>
+    <p>Reading the board…</p>
+  </section>
+
+  <main class="body" id="body" hidden></main>
+
+</div>
+<script src="panel.js"></script>
+</body>
+</html>

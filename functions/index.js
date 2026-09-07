@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, flag, ordinal, navButtons,
   closingState, closingLabel, isUrgent,
-  gameHref, chevron,
+  gameHref, chevron, odometer,
 } from './_lib/page.js';
 
 const TOTALS = `
@@ -427,8 +427,20 @@ export async function onRequestGet({ env }) {
   const hunters = Number(totals?.hunters) || 0;
   const rows = top?.results ?? [];
 
+  /**
+   * The five headline figures, and the only numbers on the site that roll.
+   *
+   * They are the first thing on the page and they are the reason somebody stays
+   * on it: a server with fourteen million points banked is a different place
+   * from one with four hundred. A number that arrives already sitting there
+   * states that; a number that lands states it.
+   *
+   * NOWHERE ELSE. Seventy-five leaderboard rows spinning at once is a slot
+   * machine, and the trophy counts on a game page are reference rather than
+   * news. Five, once, at the top.
+   */
   const stat = (label, value) =>
-    `<div><dt>${esc(label)}</dt><dd>${value}</dd></div>`;
+    `<div><dt>${esc(label)}</dt><dd>${odometer(value)}</dd></div>`;
 
   const body = `
     <section class="hero home">
@@ -445,9 +457,9 @@ export async function onRequestGet({ env }) {
     ${liveStrip(liveRows?.results ?? [], channelRows?.results ?? [])}
 
     <dl class="totals">
-      ${stat('Hunters', n(hunters))}
-      ${stat('Points banked', n(totals?.points))}
-      ${stat('Platinums', n(totals?.platinum))}
+      ${stat('Hunters', hunters)}
+      ${stat('Points banked', totals?.points)}
+      ${stat('Platinums', totals?.platinum)}
       ${/*
          "Games owned", not "Games tracked", and "100% completions", not "Taken
          to 100%". Both figures are SUMS ACROSS MEMBERS: a game five people own
@@ -461,8 +473,8 @@ export async function onRequestGet({ env }) {
          honest fix was the label, not the query — the site prints stored
          numbers, so the words have to match what is stored.
       */ ''}
-      ${stat('Games owned', n(totals?.projects))}
-      ${stat('100% completions', n(totals?.completed))}
+      ${stat('Games owned', totals?.projects)}
+      ${stat('100% completions', totals?.completed)}
     </dl>
 
     <div class="cols">

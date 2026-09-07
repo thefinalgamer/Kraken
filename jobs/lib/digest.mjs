@@ -89,12 +89,46 @@ export async function buildWeeklyDigest(db, { now = Date.now() } = {}) {
   const wasRaw = await db.getState('digest_ranks', null);
   const was = new Map(Array.isArray(wasRaw) ? wasRaw : []);
 
+  /**
+   * MOVEMENT IS MEASURED AGAINST THE SAME FIELD, not against the raw board.
+   *
+   * THE BUG. This subtracted last week's board rank from this week's, which is
+   * not zero-sum the moment the field changes size. One new member landing at
+   * 30th pushes everybody from 30th down one place: forty-five people "fell",
+   * nobody climbed, and the card printed a Biggest fall with no Biggest climber
+   * beside it. Batzclaw spotted exactly that: "Do you have the biggest climber
+   * in ranking as I noticed it had the biggest fall?"
+   *
+   * It is also the same mistake the old bot made in the movement feed, where
+   * "everyone below was told they had 'fallen' for doing nothing" - see
+   * publishLeaderboard() in discord.mjs. Fixed there, still here.
+   *
+   * THE FIX. Rank both weeks WITHIN THE SET OF MEMBERS PRESENT IN BOTH, so a
+   * newcomer cannot displace anybody and somebody leaving cannot promote them.
+   * Positions in a fixed set are zero-sum by construction: if anybody moved
+   * down, somebody moved up, so the two lines now arrive together or not at all.
+   *
+   * The card still prints their REAL board ranks, because "31st → 28th" is what
+   * a member can go and check. The shared-set positions only decide who moved
+   * most, and `moved` rides along so the card can phrase the one case where the
+   * two disagree: pass somebody in the same week a newcomer lands above you
+   * both and your real rank is unchanged, so an arrow would read "3rd → 3rd".
+   * See digestBlocks().
+   */
+  const shared = board.filter((m) => was.get(m.discord_id)?.rank);
+
+  const positions = (rows, rankOf) => {
+    const order = [...rows].sort((a, b) => rankOf(a) - rankOf(b));
+    return new Map(order.map((m, i) => [m.discord_id, i + 1]));
+  };
+  const thenPos = positions(shared, (m) => was.get(m.discord_id).rank);
+  const nowPos = positions(shared, (m) => m.rank);
+
   let climber = null;
   let faller = null;
-  for (const m of board) {
+  for (const m of shared) {
     const before = was.get(m.discord_id);
-    if (!before?.rank) continue; // new since last week — moving is meaningless
-    const moved = before.rank - m.rank; // positive is upwards
+    const moved = thenPos.get(m.discord_id) - nowPos.get(m.discord_id); // positive is upwards
     if (moved > 0 && (!climber || moved > climber.moved)) {
       climber = {
         moved,

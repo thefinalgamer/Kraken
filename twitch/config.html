@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Platinum Intel — setup</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+</head>
+<body class="cfg">
+<div class="box">
+  <h1>Whose board is this?</h1>
+  <p class="lead">
+    Type the PSN ID you registered with Platinum Intel. It has to match exactly, so the
+    safest thing is to copy it off your hunter page on the site.
+  </p>
+
+  <label for="psn">PSN online ID</label>
+  <input id="psn" type="text" autocomplete="off" autocapitalize="none" spellcheck="false"
+         maxlength="40" placeholder="JFL__Leon">
+
+  <div class="actions">
+    <button type="button" class="btn go" id="save">Check and save</button>
+    <button type="button" class="btn" id="clear">Clear</button>
+  </div>
+
+  <p class="msg" id="msg"></p>
+
+  <p class="hint">
+    The name is checked against the board before it is saved, so a typo is caught here
+    rather than showing your viewers an empty panel. Not registered yet? Run
+    <code>/register</code> in the Platinum Intel Discord first.
+  </p>
+</div>
+<script src="config.js"></script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+/*
+ * Kraken on Twitch — the panel and its config page.
+ *
+ * 318 BY 496 IS THE WHOLE BRIEF. That is Twitch's panel slot and it is narrower
+ * than a phone, so every decision here is a subtraction: no page scroll, no
+ * table wider than the box, nothing that reflows into two lines it did not plan
+ * for. If something does not fit, it does not go on.
+ *
+ * THE PALETTE IS THE SITE'S, copied rather than imported, because a Twitch
+ * extension may not load a stylesheet from anywhere but its own zip. The values
+ * are the ones in functions/_lib/page.js; if those move, these have to be moved
+ * with them by hand.
+ *
+ * NO WEB FONTS for the same reason. The system stack is what the site falls
+ * back to anyway.
+ */
+:root{
+  --deep:#08100f; --ground:#0c1618; --panel:#122024; --edge:#1c3036;
+  --ink:#e6efec; --soft:#93a8a6; --faint:#7d939a;
+  --kraken:#20b899; --brass:#d8ab3e; --rule:#16272b;
+  --live:#b07dff; --up:#4ec98a; --down:#e0645f;
+  --plat:#a9cdff; --gold:#f2c65a; --silver:#dbe3e6; --bronze:#e0a06a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground);color:var(--ink);
+  font:400 13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,
+       "Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit}
+
+/* ---------------------------------------------------------- the frame ---- */
+.wrap{width:100%;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.ph{
+  display:flex;align-items:center;gap:8px;padding:9px 11px;flex:none;
+  border-bottom:1px solid var(--rule);background:var(--deep);
+}
+.mark{
+  width:22px;height:22px;border-radius:6px;flex:none;
+  background:linear-gradient(140deg,var(--kraken),#0e6b58);
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:900;color:var(--deep);
+}
+.ph .nm{font-weight:700;font-size:12.5px}
+.ph .sub{
+  color:var(--faint);font-size:10.5px;margin-left:auto;
+  letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;
+}
+.ph .sub.on{color:var(--live)}
+
+/* Tabs are BUTTONS, not links. An anchor inside an extension iframe that loses
+   its href handling navigates the frame and there is no way back. */
+.tabs{display:flex;border-bottom:1px solid var(--rule);background:var(--deep);flex:none}
+.tabs button{
+  flex:1;padding:7px 0 6px;background:none;border:0;border-bottom:2px solid transparent;
+  color:var(--faint);cursor:pointer;font:inherit;
+}
+.tabs button svg{width:15px;height:15px;display:block;margin:0 auto 2px}
+.tabs button span{
+  display:block;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+}
+.tabs button.on{color:var(--kraken);border-bottom-color:var(--kraken);background:rgba(32,184,153,.07)}
+.tabs button:focus-visible{outline:2px solid var(--kraken);outline-offset:-2px}
+
+.body{padding:11px;flex:1;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.body::-webkit-scrollbar{width:6px}
+.body::-webkit-scrollbar-thumb{background:var(--edge);border-radius:99px}
+
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:9px;padding:9px 11px}
+.lbl{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.big{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+.big small{font-size:11px;font-weight:600;color:var(--faint);margin-left:2px}
+.pct{font-variant-numeric:tabular-nums;color:var(--soft);font-size:12px}
+.muted{color:var(--faint);font-size:11.5px;line-height:1.5}
+
+/* Game art. The tile behind it is not a placeholder: PSN's image host has to be
+   allowlisted in the developer console, and if it ever is not, or a game simply
+   has no icon, the tile is what the row falls back to rather than a broken
+   image glyph. */
+.art{
+  border-radius:6px;flex:none;border:1px solid var(--edge);overflow:hidden;
+  background:linear-gradient(150deg,#243546,#101d24);
+  display:block;object-fit:cover;
+}
+.art.g44{width:44px;height:44px}
+.art.g38{width:38px;height:38px}
+.art.g32{width:32px;height:32px}
+.art.g26{width:26px;height:26px}
+
+.game{display:flex;gap:9px;align-items:center}
+.gtxt{min-width:0;flex:1}
+.gtxt .t{font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtxt .m{color:var(--faint);font-size:11px;margin-top:2px}
+.chip{
+  display:inline-block;padding:1px 5px;border-radius:4px;border:1px solid var(--edge);
+  color:var(--faint);font-size:9px;font-weight:700;letter-spacing:.06em;vertical-align:1px;
+}
+.bar{height:6px;border-radius:99px;background:var(--rule);overflow:hidden;margin:8px 0 5px}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--bronze);transition:width .4s ease}
+/* The site's bands, so a bar means the same thing here as it does there. */
+.bar.s i{background:var(--silver)} .bar.g i{background:var(--gold)}
+.bar.d i{background:var(--up)} .bar.p i{background:var(--plat)}
+
+.boost{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:99px;
+  background:rgba(216,171,62,.13);border:1px solid rgba(216,171,62,.4);
+  color:var(--brass);font-size:10px;font-weight:800;letter-spacing:.04em;
+}
+.tonight{border-color:rgba(176,125,255,.4);background:rgba(176,125,255,.09)}
+.tonight .lbl{color:var(--live)}
+.tonight .v{font-size:15px;font-weight:800;color:var(--live);font-variant-numeric:tabular-nums}
+
+.miles{
+  display:flex;align-items:center;gap:8px;padding:7px 11px;border-radius:9px;
+  background:rgba(169,205,255,.09);border:1px solid rgba(169,205,255,.34);
+}
+.miles svg{width:15px;height:15px;flex:none;color:var(--plat)}
+.miles .n{font-size:15px;font-weight:800;color:var(--plat);font-variant-numeric:tabular-nums;line-height:1}
+.miles .t{font-size:11.5px;color:var(--soft);line-height:1.3;display:block}
+.miles .t b{color:var(--ink);font-weight:700}
+
+.warn{border-color:rgba(224,100,95,.4);background:rgba(224,100,95,.07)}
+.warn .lbl{color:var(--down)}
+.cl{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(224,100,95,.16)}
+.cl.first{border-top:0;padding-top:5px}
+.cl .txt{min-width:0;flex:1}
+.cl .t{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl .m{color:var(--faint);font-size:10.5px}
+.cl .d{flex:none;font-size:10.5px;font-weight:800;color:var(--down);text-align:right;line-height:1.25}
+.cl .d.later{color:var(--brass)}
+
+.chase{display:flex;align-items:baseline;gap:7px}
+.chase .rk{font-size:17px;font-weight:800;color:var(--brass);font-variant-numeric:tabular-nums}
+.chase .rk sup{font-size:9px}
+.chase .to{color:var(--soft);font-size:11.5px;font-variant-numeric:tabular-nums}
+.chase .to b{color:var(--ink)}
+.chase .to.past b{color:var(--kraken);text-transform:uppercase;letter-spacing:.04em}
+
+/* list */
+.li{display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--rule)}
+.li.first{border-top:0;padding-top:2px}
+.li .txt{min-width:0;flex:1}
+.li .t{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .m{color:var(--faint);font-size:10.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .m b{color:var(--brass);font-weight:700}
+
+/* hunter */
+.who{display:flex;gap:9px;align-items:center}
+.av{
+  width:40px;height:40px;border-radius:50%;flex:none;border:1px solid var(--edge);
+  background:linear-gradient(140deg,#1d3b40,#0e1e22);object-fit:cover;display:block;
+}
+.who .n{font-weight:700;font-size:14px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .r{color:var(--brass);font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.duo{display:flex;gap:8px}
+.duo .card{flex:1;text-align:center;padding:8px 6px;min-width:0}
+.cab{display:flex;justify-content:space-between;gap:4px;margin-top:7px}
+.cup{display:flex;align-items:center;gap:3px;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.cup svg{width:12px;height:12px}
+.cup.p{color:var(--plat)} .cup.g{color:var(--gold)}
+.cup.s{color:var(--silver)} .cup.b{color:var(--bronze)}
+.rare{display:flex;gap:8px;align-items:center;margin-top:7px}
+.rare .rate{
+  flex:none;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:800;
+  background:rgba(32,184,153,.14);border:1px solid rgba(32,184,153,.4);color:var(--kraken);
+  font-variant-numeric:tabular-nums;
+}
+.rare .t{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.rare .m{color:var(--faint);font-size:10.5px;display:block}
+
+/* board */
+.br{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--rule)}
+.br.first{border-top:0}
+.br .pos{color:var(--faint);font-size:11px;width:2.4em;flex:none;font-variant-numeric:tabular-nums}
+.br .nm{flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br .pt{font-size:12px;font-variant-numeric:tabular-nums;color:var(--soft)}
+.br.me{background:rgba(216,171,62,.1);margin:0 -11px;padding:7px 11px;border-radius:6px;border-top:0}
+.br.me .nm{color:var(--brass);font-weight:800}
+.br.me .pos{color:var(--brass);font-weight:700}
+.br.me .pt{color:var(--ink);font-weight:700}
+.gapdot{text-align:center;color:var(--faint);font-size:11px;letter-spacing:.3em;padding:2px 0}
+
+.foot{margin-top:auto;display:flex;flex-direction:column;gap:6px;padding-top:2px}
+.btn{
+  display:block;text-align:center;text-decoration:none;padding:8px;border-radius:8px;
+  font-size:12px;font-weight:700;border:1px solid var(--edge);color:var(--ink);
+  background:var(--panel);cursor:pointer;font-family:inherit;
+}
+.btn.go{background:var(--kraken);border-color:var(--kraken);color:var(--deep)}
+.btn:focus-visible{outline:2px solid var(--kraken);outline-offset:2px}
+.fine{color:var(--faint);font-size:10px;text-align:center;line-height:1.45;margin:0}
+
+/* The three states that are not the panel: loading, unconfigured, broken.
+   None of them may look like a bug, because two of them are not. */
+.state{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;gap:8px;padding:24px 18px;
+}
+.state h2{font-size:13.5px;margin:0;font-weight:700}
+.state p{margin:0;color:var(--faint);font-size:11.5px;line-height:1.5}
+.spin{
+  width:22px;height:22px;border-radius:50%;border:2px solid var(--edge);
+  border-top-color:var(--kraken);animation:sp .8s linear infinite;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){
+  .spin{animation:none;border-top-color:var(--edge)}
+  .bar i{transition:none}
+}
+[hidden]{display:none !important}
+
+/* ------------------------------------------------------ the config page --- */
+/* Not 318 wide. The broadcaster sees this in a full dashboard pane, so it can
+   breathe in a way the panel never can. */
+body.cfg{padding:22px;background:var(--ground)}
+.cfg .box{max-width:520px;margin:0 auto}
+.cfg h1{font-size:17px;margin:0 0 6px}
+.cfg .lead{color:var(--soft);font-size:13px;margin:0 0 18px;line-height:1.55}
+.cfg label{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);font-weight:700;margin:0 0 6px}
+.cfg input{
+  width:100%;padding:10px 12px;border-radius:8px;font:inherit;font-size:14px;
+  background:var(--panel);border:1px solid var(--edge);color:var(--ink);
+}
+.cfg input:focus{outline:2px solid var(--kraken);outline-offset:1px;border-color:var(--kraken)}
+.cfg .actions{display:flex;gap:9px;margin:14px 0 0;align-items:center}
+.cfg .btn{display:inline-block;padding:9px 18px;width:auto}
+.cfg .msg{font-size:12.5px;line-height:1.5;margin:14px 0 0}
+.cfg .msg.ok{color:var(--up)}
+.cfg .msg.bad{color:var(--down)}
+.cfg .hint{color:var(--faint);font-size:12px;margin:18px 0 0;line-height:1.6}
+.cfg .hint code{
+  background:var(--panel);border:1px solid var(--edge);border-radius:4px;
+  padding:1px 5px;font-size:11.5px;
+}

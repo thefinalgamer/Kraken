@@ -1276,6 +1276,25 @@ p.warn.dead.whole b{color:#ff8e86}
   background:rgba(176,125,255,.12);border-radius:99px;padding:2px 9px;
 }
 
+/* A hunter who is on air right now, inline on a board row.
+   The same purple as everywhere else, but a pill on a table row cannot carry
+   .livemark's margin and uppercase tracking without shoving the name off its
+   baseline, so it is its own smaller thing. Purple is allowed on this board for
+   the standing reason: it only ever appears on a page that is about a person,
+   and every row here is one person. */
+.livedot{
+  display:inline-block;margin-left:6px;vertical-align:1px;
+  font-size:9.5px;letter-spacing:.05em;font-weight:700;white-space:nowrap;
+  color:var(--live);border:1px solid rgba(176,125,255,.42);
+  background:rgba(176,125,255,.12);border-radius:99px;padding:1px 6px;
+}
+/* On a phone the pill drops under the name. Beside a long name and a supporter
+   star it made the hunter cell wide enough to push POINTS off the right edge,
+   and a board whose score needs a sideways scroll is not a board. */
+@media (max-width:640px){
+  .livedot{display:block;margin:3px 0 0;width:max-content}
+}
+
 .deadmark{
   display:block;margin-top:4px;font-size:11.5px;line-height:1.35;color:var(--brass);
 }
@@ -2561,6 +2580,43 @@ export const NAV = [
   // The door. Everything else on this site is a window.
   { href: 'https://discord.com/invite/gdSqDYrXaH', label: 'Discord', key: 'discord', out: true },
 ];
+/**
+ * The three boards, as one array, for the same reason NAV is one array.
+ *
+ * NAMED FOR WHAT SEPARATES THEM, not for what they have in common. The obvious
+ * label for the first was "Platinum Intel", and it is wrong for the same reason
+ * "Kraken" would be: all three boards are Platinum Intel, so it distinguishes
+ * nothing. What differs is the window of time and the set of trophies, so
+ * All-time sits against Seasonal the way it should and each label answers "what
+ * is on this board" on its own.
+ *
+ * STREAMERS AND SEASONAL ARE DIFFERENT BOARDS AND THE DIFFERENCE MATTERS.
+ * Streamers is a different set of TROPHIES: all time, but only the ones earned
+ * while the hunter was live. Seasonal is a different WINDOW OF TIME: every
+ * trophy, but only since the season began. Monthly resets and season numbers
+ * belong to Seasonal and have no business on Streamers.
+ *
+ * This lived in leaderboard.js until the second board existed, at which point a
+ * copy would have been the thing that eventually disagreed with the first.
+ */
+export const BOARDS = [
+  { key: 'all', label: 'All-time', href: '/leaderboard' },
+  { key: 'streamer', label: 'Streamers', href: '/leaderboard/streamers' },
+  { key: 'season', label: 'Seasonal' },
+];
+
+/**
+ * An unbuilt board is a span, never a link. Same rule the header follows: a dead
+ * handle on a door is worse than two handles and a note saying the third is
+ * coming. They are there to be seen, not clicked.
+ */
+export const boardTabs = (here) =>
+  `<div class="tabs centre">${BOARDS.map((b) =>
+    b.href
+      ? `<a class="tab${b.key === here ? ' on' : ''}" href="${esc(b.href)}">${esc(b.label)}</a>`
+      : `<span class="tab soon">${esc(b.label)}<i>soon</i></span>`,
+  ).join('')}</div>`;
+
 const NAV_LEFT = NAV.slice(0, 2);
 const NAV_RIGHT = NAV.slice(2);
 

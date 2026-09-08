@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The board page, rendered against fake rows.
@@ -130,17 +132,42 @@ test('the site says plainly that it is not Sony', async () => {
 
 test('the page is headed Leaderboards and offers the boards as tabs', async () => {
   const { out } = await render(members);
-  assert.match(out, /<h1>Leaderboards<\/h1>/, 'plural, because there will be three');
-  assert.match(out, /<a class="tab on" href="\/leaderboard">All-time<\/a>/, 'the built one');
-  assert.match(out, /<span class="tab soon">Streamers<i>soon<\/i><\/span>/, 'a tease, not a link');
-  assert.match(out, /<span class="tab soon">Seasonal<i>soon<\/i><\/span>/);
+  assert.match(out, /<h1>Leaderboards<\/h1>/, 'plural, because there are three');
+  assert.match(out, /<a class="tab on" href="\/leaderboard">All-time<\/a>/, 'this one, marked');
+  assert.match(
+    out,
+    /<a class="tab" href="\/leaderboard\/streamers">Streamers<\/a>/,
+    'built now, so a link',
+  );
+  assert.match(out, /<span class="tab soon">Seasonal<i>soon<\/i><\/span>/, 'still a tease');
 });
 
-test('the unbuilt boards are never links', async () => {
+test('an unbuilt board is never a link', async () => {
   // A dead handle on a door is worse than a note saying the door is coming.
   const { out } = await render(members);
-  assert.ok(!out.includes('href="/leaderboard/streamer"'));
-  assert.ok(!out.includes('href="/leaderboard/season"'));
+  assert.ok(!out.includes('href="/leaderboard/season"'), 'Seasonal has no route yet');
+});
+
+test('the tabs come from one array, so the two boards cannot disagree', async () => {
+  /**
+   * They lived in leaderboard.js while there was one board. The second board
+   * would have been a copy, and the copy is the thing that eventually says
+   * "soon" about a page that shipped a month ago. Same reasoning as NAV.
+   */
+  const src = readFileSync(
+    fileURLToPath(new URL('../functions/leaderboard.js', import.meta.url)), 'utf8',
+  );
+  const streamers = readFileSync(
+    fileURLToPath(new URL('../functions/leaderboard/streamers.js', import.meta.url)), 'utf8',
+  );
+
+  for (const [name, file] of [['leaderboard.js', src], ['streamers.js', streamers]]) {
+    assert.match(file, /boardTabs\(/, `${name} calls the shared helper`);
+    assert.ok(
+      !/const BOARDS = \[/.test(file),
+      `${name} does not keep its own copy of the board list`,
+    );
+  }
 });
 
 test('only the hunter count survives from the old stats line', async () => {

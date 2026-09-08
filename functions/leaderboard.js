@@ -18,7 +18,7 @@
 
 import {
   page, html, esc, n, pct, flag, tierFor, TIER, ordinal, crumb, supporterStar,
-  secureUrl,
+  secureUrl, boardTabs,
 } from './_lib/page.js';
 
 const BOARD = `
@@ -90,38 +90,13 @@ export async function onRequestGet({ env }) {
   const { results = [] } = await env.DB.prepare(BOARD).all();
   const total = results.length;
 
-  /**
-   * The boards, as tabs — one built, two coming.
-   *
-   * NAMED FOR WHAT SEPARATES THEM, not for what they have in common. The
-   * obvious label for the first one was "Platinum Intel", and it is wrong for
-   * the same reason "Kraken" would be: all three boards are Platinum Intel, so
-   * it distinguishes nothing. What actually differs is the window of time and
-   * the set of people — so All-time sits against Seasonal the way it should,
-   * and each label answers "what is on this board" on its own.
-   *
-   * The unbuilt two are spans, never links. This is the same rule the header
-   * navigation follows: a dead handle on a door is worse than three handles and
-   * a note saying the fourth is coming. They are here to be seen, not clicked.
-   */
-  const BOARDS = [
-    { key: 'all', label: 'All-time', href: '/leaderboard' },
-    { key: 'streamer', label: 'Streamers' },
-    { key: 'season', label: 'Seasonal' },
-  ];
-  const tabs = BOARDS.map((b) =>
-    b.href
-      ? `<a class="tab${b.key === 'all' ? ' on' : ''}" href="${esc(b.href)}">${esc(b.label)}</a>`
-      : `<span class="tab soon">${esc(b.label)}<i>soon</i></span>`,
-  ).join('');
-
   const body = total
     ? `<section class="hero">
          <h1>Leaderboards</h1>
          <p class="sub"><b>${n(total)}</b> hunters</p>
        </section>
 
-       <div class="tabs centre">${tabs}</div>
+       ${boardTabs('all')}
 
        <div class="tablewrap">
          <table>

@@ -25,7 +25,7 @@
  * hundred.
  */
 
-import { applyCompletion } from '../../../shared/scoring.mjs';
+import { applyCompletion, displayBanked } from '../../../shared/scoring.mjs';
 import { secureUrl } from '../../_lib/page.js';
 
 /** How long the edge may serve a copy. See the header comment. */
@@ -277,7 +277,19 @@ export async function onRequestGet({ params, env }) {
    */
   const stored = num(m.points) ?? 0;
   const raw = num(m.raw_points);
-  const priced = play && Number.isFinite(Number(play.points)) ? Number(play.points) : null;
+  /**
+   * `Number.isFinite(play.points)` AND NOT `Number.isFinite(Number(play.points))`.
+   *
+   * THE BUG THAT WAS. `Number(null)` is 0 and `Number.isFinite(0)` is true, so
+   * the coercing version turned "the poll has not priced this game yet" - which
+   * is the normal state for the first few minutes of every stream - into a
+   * confident zero. Leon's panel read "0 / 674 pts" on a game he had 530 in,
+   * and the same zero went through the total, so the chase was wrong too.
+   *
+   * `points: null` is the poll saying it does not know. It has to stay
+   * distinguishable from the poll saying nought.
+   */
+  const priced = play && Number.isFinite(play.points) ? Number(play.points) : null;
   const points =
     playing && raw !== null && priced !== null
       ? applyCompletion(raw - (num(playing.points) ?? 0) + priced, m.completion)
@@ -290,8 +302,22 @@ export async function onRequestGet({ params, env }) {
    */
   const fresh = play && play.counts !== false ? play : null;
 
+  /**
+   * THE GAME'S FRACTION IS IN THE MEMBER'S CURRENCY, both halves, the way every
+   * other surface on this project prints one.
+   *
+   * It was raw here and completion-applied everywhere else, so the same game
+   * read 674 on the Twitch panel and 586 on the hunter page. A member seeing
+   * two different numbers for one thing has no way to know which to believe,
+   * and the answer is the one the update will actually pay.
+   *
+   * See the note in functions/hunter/[name].js: BOTH numbers are multiplied,
+   * never one.
+   */
+  const rawPoints = priced !== null ? priced : num(playing?.points) ?? 0;
   const game = gameOut(playing, {
-    ...(priced !== null ? { points: priced } : {}),
+    points: displayBanked(rawPoints, m.completion),
+    max: displayBanked(num(playing?.max_points) ?? 0, m.completion),
     ...(fresh
       ? {
           progress: num(fresh.progress) ?? 0,
@@ -366,6 +392,11 @@ export async function onRequestGet({ params, env }) {
         }
       : null,
 
+    /**
+     * Closing and list points are the GAME's worth at 100%, not the member's
+     * share of it, because both answer "is this worth starting" rather than
+     * "what did I bank". The panel labels them as such.
+     */
     closing: (closing?.results ?? []).map((g) => ({
       id: g.np_comm_id,
       title: g.title,

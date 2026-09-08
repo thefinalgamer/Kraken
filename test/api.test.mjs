@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { applyCompletion } from '../shared/scoring.mjs';
+import { applyCompletion, displayBanked } from '../shared/scoring.mjs';
 
 /**
  * The JSON API. GET /api/hunter/<name>
@@ -138,6 +138,8 @@ test('points move while they play, using the board\'s own arithmetic', async () 
 
   assert.equal(body.hunter.points, expected, 'the live figure');
   assert.equal(body.hunter.storedPoints, 184751, 'and the stored one, beside it');
+  assert.equal(body.playing.points, displayBanked(priced, MEMBER.completion),
+    'the game reads in the same currency as the site');
   assert.equal(body.chase.gap, 193870 - expected, 'the chase closes as they play');
   assert.equal(body.chase.past, false);
 });
@@ -151,6 +153,55 @@ test('overtaking is reported without awarding the rank', async () => {
   assert.equal(body.chase.past, true);
   assert.equal(body.chase.gap, 0, 'never a negative gap');
   assert.equal(body.hunter.rank, 31, 'and the rank has not moved');
+});
+
+test('a poll that has not priced the game yet is not a score of zero', async () => {
+  /**
+   * THE BUG LEON'S PANEL FOUND. `points: null` is the poll saying it does not
+   * know yet, which is the normal state for the first minutes of every stream.
+   * `Number(null)` is 0 and `Number.isFinite(0)` is true, so the coercing test
+   * turned that into a confident zero: his card read "0 / 674 pts" on a game he
+   * had 530 in, and the same zero went through his total so the chase was wrong
+   * as well.
+   *
+   * Not knowing has to stay distinguishable from nought.
+   */
+  const { body } = await get({
+    member: { ...MEMBER, live_play: playNote(null) },
+    ahead: { rank: 30, psn_online_id: 'DebbyWebbyUwU', points: 193870 },
+  });
+
+  assert.equal(body.playing.points, displayBanked(47, MEMBER.completion),
+    'the scan\'s figure stands');
+  assert.notEqual(body.playing.points, 0);
+  assert.equal(body.hunter.points, 184751, 'and the total is the stored one, untouched');
+  assert.equal(body.chase.gap, 193870 - 184751);
+});
+
+test('a genuine zero is still a zero', () => {
+  // The other half. A game they have literally not scored in must not be
+  // rounded up into "we do not know".
+  assert.equal(Number.isFinite(0), true);
+  assert.equal(Number.isFinite(null), false, 'which is the whole distinction');
+});
+
+test('the game fraction is in the member currency, both halves', async () => {
+  /**
+   * It was raw here and completion-applied everywhere else, so one game read
+   * 674 on the Twitch panel and 586 on the hunter page. A member seeing two
+   * numbers for one thing cannot tell which to believe, and the right answer is
+   * the one the next update will pay.
+   */
+  const { body } = await get({});
+  assert.equal(body.playing.max, displayBanked(PLAYING.max_points, MEMBER.completion));
+  assert.equal(body.playing.points, displayBanked(PLAYING.points, MEMBER.completion));
+  assert.ok(body.playing.max < PLAYING.max_points, 'the multiplier really applied');
+});
+
+test('a priced game is multiplied too, not just the stored one', async () => {
+  const priced = 47 + 300;
+  const { body } = await get({ member: { ...MEMBER, live_play: playNote(priced) } });
+  assert.equal(body.playing.points, displayBanked(priced, MEMBER.completion));
 });
 
 test('a pinned game with no counts keeps the scan\'s figures', async () => {

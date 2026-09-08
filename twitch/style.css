@@ -45,6 +45,10 @@ a{color:inherit}
 }
 .ph .nm{font-weight:700;font-size:12.5px}
 .ph .sub{
+  /* display:block is redundant - a flex item is blockified anyway - but the
+     ellipsis below depends on it, and a rule that relies on the reader knowing
+     what its parent is will eventually be moved somewhere else. */
+  display:block;
   color:var(--faint);font-size:10.5px;margin-left:auto;
   letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;max-width:52%;
@@ -70,10 +74,22 @@ a{color:inherit}
 .tabs button.on{color:var(--kraken);border-bottom-color:var(--kraken);background:rgba(32,184,153,.07)}
 .tabs button:focus-visible{outline:2px solid var(--kraken);outline-offset:-2px}
 
-.body{padding:11px;flex:1;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+/* overflow-x:hidden is a backstop, not the fix. Nothing here should be wider
+   than 318 in the first place, but a panel that grows a horizontal scrollbar on
+   somebody's channel is the kind of broken people screenshot. */
+.body{
+  padding:11px;flex:1;display:flex;flex-direction:column;gap:8px;
+  overflow-y:auto;overflow-x:hidden;
+}
 .body::-webkit-scrollbar{width:6px}
 .body::-webkit-scrollbar-thumb{background:var(--edge);border-radius:99px}
 
+/* ELLIPSIS NEEDS A BLOCK, and this is the one that bit.
+   `text-overflow:ellipsis` and `white-space:nowrap` do nothing at all on an
+   inline element, so a title and the meta line under it flowed into each other
+   and ran straight off the right edge - "The Witcher 3: Wild Hunt1,810 pts".
+   Every rule in this file with text-overflow on it also carries display:block,
+   and test/twitch-panel.test.mjs fails the build if one loses it. */
 .card{background:var(--panel);border:1px solid var(--edge);border-radius:9px;padding:9px 11px}
 .lbl{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700}
 .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
@@ -98,8 +114,11 @@ a{color:inherit}
 
 .game{display:flex;gap:9px;align-items:center}
 .gtxt{min-width:0;flex:1}
-.gtxt .t{font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gtxt .m{color:var(--faint);font-size:11px;margin-top:2px}
+.gtxt .t{
+  display:block;font-weight:700;font-size:13.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.gtxt .m{display:block;color:var(--faint);font-size:11px;margin-top:2px}
 .chip{
   display:inline-block;padding:1px 5px;border-radius:4px;border:1px solid var(--edge);
   color:var(--faint);font-size:9px;font-weight:700;letter-spacing:.06em;vertical-align:1px;
@@ -133,8 +152,11 @@ a{color:inherit}
 .cl{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(224,100,95,.16)}
 .cl.first{border-top:0;padding-top:5px}
 .cl .txt{min-width:0;flex:1}
-.cl .t{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cl .m{color:var(--faint);font-size:10.5px}
+.cl .t{
+  display:block;font-size:12px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.cl .m{display:block;color:var(--faint);font-size:10.5px}
 .cl .d{flex:none;font-size:10.5px;font-weight:800;color:var(--down);text-align:right;line-height:1.25}
 .cl .d.later{color:var(--brass)}
 
@@ -149,8 +171,14 @@ a{color:inherit}
 .li{display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--rule)}
 .li.first{border-top:0;padding-top:2px}
 .li .txt{min-width:0;flex:1}
-.li .t{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.li .m{color:var(--faint);font-size:10.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .t{
+  display:block;font-size:12.5px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.li .m{
+  display:block;color:var(--faint);font-size:10.5px;margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .li .m b{color:var(--brass);font-weight:700}
 
 /* hunter */

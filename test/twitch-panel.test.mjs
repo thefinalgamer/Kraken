@@ -82,6 +82,40 @@ test('no web fonts, because the CSP will not load them', async () => {
   assert.ok(!/url\(\s*['"]?https?:/.test(css), 'and nothing else fetched from a URL either');
 });
 
+test('every ellipsis rule sits on a box that can actually ellipsis', async () => {
+  /**
+   * THE ONE THAT SHIPPED. `text-overflow:ellipsis` and `white-space:nowrap` do
+   * NOTHING on an inline element, so a game title and the meta line under it
+   * flowed into each other and ran off the right edge of the panel:
+   * "The Witcher 3: Wild Hunt1,810 pts · 12 of us own", with a horizontal
+   * scrollbar under it, on a live channel.
+   *
+   * The rules that looked right were the ones that happened to carry
+   * display:block already. Nothing said the others had to, so this does: a rule
+   * with text-overflow must be a block, or be blockified by being a flex item.
+   */
+  const css = await read('style.css');
+
+  const offenders = [];
+  for (const m of css.matchAll(/([^{}]+)\{([^}]*text-overflow[^}]*)\}/g)) {
+    const selector = m[1].split('*/').pop().trim();
+    const body = m[2];
+    const ok = /display:\s*block/.test(body) || /flex\s*:/.test(body);
+    if (!ok) offenders.push(selector);
+  }
+
+  assert.deepEqual(offenders, [], `\ninline, so the ellipsis does nothing:\n${offenders.join('\n')}\n`);
+});
+
+test('the panel body can never grow a horizontal scrollbar', async () => {
+  // A backstop rather than the fix - nothing should be wider than 318 in the
+  // first place - but a panel with a sideways scrollbar on somebody's channel
+  // is the kind of broken people screenshot.
+  const css = await read('style.css');
+  const body = css.slice(css.indexOf('.body{'), css.indexOf('}', css.indexOf('.body{')));
+  assert.match(body, /overflow-x:hidden/);
+});
+
 test('nothing is built from data with innerHTML', async () => {
   /**
    * A PSN id is a string somebody else chose, and this runs on a stranger's

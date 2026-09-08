@@ -13,7 +13,7 @@
 import { verifyKey } from './verify.mjs';
 import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
-import { checkLive, channelId } from './twitch.mjs';
+import { checkLive, channelId, lookupChannels } from './twitch.mjs';
 import { pollMember } from './live.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
@@ -174,7 +174,10 @@ async function handleCommand(interaction, env, ctx) {
     case 'overlay':    return overlay(env, userId, {
       position: opt('position'), board: opt('board'),
     });
-    case 'twitch':     return twitch(env, userId, opt('channel'));
+    case 'twitch':     return twitch(interaction, env, userId, {
+      channel: opt('channel'), member: opt('member'),
+      sync: opt('sync'), list: opt('list'),
+    });
     case 'setgame':    return setGame(env, userId, opt('game'));
     case 'wishlist':   return wishlist(env, userId, opt('add'), opt('remove'));
     default:           return errorReply(`Unknown command \`/${name}\`.`);
@@ -346,15 +349,21 @@ async function verify(interaction, env, ctx, userId) {
 }
 
 /**
+ * Manage Server is the mod bit. Discord hands the caller's permissions to the
+ * interaction already, so this needs no API call and no role id in config -
+ * and no stale role id to rot, which is the trap HUNTER_ROLE_ID fell into.
+ */
+const MANAGE_GUILD = 1n << 5n;
+const isMod = (interaction) =>
+  (BigInt(interaction.member?.permissions ?? '0') & MANAGE_GUILD) === MANAGE_GUILD;
+
+/**
  * Mod tooling. Impersonation in a community this size gets spotted in minutes
  * and is socially expensive — the real problem was that it could not be UNDONE.
  * This turns a permanent mess into a thirty-second annoyance.
  */
 async function unlink(interaction, env, targetId) {
-  const perms = BigInt(interaction.member?.permissions ?? '0');
-  const MANAGE_GUILD = 1n << 5n;
-  const isMod = (perms & MANAGE_GUILD) === MANAGE_GUILD;
-  if (!isMod) return errorReply('That one is for mods only.');
+  if (!isMod(interaction)) return errorReply('That one is for mods only.');
 
   if (!targetId) return errorReply('Tell me who to unlink.');
 
@@ -710,7 +719,45 @@ async function setGame(env, userId, npCommId) {
   );
 }
 
-async function twitch(env, userId, channel) {
+/**
+ * A pasted link, a bare name, or a typo, reduced to a login or to null.
+ *
+ * People paste the whole URL, so take the whole URL. Twitch names are letters,
+ * digits and underscores, 4 to 25 characters; anything else is a mistake and
+ * saying so beats storing it and wondering later why the live check never
+ * matches.
+ */
+function twitchLogin(raw) {
+  const login = String(raw ?? '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^(www\.)?twitch\.tv\//i, '')
+    .split(/[/?#]/)[0]
+    .toLowerCase();
+  return /^[a-z0-9_]{4,25}$/.test(login) ? login : null;
+}
+
+/**
+ * /twitch, which is four commands wearing one name.
+ *
+ * Bare, or with a channel, it is the member's own and always has been. The three
+ * mod options were added when nine members turned out to have a login and no
+ * numeric id: `/twitch` only started resolving the id when the panel needed one,
+ * so everybody who linked before that had done everything right and still had a
+ * panel reading "Channel not linked".
+ *
+ * THEY ARE OPTIONS ON /twitch RATHER THAN A SEPARATE MOD COMMAND because they
+ * are the same subject, and a second command is a second thing to remember for
+ * the rare case. `/flag` sets the precedent: one command, mod options on it.
+ */
+async function twitch(interaction, env, userId, o = {}) {
+  if (o.list) return twitchList(interaction, env);
+  if (o.sync) return twitchSync(interaction, env);
+  if (o.member) return twitchFor(interaction, env, o.member, o.channel);
+  return twitchSelf(env, userId, o.channel);
+}
+
+async function twitchSelf(env, userId, channel) {
   const me = await db.memberByDiscordId(env, userId);
   if (!me) {
     return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
@@ -749,19 +796,8 @@ async function twitch(env, userId, channel) {
     );
   }
 
-  /**
-   * A URL is what people actually paste, so take one. Everything after the last
-   * slash, minus a query string, lowercased. Twitch names are letters, numbers
-   * and underscores, 4 to 25 characters, so anything else is a typo or a link
-   * to something that is not a channel.
-   */
-  const login = raw
-    .replace(/^https?:\/\//i, '')
-    .replace(/^(www\.)?twitch\.tv\//i, '')
-    .split(/[/?#]/)[0]
-    .toLowerCase();
-
-  if (!/^[a-z0-9_]{4,25}$/.test(login)) {
+  const login = twitchLogin(raw);
+  if (!login) {
     return errorReply(
       `**${md(raw)}** is not a Twitch channel name. Give me the bit after twitch.tv/, or the ` +
         'whole link and I will take it apart.',
@@ -800,6 +836,254 @@ async function twitch(env, userId, channel) {
         COLOR.blurple,
       ),
     ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * Set or clear somebody else's channel. /twitch member:@them channel:name
+ *
+ * THIS IS A TEXT BOX ABOUT SOMEBODY ELSE'S IDENTITY, which is the exact shape of
+ * thing the Twitch panel deleted on purpose - a broadcaster typing a PSN name
+ * could type anyone's. The difference that makes this acceptable is who is
+ * holding the box: a mod, in a server where they can see which human is which,
+ * with the change visible and reversible in one command. The panel's box was
+ * held by a stranger, stored on Twitch's side, and could not be cleared from
+ * here at all.
+ *
+ * IT REFUSES TO TAKE A CHANNEL OFF SOMEBODY rather than reassigning it, even for
+ * a mod. Two members holding one channel means the live check writes one of them
+ * and the panel resolves whichever row comes back first, which is a bug that
+ * looks like nothing until somebody's board shows a stranger's trophies. Naming
+ * the holder and asking for one more command is the whole cost of never doing
+ * that silently.
+ */
+async function twitchFor(interaction, env, targetId, channel) {
+  if (!isMod(interaction)) return errorReply('That one is for mods only.');
+
+  const them = await db.memberByDiscordId(env, targetId);
+  if (!them) {
+    return errorReply(`<@${targetId}> is not on the board yet. They need to \`/register\` first.`);
+  }
+
+  const raw = String(channel ?? '').trim();
+
+  if (!raw) {
+    if (!them.twitch_login) {
+      return errorReply(`**${md(them.psn_online_id)}** has no channel set, so there is nothing to remove.`);
+    }
+    await db.setTwitch(env, them.psn_account_id, null);
+    return reply(
+      [
+        container(
+          [
+            text(
+              `### Channel removed\n**${md(them.twitch_login)}** is no longer linked to ` +
+                `**${md(them.psn_online_id)}**.\n\n` +
+                '-# Their panel will say the channel is not linked until somebody sets it again.',
+            ),
+          ],
+          COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  const login = twitchLogin(raw);
+  if (!login) {
+    return errorReply(
+      `**${md(raw)}** is not a Twitch channel name. Give me the bit after twitch.tv/, or the ` +
+        'whole link and I will take it apart.',
+    );
+  }
+
+  const taken = await db.memberByTwitch(env, login);
+  if (taken && taken.psn_account_id !== them.psn_account_id) {
+    return errorReply(
+      `**${md(login)}** is already linked to **${md(taken.psn_online_id)}**.\n\n` +
+        'Two members cannot hold one channel. The panel would resolve whichever row came back ' +
+        'first. Clear the old one first, then set this one again.',
+    );
+  }
+
+  const id = await channelId(env, login);
+  await db.setTwitch(env, them.psn_account_id, login, id);
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `### ${md(them.psn_online_id)} → ${md(login)}\n` +
+              (id
+                ? 'Linked, id resolved. Their Twitch panel will find them and the fast trophy ' +
+                  'poll will run while they are live.'
+                : 'Linked, but Twitch did not answer with a channel id just now. The fast poll ' +
+                  'works; the **panel will not find them until the id lands**. Run ' +
+                  '`/twitch sync:True` in a minute, or it fills itself in next time they stream.'),
+          ),
+        ],
+        id ? COLOR.blurple : COLOR.grey,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * Bring every linked channel up to date. /twitch sync:True
+ *
+ * ONE REQUEST, NOT SEVENTY-FIVE. helix/users takes a hundred lookups at a time,
+ * so the whole board costs one call and finishes well inside the three seconds a
+ * Discord interaction gets. Resolving them one at a time would not.
+ *
+ * IT ASKS BY ID WHERE THERE IS ONE. A Twitch id is permanent and a login is not,
+ * so somebody who renames their channel keeps working on the panel (which
+ * matches on the id) and silently vanishes from the live check (which matches on
+ * the login). Nothing reports that. Asking Twitch what the id is called now is
+ * the only way it ever gets noticed.
+ */
+async function twitchSync(interaction, env) {
+  if (!isMod(interaction)) return errorReply('That one is for mods only.');
+
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) {
+    return errorReply('There are no Twitch credentials set, so there is nothing to ask.');
+  }
+
+  const rows = await db.membersWithTwitch(env);
+  if (!rows.length) return errorReply('Nobody on the board has a channel set.');
+
+  const id = (r) => String(r.twitch_id ?? '').trim();
+  const login = (r) => String(r.twitch_login ?? '').trim().toLowerCase();
+
+  const found = await lookupChannels(env, {
+    ids: rows.filter((r) => id(r)).map(id),
+    logins: rows.filter((r) => !id(r)).map(login),
+  });
+
+  if (!found.byId.size && !found.byLogin.size) {
+    return errorReply('Twitch answered with nothing at all. Try again in a minute.');
+  }
+
+  /**
+   * Ids already spoken for, so a resolve cannot hand one channel to two members.
+   * Two rows with the same twitch_id makes the panel's lookup pick whichever
+   * comes back first, which shows a stranger's board and looks like nothing is
+   * wrong.
+   */
+  const claimed = new Set(rows.filter((r) => id(r)).map(id));
+
+  const filled = [];
+  const renamed = [];
+  const missing = [];
+  const clashed = [];
+
+  for (const r of rows) {
+    const hit = id(r) ? found.byId.get(id(r)) : found.byLogin.get(login(r));
+
+    if (!hit) {
+      missing.push(r);
+      continue;
+    }
+
+    if (!id(r)) {
+      if (claimed.has(hit.id)) {
+        clashed.push(r);
+        continue;
+      }
+      claimed.add(hit.id);
+      filled.push({ row: r, hit });
+      continue;
+    }
+
+    if (hit.login !== login(r)) renamed.push({ row: r, hit });
+  }
+
+  for (const { row, hit } of [...filled, ...renamed]) {
+    await db.setTwitch(env, row.psn_account_id, hit.login, hit.id);
+  }
+
+  const names = (list, of = (x) => x.psn_online_id) =>
+    list.map((x) => md(String(of(x)))).join(', ');
+
+  const lines = [
+    `### Synced ${n(rows.length)} channel${rows.length === 1 ? '' : 's'}`,
+  ];
+
+  if (filled.length) {
+    lines.push(
+      `**${n(filled.length)} panel${filled.length === 1 ? '' : 's'} fixed.** ` +
+        'they had a channel but no id, so their panel said it was not linked.\n' +
+        `-# ${names(filled, (x) => x.row.psn_online_id)}`,
+    );
+  }
+
+  if (renamed.length) {
+    lines.push(
+      `**${n(renamed.length)} renamed.** Twitch says these channels are called something else ` +
+        'now, so the live check had stopped finding them.\n' +
+        `-# ${renamed.map((x) => `${md(x.row.twitch_login)} → ${md(x.hit.login)}`).join(', ')}`,
+    );
+  }
+
+  if (clashed.length) {
+    lines.push(
+      `**${n(clashed.length)} left alone.** The channel is already linked to somebody else, ` +
+        'so giving them the same id would point two members at one panel.\n' +
+        `-# ${names(clashed, (x) => x.psn_online_id)}`,
+    );
+  }
+
+  if (missing.length) {
+    lines.push(
+      `**${n(missing.length)} Twitch does not know.** The name is a typo, or the account is ` +
+        'gone. Nothing was changed.\n' +
+        `-# ${missing.map((r) => `${md(r.psn_online_id)} (${md(r.twitch_login)})`).join(', ')}`,
+    );
+  }
+
+  const changed = filled.length + renamed.length;
+  if (!changed && !missing.length && !clashed.length) {
+    lines.push('Everything was already correct. Nothing to do.');
+  }
+
+  return reply(
+    [container([text(lines.join('\n\n'))], changed ? COLOR.green : COLOR.grey)],
+    { ephemeral: true },
+  );
+}
+
+/** Who is linked, and who only looks linked. /twitch list:True */
+async function twitchList(interaction, env) {
+  if (!isMod(interaction)) return errorReply('That one is for mods only.');
+
+  const rows = await db.membersWithTwitch(env);
+  if (!rows.length) return errorReply('Nobody on the board has a channel set.');
+
+  /**
+   * The broken ones come first, out of the query. A list where the problem is
+   * on line thirty is a list nobody reads to the end of.
+   */
+  const broken = rows.filter((r) => !String(r.twitch_id ?? '').trim());
+  const CAP = 30;
+
+  const line = (r) =>
+    String(r.twitch_id ?? '').trim()
+      ? `${md(r.psn_online_id)} → ${md(r.twitch_login)}`
+      : `⚠️ ${md(r.psn_online_id)} → ${md(r.twitch_login)} (no id)`;
+
+  const shown = rows.slice(0, CAP).map(line);
+  if (rows.length > CAP) shown.push(`-# …and ${n(rows.length - CAP)} more.`);
+
+  const head = broken.length
+    ? `### ${n(rows.length)} linked, ${n(broken.length)} broken\n` +
+      'The ⚠️ rows have a channel but no Twitch id, so the fast trophy poll works and their ' +
+      '**panel says the channel is not linked**. `/twitch sync:True` fixes them.'
+    : `### ${n(rows.length)} linked, all resolved\nEvery channel has an id, so every panel finds its hunter.`;
+
+  return reply(
+    [container([text(`${head}\n\n${shown.join('\n')}`)], broken.length ? COLOR.grey : COLOR.green)],
     { ephemeral: true },
   );
 }

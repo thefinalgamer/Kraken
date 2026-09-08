@@ -929,6 +929,29 @@ export async function removeWish(env, accountId, npCommId) {
   return (res?.meta?.changes ?? 0) > 0;
 }
 
+/**
+ * Everybody who has told Kraken a channel, whether or not it resolved.
+ *
+ * The ones with a login and no id are the reason this exists. `/twitch` only
+ * started resolving the numeric id when the panel needed it, so every member who
+ * set their channel before that has a login, a working fast-poll, and a panel
+ * that says "Channel not linked" — having done nothing wrong. Nine of them on
+ * the day this was written.
+ *
+ * `rank IS NOT NULL` is deliberately NOT here. Somebody mid-first-scan still has
+ * a channel worth syncing, and a sync that quietly skips people is worse than
+ * one that reports them.
+ */
+export const membersWithTwitch = (env) =>
+  all(
+    env,
+    `SELECT psn_account_id, psn_online_id, discord_id, twitch_login, twitch_id
+       FROM members
+      WHERE twitch_login IS NOT NULL AND TRIM(twitch_login) <> ''
+      ORDER BY (twitch_id IS NULL OR TRIM(twitch_id) = '') DESC,
+               psn_online_id COLLATE NOCASE`,
+  );
+
 /** The hunter whose channel this is, by Twitch's numeric id. */
 export const memberByTwitchId = (env, id) =>
   first(

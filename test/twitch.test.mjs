@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { checkLive, isLive, LIVE_STALE_MS } from '../worker/src/twitch.mjs';
+import { checkLive, isLive, LIVE_STALE_MS, lookupChannels } from '../worker/src/twitch.mjs';
 
 /**
  * The live check.
@@ -226,24 +226,232 @@ test('the cron is registered, and it is the only scheduled work', () => {
   assert.ok(!/dispatchScan|getUserTitles/.test(fn), 'no heavy work crept into the Worker');
 });
 
-test('only the member themselves can set their channel', () => {
+const workerSrc = () => readFileSync(
+  fileURLToPath(new URL('../worker/src/index.mjs', import.meta.url)), 'utf8',
+);
+
+/** One function's body, from its declaration to the next one. */
+const fnBody = (src, name) => {
+  const at = src.indexOf(`async function ${name}(`);
+  assert.notEqual(at, -1, `${name} exists`);
+  const next = src.indexOf('\nasync function ', at + 1);
+  const plain = src.indexOf('\nfunction ', at + 1);
+  const ends = [next, plain].filter((i) => i > 0);
+  return src.slice(at, ends.length ? Math.min(...ends) : src.length);
+};
+
+/** A Twitch that answers helix/users with whatever `users` says exists. */
+function userHarness(users = []) {
+  const calls = [];
+  const env = {
+    TWITCH_CLIENT_ID: 'id',
+    TWITCH_CLIENT_SECRET: 'secret',
+    DB: {
+      prepare: () => ({
+        bind: () => ({ async first() { return null; }, async run() { return {}; } }),
+        async first() { return null; },
+        async run() { return {}; },
+      }),
+    },
+  };
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes('id.twitch.tv')) {
+      return { ok: true, status: 200, json: async () => ({ access_token: 't', expires_in: 5e6 }) };
+    }
+    calls.push(new URL(href));
+    const q = new URL(href).searchParams;
+    const wantIds = new Set(q.getAll('id'));
+    const wantLogins = new Set(q.getAll('login'));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: users.filter((u) => wantIds.has(u.id) || wantLogins.has(u.login)),
+      }),
+    };
+  };
+  return { env, calls };
+}
+
+test('a whole board of channels is one request, not one each', async () => {
+  /**
+   * The reason /twitch sync can exist as a slash command at all. A Discord
+   * interaction has three seconds; nine sequential lookups would not fit, and
+   * seventy-five certainly would not.
+   */
+  const { env, calls } = userHarness([
+    { id: '1', login: 'pelzio' },
+    { id: '2', login: 'jfl__leon' },
+    { id: '3', login: 'th3finalgamer' },
+  ]);
+
+  const out = await lookupChannels(env, {
+    ids: ['1'],
+    logins: ['jfl__leon', 'th3finalgamer'],
+  });
+
+  assert.equal(calls.length, 1, 'one call to helix/users');
+  assert.deepEqual(calls[0].searchParams.getAll('id'), ['1']);
+  assert.deepEqual(calls[0].searchParams.getAll('login'), ['jfl__leon', 'th3finalgamer']);
+  assert.equal(out.byId.get('1').login, 'pelzio');
+  assert.equal(out.byLogin.get('jfl__leon').id, '2');
+});
+
+test('a channel Twitch does not know is simply absent, not guessed at', async () => {
+  /**
+   * A typo, a deleted account and a suspended one all come back the same way:
+   * not in the response. The sync reports them by name rather than writing
+   * anything, because there is nothing true to write.
+   */
+  const { env } = userHarness([{ id: '1', login: 'pelzio' }]);
+  const out = await lookupChannels(env, { logins: ['pelzio', 'nobodyhere'] });
+
+  assert.ok(out.byLogin.has('pelzio'));
+  assert.ok(!out.byLogin.has('nobodyhere'), 'no invented row');
+  assert.equal(out.byLogin.size, 1);
+});
+
+test('a rename comes back under the id, with the new name on it', async () => {
+  /**
+   * The case nothing else on the board can see. The id is permanent, so the
+   * panel keeps working; the login is not, so the live check quietly stops
+   * finding them. Asking by id is what notices.
+   */
+  const { env } = userHarness([{ id: '9', login: 'newname' }]);
+  const out = await lookupChannels(env, { ids: ['9'] });
+
+  assert.equal(out.byId.get('9').login, 'newname', 'Twitch reports the current name');
+});
+
+test('no credentials means no request and no answer, not a crash', async () => {
+  const { calls } = userHarness([{ id: '1', login: 'pelzio' }]);
+  const out = await lookupChannels({ DB: {} }, { logins: ['pelzio'] });
+
+  assert.equal(out.byLogin.size, 0);
+  assert.equal(out.byId.size, 0);
+  assert.equal(calls.length, 0, 'nothing was asked');
+});
+
+test('nothing to look up asks nothing', async () => {
+  const { env, calls } = userHarness([]);
+  const out = await lookupChannels(env, { ids: [], logins: [] });
+  assert.equal(calls.length, 0);
+  assert.equal(out.byId.size, 0);
+});
+
+test('the plain /twitch is still only ever about the caller', () => {
   /**
    * A member telling the board they stream is the consent step for everything
-   * downstream. Nobody switches that on for somebody else, which is why the
-   * command has no member option for mods to aim at.
+   * downstream, and that has not changed. What changed is that nine members who
+   * HAD consented were broken: /twitch only started resolving the numeric
+   * channel id when the panel needed one, so everybody who linked before that
+   * had a working fast poll and a panel reading "Channel not linked".
+   *
+   * So a mod path exists now. This test guards the half that must not move: the
+   * ordinary path, the one members run, still reads the caller and nothing else.
    */
-  const src = readFileSync(
-    fileURLToPath(new URL('../worker/src/index.mjs', import.meta.url)), 'utf8',
-  );
-  const fn = src.slice(src.indexOf('async function twitch('), src.indexOf('async function overlay('));
+  const fn = fnBody(workerSrc(), 'twitchSelf');
   assert.match(fn, /db\.memberByDiscordId\(env, userId\)/, 'it is always about the caller');
-  assert.ok(!/opt\('member'\)|MANAGE_/.test(fn), 'no mod path, no permission gate to widen');
+  assert.ok(!/isMod|permissions/.test(fn), 'and carries no permission gate to widen');
+});
 
+test('every mod path on /twitch is gated, and the gate is one definition', () => {
+  const src = workerSrc();
+  for (const name of ['twitchFor', 'twitchSync', 'twitchList']) {
+    assert.match(
+      fnBody(src, name),
+      /if \(!isMod\(interaction\)\) return errorReply/,
+      `${name} checks Manage Server before doing anything`,
+    );
+  }
+
+  /**
+   * ONE DEFINITION OF THE GATE. It was written out longhand inside unlink() and
+   * copied here would have been the second copy; the third would have been the
+   * one that drifted.
+   */
+  assert.equal(
+    (src.match(/const isMod = /g) ?? []).length, 1,
+    'isMod is defined exactly once',
+  );
+  assert.match(fnBody(src, 'unlink'), /isMod\(interaction\)/, 'unlink uses it too');
+});
+
+test('a mod cannot take a channel off one member and give it to another', () => {
+  /**
+   * Two rows holding one twitch_id makes memberByTwitchId pick whichever comes
+   * back first, so a panel shows a stranger's trophies and nothing anywhere says
+   * it is wrong. Refusing and naming the holder is the whole cost of never doing
+   * that silently.
+   */
+  const fn = fnBody(workerSrc(), 'twitchFor');
+  assert.match(fn, /db\.memberByTwitch\(env, login\)/, 'it checks who holds the channel');
+  assert.match(
+    fn,
+    /taken && taken\.psn_account_id !== them\.psn_account_id[\s\S]{0,400}?return errorReply/,
+    'and refuses rather than reassigning',
+  );
+});
+
+test('the sync cannot hand one channel to two members either', () => {
+  /**
+   * The same invariant from the other direction. Nine unresolved logins go to
+   * Twitch at once; if two of them come back as the same channel, or one matches
+   * an id somebody already holds, filling both in would create the duplicate the
+   * check above exists to prevent.
+   */
+  const fn = fnBody(workerSrc(), 'twitchSync');
+  assert.match(fn, /claimed/, 'ids already spoken for are tracked');
+  assert.match(fn, /claimed\.has\(hit\.id\)/, 'and a clash is detected');
+  assert.match(fn, /clashed\.push/, 'and reported rather than written');
+});
+
+test('the sync asks by id where it has one, so a rename is noticed', () => {
+  /**
+   * A Twitch id is permanent and a login is not. Somebody who renames their
+   * channel keeps working on the panel (which matches the id) and silently
+   * vanishes from the live check (which matches the login). Asking Twitch what
+   * the id is called NOW is the only thing that ever notices.
+   */
+  const fn = fnBody(workerSrc(), 'twitchSync');
+  assert.match(fn, /ids: rows\.filter\(\(r\) => id\(r\)\)/, 'rows with an id are asked by id');
+  assert.match(fn, /logins: rows\.filter\(\(r\) => !id\(r\)\)/, 'and only the rest by login');
+  assert.match(fn, /renamed\.push/, 'a changed login is recorded');
+});
+
+test('the mod options are registered, and do not hide the command from members', () => {
   const cmds = readFileSync(
     fileURLToPath(new URL('../jobs/register-commands.mjs', import.meta.url)), 'utf8',
   );
-  const block = cmds.slice(cmds.indexOf("name: 'twitch'"), cmds.indexOf("name: 'overlay'"));
-  assert.ok(!block.includes("name: 'member'"), 'and none registered either');
+  /**
+   * COMMENTS STRIPPED FIRST. The comment explaining why
+   * default_member_permissions is NOT used contains the phrase, so scanning the
+   * raw text failed on its own explanation. Fourth time this session; every
+   * guard that greps source has to read code rather than prose.
+   */
+  const block = cmds
+    .slice(cmds.indexOf("name: 'twitch'"), cmds.indexOf("name: 'wishlist'"))
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+
+  for (const opt of ['member', 'sync', 'list']) {
+    assert.ok(block.includes(`name: '${opt}'`), `${opt} is registered`);
+  }
+
+  /**
+   * default_member_permissions is per COMMAND, not per option. Putting it on
+   * /twitch to gate the three mod options would hide the whole command from the
+   * members whose command it mostly is.
+   */
+  assert.ok(
+    !block.includes('default_member_permissions'),
+    'the command itself stays open to everybody',
+  );
+  assert.ok(
+    block.split("name: 'channel'")[1].includes("required: false"),
+    'and the members option is still optional, because bare is how you turn it off',
+  );
 });
 
 test('the end of a stream is remembered, not just forgotten', async () => {

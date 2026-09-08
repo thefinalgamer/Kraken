@@ -152,6 +152,69 @@ export async function channelId(env, login) {
 }
 
 /**
+ * Look several channels up at once, by login or by numeric id.
+ *
+ * ONE REQUEST FOR THE WHOLE BOARD, the same shape as the live check: helix/users
+ * takes up to a hundred `login` and `id` parameters combined and answers with
+ * only the ones that exist. Resolving nine missing ids one at a time would be
+ * nine round trips inside a Discord interaction that has three seconds to live.
+ *
+ * BY ID WHERE WE HAVE ONE, BY LOGIN WHERE WE DO NOT, and the asymmetry matters.
+ * A Twitch id is permanent; a login is not. Somebody who renames their channel
+ * keeps their id and breaks their login, so the live check quietly stops finding
+ * them and nothing says why. Asking by id is how a rename gets noticed at all.
+ *
+ * Anything Twitch does not return is simply absent from the map. That is the
+ * answer for a channel that never existed and for one that has been deleted,
+ * and the caller wants to report both the same way: "Twitch does not know this
+ * name."
+ */
+export async function lookupChannels(env, { logins = [], ids = [] } = {}) {
+  const out = { byLogin: new Map(), byId: new Map() };
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) return out;
+
+  const params = [
+    ...ids.filter(Boolean).map((v) => ['id', String(v)]),
+    ...logins.filter(Boolean).map((v) => ['login', String(v).toLowerCase()]),
+  ];
+  if (!params.length) return out;
+
+  let token;
+  try {
+    token = await appToken(env);
+  } catch {
+    return out;
+  }
+
+  for (let i = 0; i < params.length; i += BATCH) {
+    const url = new URL(USERS_URL);
+    for (const [key, value] of params.slice(i, i + BATCH)) url.searchParams.append(key, value);
+
+    let json;
+    try {
+      const res = await fetch(url, {
+        headers: { 'Client-Id': env.TWITCH_CLIENT_ID, Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) continue;
+      json = await res.json();
+    } catch {
+      continue;
+    }
+
+    for (const u of json?.data ?? []) {
+      const id = typeof u.id === 'string' && u.id ? u.id : null;
+      const login = typeof u.login === 'string' && u.login ? u.login.toLowerCase() : null;
+      if (!id || !login) continue;
+      const row = { id, login };
+      out.byId.set(id, row);
+      out.byLogin.set(login, row);
+    }
+  }
+
+  return out;
+}
+
+/**
  * Ask Twitch, write the answer, return a one line summary for the log.
  *
  * WRITES ONLY WHAT CHANGED. Every member with a channel gets `live_checked_at`

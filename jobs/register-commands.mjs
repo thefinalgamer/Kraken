@@ -179,6 +179,35 @@ const commands = [
         type: 3,
         required: false,
       },
+      /**
+       * THE THREE BELOW ARE MOD ONLY, and the gate is checked in the handler
+       * rather than declared here. `default_member_permissions` is per COMMAND,
+       * not per option, and putting it on /twitch would hide the whole thing
+       * from the members whose command it mostly is.
+       *
+       * They exist because nine members turned out to have a channel and no
+       * numeric id: /twitch only started resolving the id when the panel needed
+       * one, so everybody who linked before that had a working fast poll and a
+       * panel reading "Channel not linked", having done nothing wrong.
+       */
+      {
+        name: 'member',
+        description: 'Mods: set or clear this person\'s channel instead of your own',
+        type: 6,
+        required: false,
+      },
+      {
+        name: 'sync',
+        description: 'Mods: re-check every linked channel against Twitch and fix what has drifted',
+        type: 5,
+        required: false,
+      },
+      {
+        name: 'list',
+        description: 'Mods: show who is linked, and whose panel is broken',
+        type: 5,
+        required: false,
+      },
     ],
   },
   {

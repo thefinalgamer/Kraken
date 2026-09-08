@@ -73,16 +73,30 @@ const TOTAL = 'SELECT COUNT(*) AS c FROM members WHERE rank IS NOT NULL';
 const AHEAD = 'SELECT rank, psn_online_id, points FROM members WHERE rank = ? LIMIT 1';
 
 /**
- * `local_started` and the platinum's `local_earned` are the two figures no
- * other trophy site can print, and they are the reason the panel is worth
- * installing at all.
+ * `local_started` and `finished_here` are the two figures no other trophy site
+ * can print, and they are the reason the panel is worth installing at all.
+ *
+ * FINISHED MEANS 100%, NOT THE PLATINUM. This shipped counting the platinum's
+ * local_earned, so the panel read "8 of us finished" when it meant "8 of us
+ * platted" -- a smaller number, and a wrong one on any game with no platinum
+ * at all, where it read "nobody has finished it" about a game several people
+ * had 100%'d. The site and the Discord embeds have counted progress = 100
+ * since the day that came up there; this is the same count, and the two are
+ * meant to agree.
+ *
+ * The platinum's local_earned stays, under its own name, because the scoring
+ * model genuinely is platinum-based: localMultiplier asks how many people got
+ * stuck before the platinum, which is a different question to how many got to
+ * 100%.
  */
 const GAME_COLS = `
   g.np_comm_id, g.title, g.platform, g.icon_url, g.trophy_count, g.max_points,
   g.local_started, g.unobtainable, g.closes_at,
   mg.points, mg.progress, mg.earned_total,
   (SELECT t.local_earned FROM trophies t
-    WHERE t.np_comm_id = g.np_comm_id AND t.type = 'platinum' LIMIT 1) AS plat_local`;
+    WHERE t.np_comm_id = g.np_comm_id AND t.type = 'platinum' LIMIT 1) AS plat_local,
+  (SELECT COUNT(*) FROM member_games x
+    WHERE x.np_comm_id = g.np_comm_id AND x.progress = 100) AS finished_here`;
 
 const ONE_GAME = `
   SELECT ${GAME_COLS}
@@ -200,7 +214,8 @@ const gameOut = (g, extra = {}) =>
         points: num(g.points) ?? 0,
         max: num(g.max_points) ?? 0,
         ownedHere: num(g.local_started) ?? 0,
-        finishedHere: num(g.plat_local) ?? 0,
+        finishedHere: num(g.finished_here) ?? 0,
+        plattedHere: num(g.plat_local) ?? 0,
         closesAt: num(g.closes_at),
         unobtainable: Number(g.unobtainable) === 1,
         ...extra,

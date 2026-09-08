@@ -32,7 +32,7 @@ const PLAYING = {
   np_comm_id: 'NPWR_GOY', title: 'Ghost of Yotei', platform: 'PS5',
   icon_url: 'https://x.test/goy.png', trophy_count: 30, max_points: 168,
   local_started: 4, unobtainable: 0, closes_at: null,
-  points: 47, progress: 36, earned_total: 13, plat_local: 0,
+  points: 47, progress: 36, earned_total: 13, plat_local: 0, finished_here: 0,
 };
 
 const fake = (o = {}) => ({
@@ -104,6 +104,42 @@ test('it is cached at the edge and open to any origin', async () => {
   assert.match(res.headers.get('cache-control'), /max-age=30/);
   assert.equal(res.headers.get('access-control-allow-origin'), '*');
   assert.match(res.headers.get('content-type'), /application\/json/);
+});
+
+test('"finished" counts 100%, not the platinum', async () => {
+  /**
+   * THE PANEL READ "8 of us finished" ABOUT SEA OF THIEVES WHEN ELEVEN OF US
+   * HAD 100%'D IT. It was printing the platinum's local_earned, which is a
+   * different question and a smaller number, and on a game with no platinum
+   * row at all it printed "nobody has finished it" about a game half the
+   * server had completed.
+   *
+   * The site and the Discord embeds have counted progress = 100 since this
+   * came up there. The panel sits next to both, so a viewer can see the two
+   * numbers at once; they have to be the same number.
+   */
+  const { body } = await get({
+    playing: { ...PLAYING, local_started: 15, plat_local: 8, finished_here: 11 },
+  });
+
+  assert.equal(body.playing.finishedHere, 11, 'the 100% count, not the platinum count');
+  assert.equal(body.playing.plattedHere, 8, 'the platinum count is still carried, under its own name');
+  assert.equal(body.playing.ownedHere, 15);
+});
+
+test('a game with no platinum still reports its finishers', async () => {
+  /**
+   * The half of the bug nobody would have noticed from a screenshot. A game
+   * with no platinum trophy has no row for the subquery to find, so plat_local
+   * came back null and the panel said nobody had finished a game four people
+   * had 100%'d.
+   */
+  const { body } = await get({
+    playing: { ...PLAYING, local_started: 6, plat_local: null, finished_here: 4 },
+  });
+
+  assert.equal(body.playing.finishedHere, 4);
+  assert.equal(body.playing.plattedHere, 0);
 });
 
 test('an unknown hunter is a 404, not an empty panel', async () => {

@@ -141,20 +141,48 @@ test('a panel that has already drawn is never replaced by an error', async () =>
   assert.match(fail.slice(0, 120), /if \(state\.data\) return;/);
 });
 
-test('an unconfigured panel explains itself rather than looking broken', async () => {
+test('an unlinked channel explains itself rather than looking broken', async () => {
   const js = await readCode('panel.js');
-  assert.match(js, /Not set up yet/);
-  assert.match(js, /Not on the board/, 'and a wrong name says which name');
+  assert.match(js, /Channel not linked/);
+  assert.match(js, /\/twitch/, 'and says which command fixes it');
 });
 
-test('the config page checks a name against the board before saving it', async () => {
-  // A typo that saves cleanly costs the broadcaster an empty panel in front of
-  // their viewers, with no clue why.
+test('WHOSE BOARD IT IS COMES FROM THE CHANNEL, NEVER FROM TYPED INPUT', async () => {
+  /**
+   * The hole this closes. The first version asked the broadcaster to type a PSN
+   * ID and nothing stopped them typing somebody else's - the setting lived in
+   * Twitch's configuration service, owned by that channel, where Kraken could
+   * neither see it nor clear it. Martin: "what happens if i picked someone else
+   * id, can i remove it on my end to stop grief". The answer was no.
+   *
+   * A panel cannot forge the channel it runs on, so identity comes from
+   * onAuthorized and nowhere else. If a text box ever comes back, this fails.
+   */
+  const panel = await readCode('panel.js');
+  const config = await readCode('config.js');
+
+  assert.match(panel, /onAuthorized\(function \(auth\)/, 'identity is the channel');
+  assert.match(panel, /auth && auth\.channelId/);
+  assert.match(panel, /api\/channel\//, 'looked up server side');
+
+  for (const [name, src] of [['panel.js', panel], ['config.js', config]]) {
+    assert.ok(
+      !/configuration\.set\(/.test(src),
+      `${name} writes a configuration segment, which is the thing that was abusable`,
+    );
+    assert.ok(
+      !/<input/i.test(src) && !/getElementById\('psn'\)/.test(src),
+      `${name} still has somewhere to type a name`,
+    );
+  }
+
+  const html = await readCode('config.html');
+  assert.ok(!/<input/i.test(html), 'the settings page has no text box at all');
+});
+
+test('the settings page tells a broadcaster how to link, and nothing else', async () => {
   const js = await readCode('config.js');
-  assert.match(js, /fetch\(API \+ encodeURIComponent\(psn\)/);
-  assert.ok(
-    js.indexOf('fetch(API') < js.indexOf('store(exact)'),
-    'it must ask the board BEFORE it stores anything',
-  );
-  assert.match(js, /data\.hunter\.name/, 'and stores the spelling the board uses');
+  assert.match(js, /Not linked yet/);
+  assert.match(js, /This channel is linked/, 'and confirms when it is');
+  assert.match(js, /\/twitch/, 'naming the command that does it');
 });

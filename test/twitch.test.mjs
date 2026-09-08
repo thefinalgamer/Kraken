@@ -315,3 +315,66 @@ test('a stream from last week is not swept forever', async () => {
   await checkLive(env);
   assert.ok(!writes.some((w) => w.sql.includes('UPDATE member_trophies')), 'twelve hours is the limit');
 });
+
+// ------------------------------------------------------ the channel id ----
+
+test('a live stream teaches us its channel id, for free', async () => {
+  /**
+   * `user_id` arrives in the same helix/streams response the live check already
+   * reads, so a member who streams links their channel to the Twitch panel
+   * without being asked and without an extra request.
+   */
+  const { env, writes } = harness({ streams: [live('pelzio', { user_id: '44322889' })] });
+  await checkLive(env);
+
+  const ids = writes.filter((w) => w.sql.includes('twitch_id = ?'));
+  assert.equal(ids.length, 1, 'one write, for the one member whose id we learned');
+  assert.deepEqual(ids[0].args, ['44322889', 'a1']);
+});
+
+test('an id we already hold is not written again', async () => {
+  // Same rule as every other write in this function: only what actually moved.
+  const known = [
+    { psn_account_id: 'a1', twitch_login: 'pelzio', twitch_id: '44322889', live_since: 1000 },
+  ];
+  const { env, writes } = harness({
+    members: known,
+    streams: [live('pelzio', { user_id: '44322889' })],
+  });
+  await checkLive(env);
+
+  assert.equal(
+    writes.filter((w) => w.sql.includes('twitch_id = ?')).length,
+    0,
+    'nothing to learn, nothing written',
+  );
+});
+
+test('a channel that changed hands is corrected', async () => {
+  // Somebody renaming a channel onto a different id, or a login being reused.
+  const stale = [
+    { psn_account_id: 'a1', twitch_login: 'pelzio', twitch_id: 'old-id', live_since: 1000 },
+  ];
+  const { env, writes } = harness({
+    members: stale,
+    streams: [live('pelzio', { user_id: '44322889' })],
+  });
+  await checkLive(env);
+
+  const ids = writes.filter((w) => w.sql.includes('twitch_id = ?'));
+  assert.deepEqual(ids[0].args, ['44322889', 'a1']);
+});
+
+test('the id write sits outside the batch, like the pin clear', () => {
+  /**
+   * `twitch_id` arrives in migration 029 and a batch is all or nothing. Folded
+   * into the writes above, a database that has not run it would lose the entire
+   * live check rather than one id.
+   */
+  const src = readFileSync(
+    fileURLToPath(new URL('../worker/src/twitch.mjs', import.meta.url)), 'utf8',
+  );
+  const after = src.slice(src.indexOf('await env.DB.batch(writes)'));
+  assert.match(after, /twitch_id = \? WHERE psn_account_id/, 'written after the batch');
+  assert.match(after.slice(after.indexOf('twitch_id')), /catch\(\(\) => \{\}\)/, 'and guarded');
+});

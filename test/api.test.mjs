@@ -246,3 +246,75 @@ test('CORS preflight is answered', async () => {
   assert.equal(res.headers.get('access-control-allow-origin'), '*');
   assert.match(res.headers.get('access-control-allow-methods'), /GET/);
 });
+
+// ------------------------------------------------------ channel identity ----
+
+const channel = await import('../functions/api/channel/[id].js');
+
+const chanEnv = (row) => ({
+  DB: {
+    prepare() {
+      return {
+        bind: () => ({
+          async first() {
+            if (row instanceof Error) throw row;
+            return row;
+          },
+        }),
+      };
+    },
+  },
+});
+
+const byChannel = async (id, row) => {
+  const res = await channel.onRequestGet({ params: { id }, env: chanEnv(row) });
+  return { res, body: JSON.parse(await res.text()) };
+};
+
+test('a linked channel answers with the hunter who claimed it', async () => {
+  const { res, body } = await byChannel('123456789', {
+    psn_online_id: 'JFL__Leon', twitch_login: 'jfl__leon',
+  });
+  assert.equal(res.status, 200);
+  assert.equal(body.hunter, 'JFL__Leon');
+  assert.match(res.headers.get('cache-control'), /max-age=300/, 'cached harder than the hunter');
+});
+
+test('an unclaimed channel is a plain 404, not a fault', async () => {
+  // Most Twitch channels in the world are not on this board.
+  const { res, body } = await byChannel('999', null);
+  assert.equal(res.status, 404);
+  assert.equal(body.hunter, null);
+});
+
+test('a channel id is compared as a string and never parsed', async () => {
+  /**
+   * Twitch ids are numeric strings that are already past 2^53 in places, and a
+   * number that rounds is an id that matches the WRONG member. Anything that is
+   * not plain digits is refused before it reaches the query.
+   */
+  for (const bad of ["1 OR '1'='1", '12e5', '-5', '1.5', 'abc', '', ' ']) {
+    const { res } = await byChannel(bad, { psn_online_id: 'Nope' });
+    assert.equal(res.status, 400, `${JSON.stringify(bad)} must be refused`);
+  }
+
+  const src = await readFile(
+    new URL('../functions/api/channel/[id].js', import.meta.url), 'utf8',
+  );
+  assert.ok(!/parseInt|Number\(/.test(src), 'the id is never turned into a number');
+});
+
+test('a database without migration 029 says unlinked rather than falling over', async () => {
+  // The panel then shows "run /twitch to link this channel", which is the same
+  // sentence an unlinked channel gets. A thrown query would be a broken box.
+  const { res, body } = await byChannel('123', new Error('no such column: twitch_id'));
+  assert.equal(res.status, 404);
+  assert.equal(body.hunter, null);
+});
+
+test('the channel endpoint leaks nothing beyond a name', async () => {
+  const { body } = await byChannel('123456789', {
+    psn_online_id: 'JFL__Leon', twitch_login: 'jfl__leon',
+  });
+  assert.deepEqual(Object.keys(body).sort(), ['hunter', 'twitch']);
+});

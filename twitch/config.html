@@ -9,27 +9,22 @@
 </head>
 <body class="cfg">
 <div class="box">
-  <h1>Whose board is this?</h1>
+  <h1>Nothing to set up here</h1>
   <p class="lead">
-    Type the PSN ID you registered with Platinum Intel. It has to match exactly, so the
-    safest thing is to copy it off your hunter page on the site.
+    This panel works out whose board to show from the channel it is running on, so there is
+    nothing to type and nothing to get wrong.
   </p>
 
-  <label for="psn">PSN online ID</label>
-  <input id="psn" type="text" autocomplete="off" autocapitalize="none" spellcheck="false"
-         maxlength="40" placeholder="JFL__Leon">
-
-  <div class="actions">
-    <button type="button" class="btn go" id="save">Check and save</button>
-    <button type="button" class="btn" id="clear">Clear</button>
+  <div class="card" id="status">
+    <span class="lbl">Checking this channel…</span>
   </div>
 
-  <p class="msg" id="msg"></p>
-
   <p class="hint">
-    The name is checked against the board before it is saved, so a typo is caught here
-    rather than showing your viewers an empty panel. Not registered yet? Run
-    <code>/register</code> in the Platinum Intel Discord first.
+    To link a channel, run <code>/twitch</code> in the Platinum Intel Discord with your
+    channel name. That is the same command that turns on the fast trophy pop while you are
+    live, so most hunters have already done it.
+    <br><br>
+    Not registered yet? Run <code>/register</code> with your PSN ID first.
   </p>
 </div>
 <script src="config.js"></script>

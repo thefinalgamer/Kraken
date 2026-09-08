@@ -1,113 +1,89 @@
 /*
- * Kraken on Twitch — the broadcaster's setup page.
+ * Kraken on Twitch — the broadcaster's settings page.
  *
- * ITS ONLY JOB IS TO LEARN ONE NAME. The panel needs to know whose board to
- * show, and Twitch's own configuration service is where that belongs: it is
- * per-channel, it is delivered to the panel without a request, and it survives
- * without Kraken storing a single thing about a Twitch account.
+ * THERE IS NOTHING TO CONFIGURE, AND THAT IS THE FEATURE.
  *
- * THE NAME IS CHECKED BEFORE IT IS SAVED. A typo that saves cleanly costs the
- * broadcaster an empty panel in front of their viewers and no clue why, so this
- * asks the board first and refuses anything it does not recognise. That one
- * round trip is the difference between a setup page and a text box.
+ * The first version of this page asked the broadcaster to type a PSN ID. That
+ * was a hole: nothing stopped them typing somebody else's, and the setting
+ * lived in Twitch's configuration service where Kraken could neither see it nor
+ * clear it. Martin, the first time he looked at it: "what happens if i picked
+ * someone else id, can i remove it on my end to stop grief". The answer was no.
+ *
+ * So the panel now identifies the hunter from the channel it is running on -
+ * something a broadcaster cannot forge - and this page's only job is to tell
+ * them whether that channel is linked, and how to link it if not.
+ *
+ * The fix removed a feature rather than adding one. There is no text box left
+ * to abuse, and one less thing for a streamer to get wrong at midnight.
  *
  * No inline JavaScript, same as the panel: Twitch drops it.
  */
 (function () {
   'use strict';
 
-  var API = 'https://platinumintel.co.uk/api/hunter/';
+  var CHANNEL = 'https://platinumintel.co.uk/api/channel/';
+  var SITE = 'https://platinumintel.co.uk';
 
-  var $ = function (id) { return document.getElementById(id); };
-  var input, msg, save, clear;
-
-  function say(text, kind) {
-    msg.textContent = text;
-    msg.className = 'msg' + (kind ? ' ' + kind : '');
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
   }
 
-  function store(psn) {
-    /* Segment "broadcaster", version "1". The panel reads exactly this. */
-    window.Twitch.ext.configuration.set('broadcaster', '1', JSON.stringify({ psn: psn }));
-  }
-
-  function current() {
-    var seg = window.Twitch.ext.configuration.broadcaster;
-    if (!seg || !seg.content) return '';
-    try {
-      var p = JSON.parse(seg.content);
-      return p && typeof p.psn === 'string' ? p.psn : '';
-    } catch (e) {
-      return '';
+  function show(box, label, line, link) {
+    box.textContent = '';
+    box.appendChild(el('span', 'lbl', label));
+    box.appendChild(el('p', 'muted', line));
+    if (link) {
+      var a = el('a', 'btn', 'Open their hunter page ›');
+      a.href = link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.marginTop = '10px';
+      box.appendChild(a);
     }
-  }
-
-  function onSave() {
-    var psn = input.value.trim();
-    if (!psn) { say('Type your PSN ID first.', 'bad'); return; }
-
-    save.disabled = true;
-    say('Checking the board…');
-
-    fetch(API + encodeURIComponent(psn), { method: 'GET' })
-      .then(function (res) {
-        if (res.status === 404) throw new Error('unknown');
-        if (!res.ok) throw new Error('http');
-        return res.json();
-      })
-      .then(function (data) {
-        /*
-         * Saved as the board spells it, not as it was typed. PSN ids are
-         * case-carrying and the panel prints this straight back at viewers.
-         */
-        var exact = (data && data.hunter && data.hunter.name) || psn;
-        input.value = exact;
-        store(exact);
-        say('Saved. ' + exact + ' is ' + data.hunter.rank + ' of ' + data.hunter.of
-          + ' on the board. Your panel updates within a minute.', 'ok');
-      })
-      .catch(function (err) {
-        if (String(err.message) === 'unknown') {
-          say('“' + psn + '” is not a registered hunter. Check the spelling against your '
-            + 'hunter page on platinumintel.co.uk, or run /register in Discord first.', 'bad');
-        } else {
-          say('Could not reach the board just now. Try again in a moment.', 'bad');
-        }
-      })
-      .then(function () { save.disabled = false; });
-  }
-
-  function onClear() {
-    input.value = '';
-    store('');
-    say('Cleared. The panel will ask to be set up again.', 'ok');
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    input = $('psn');
-    msg = $('msg');
-    save = $('save');
-    clear = $('clear');
-
-    save.addEventListener('click', onSave);
-    clear.addEventListener('click', onClear);
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') onSave();
-    });
+    var box = document.getElementById('status');
 
     if (!window.Twitch || !window.Twitch.ext) {
-      say('This page only works inside the Twitch extension settings.', 'bad');
-      save.disabled = true;
-      clear.disabled = true;
+      show(box, 'Not on Twitch', 'This page only works inside the extension settings.');
       return;
     }
 
-    window.Twitch.ext.onAuthorized(function () {
-      var was = current();
-      if (was) {
-        input.value = was;
-        say('Currently showing ' + was + '.');
+    window.Twitch.ext.onAuthorized(function (auth) {
+      var channel = auth && auth.channelId;
+      if (!channel) {
+        show(box, 'Cannot read this channel', 'Try reloading the page.');
+        return;
       }
+
+      fetch(CHANNEL + encodeURIComponent(channel), { method: 'GET' })
+        .then(function (res) {
+          if (res.status === 404) throw new Error('unlinked');
+          if (!res.ok) throw new Error('http');
+          return res.json();
+        })
+        .then(function (body) {
+          if (!body || !body.hunter) throw new Error('unlinked');
+          show(
+            box,
+            'This channel is linked',
+            'The panel is showing ' + body.hunter + '.',
+            SITE + '/hunter/' + encodeURIComponent(body.hunter),
+          );
+        })
+        .catch(function (err) {
+          if (String(err.message) === 'unlinked') {
+            show(box, 'Not linked yet',
+              'No hunter has claimed this channel. Run /twitch in the Platinum Intel '
+              + 'Discord with your channel name, then reload this page.');
+          } else {
+            show(box, 'Could not reach the board', 'Try again in a moment.');
+          }
+        });
     });
   });
 })();

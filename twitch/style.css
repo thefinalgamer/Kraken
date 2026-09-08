@@ -47,8 +47,14 @@ a{color:inherit}
 .ph .sub{
   color:var(--faint);font-size:10.5px;margin-left:auto;
   letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:52%;
 }
 .ph .sub.on{color:var(--live)}
+/* A PSN id is NOT uppercased. This label is small caps for words like "Live",
+   and it was rendering th3finalgamer-- as TH3FINALGAMER-- - the same mistake
+   the site's live badge made before it was fixed there. People are particular
+   about the capitals in their own name. */
+.ph .sub.who{text-transform:none;letter-spacing:0}
 
 /* Tabs are BUTTONS, not links. An anchor inside an extension iframe that loses
    its href handling navigates the frame and there is no way back. */

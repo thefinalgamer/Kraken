@@ -20,6 +20,7 @@
 
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const STREAMS_URL = 'https://api.twitch.tv/helix/streams';
+const USERS_URL = 'https://api.twitch.tv/helix/users';
 
 /** Twitch takes 100 logins per request. The board is nowhere near it. */
 const BATCH = 100;
@@ -91,6 +92,13 @@ async function liveNow(env, logins) {
       const at = Date.parse(s.started_at);
       live.set(String(s.user_login).toLowerCase(), {
         since: Number.isFinite(at) ? at : Date.now(),
+        /**
+         * The numeric channel id, which is what the Twitch panel identifies a
+         * channel by. It arrives in this response already, so capturing it
+         * costs nothing and means anybody who streams links themselves without
+         * being asked. See migration 029.
+         */
+        id: typeof s.user_id === 'string' && s.user_id ? s.user_id : null,
         // Everything below arrives in this same response, so carrying it costs
         // nothing. "Leon is live" is a fact; a card showing what is on his
         // screen, what he is playing and who is watching is a reason to click.
@@ -113,6 +121,37 @@ async function liveNow(env, logins) {
 }
 
 /**
+ * One channel's numeric id, by login.
+ *
+ * WHY /twitch NEEDS THIS AND THE LIVE CHECK IS NOT ENOUGH. The live check only
+ * ever sees people who are actually streaming, so a member who sets a channel
+ * and then does not go live for a fortnight would have no id, and their panel
+ * would have nothing to match against for a fortnight. This resolves it at the
+ * moment they set it, which is also the moment they are watching for a reply.
+ *
+ * ONE REQUEST, AND FAILURE IS FREE. A null here means the panel falls back to
+ * saying the channel is not linked yet, and the next stream fills it in anyway.
+ * Nothing about /twitch is allowed to fail because Twitch had a bad second.
+ */
+export async function channelId(env, login) {
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) return null;
+  try {
+    const token = await appToken(env);
+    const url = new URL(USERS_URL);
+    url.searchParams.set('login', String(login).toLowerCase());
+    const res = await fetch(url, {
+      headers: { 'Client-Id': env.TWITCH_CLIENT_ID, Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const id = json?.data?.[0]?.id;
+    return typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Ask Twitch, write the answer, return a one line summary for the log.
  *
  * WRITES ONLY WHAT CHANGED. Every member with a channel gets `live_checked_at`
@@ -128,7 +167,7 @@ export async function checkLive(env) {
 
   const { results: rows = [] } = await env.DB
     .prepare(
-      `SELECT psn_account_id, twitch_login, live_since, live_game,
+      `SELECT psn_account_id, twitch_login, twitch_id, live_since, live_game,
               last_stream_start, last_stream_end FROM members
         WHERE twitch_login IS NOT NULL AND TRIM(twitch_login) <> ''`,
     )
@@ -218,6 +257,29 @@ export async function checkLive(env) {
    * has not run it yet would lose the entire live check rather than one pin
    * clear. Same seatbelt every migration since 024 carries.
    */
+  /**
+   * LEARN THE CHANNEL ID FROM A STREAM WE WERE READING ANYWAY.
+   *
+   * Only when it actually moves - a first sighting, or a member who renamed
+   * their channel onto an id we have not seen. Every other tick this costs
+   * nothing, which is the same rule every other write in this function follows.
+   *
+   * Outside the batch, because `twitch_id` arrives in migration 029 and a batch
+   * is all or nothing: folded in above, a database that has not run it yet
+   * would lose the entire live check rather than one id.
+   */
+  const ids = [];
+  for (const r of rows) {
+    const on = live.get(String(r.twitch_login).toLowerCase());
+    if (on?.id && on.id !== r.twitch_id) ids.push([on.id, r.psn_account_id]);
+  }
+  for (const [id, account] of ids) {
+    await env.DB.prepare('UPDATE members SET twitch_id = ? WHERE psn_account_id = ?')
+      .bind(id, account)
+      .run()
+      .catch(() => {});
+  }
+
   if (ended.length) {
     await env.DB.prepare(
       'UPDATE members SET live_pin = NULL, live_pin_at = NULL WHERE psn_account_id IN (' +

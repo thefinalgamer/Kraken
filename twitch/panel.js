@@ -22,6 +22,7 @@
   'use strict';
 
   var API = 'https://platinumintel.co.uk/api/hunter/';
+  var CHANNEL = 'https://platinumintel.co.uk/api/channel/';
   var SITE = 'https://platinumintel.co.uk';
 
   /* Half the API's cache, so the panel is never showing something the edge has
@@ -170,8 +171,13 @@
       t.appendChild(el('span', 't', g.title));
       var meta = el('span', 'm');
       if (g.platform) meta.appendChild(el('span', 'chip', g.platform));
+      /*
+       * "13 / 30 trophies" and not "13 of 30 trophies". The long form plus the
+       * platform chip is a few pixels over 318 and wraps onto a second line,
+       * which pushes the card taller for no information at all.
+       */
       meta.appendChild(document.createTextNode(
-        (g.platform ? '  ' : '') + n(g.earned) + ' of ' + n(g.trophies) + ' trophies',
+        (g.platform ? '  ' : '') + n(g.earned) + ' / ' + n(g.trophies) + ' trophies',
       ));
       t.appendChild(meta);
       gameRow.appendChild(t);
@@ -187,6 +193,24 @@
       r.appendChild(el('span', 'pct', (Number(g.progress) || 0) + '% · ' + n(g.points) + ' / ' + n(g.max) + ' pts'));
       r.appendChild(el('span', 'pct', n(g.ownedHere) + ' of us own it'));
       c.appendChild(r);
+
+      /*
+       * WHAT IS STILL IN IT, which is the number a trophy hunter is actually
+       * asking. Points banked is a score; points left is a plan for the
+       * evening, and it is the same figure /backlog sorts by.
+       */
+      var left = Math.max(0, (Number(g.max) || 0) - (Number(g.points) || 0));
+      if (left > 0) {
+        var lr = el('div', 'row');
+        lr.style.marginTop = '4px';
+        lr.appendChild(el('span', 'pct', n(left) + ' points still in it'));
+        if (g.finishedHere > 0) {
+          lr.appendChild(el('span', 'pct', n(g.finishedHere) + ' of us finished'));
+        } else {
+          lr.appendChild(el('span', 'pct', 'nobody has finished it'));
+        }
+        c.appendChild(lr);
+      }
       out.appendChild(c);
     }
 
@@ -456,9 +480,17 @@
 
     (TABS[state.tab] || tabNow)(d, out);
 
+    /*
+     * THE NAME IS NOT UPPERCASED. `.sub` is a small-caps label and it was
+     * rendering th3finalgamer-- as TH3FINALGAMER--, which is the same mistake
+     * the site's live badge made: PSN ids are case-carrying and people are
+     * particular about them. The label style stays for "Live", the name gets
+     * its own class that leaves the letters alone.
+     */
     var st = $('status');
-    st.textContent = d.live && d.live.on ? '● Live' : d.hunter.name;
-    st.className = 'sub' + (d.live && d.live.on ? ' on' : '');
+    var on = !!(d.live && d.live.on);
+    st.textContent = on ? '● Live' : d.hunter.name;
+    st.className = 'sub' + (on ? ' on' : ' who');
 
     Array.prototype.forEach.call($('tabs').children, function (b) {
       var on = b.getAttribute('data-tab') === state.tab;
@@ -505,21 +537,42 @@
     state.timer = setInterval(load, REFRESH_MS);
   }
 
-  function readConfig() {
-    var seg = window.Twitch && window.Twitch.ext
-      && window.Twitch.ext.configuration && window.Twitch.ext.configuration.broadcaster;
-    if (!seg || !seg.content) return null;
-    try {
-      var parsed = JSON.parse(seg.content);
-      return parsed && typeof parsed.psn === 'string' && parsed.psn ? parsed.psn : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function unconfigured() {
-    showState('Not set up yet',
-      'The broadcaster needs to add their PSN ID in this extension’s settings.');
+  /**
+   * WHOSE BOARD THIS IS, DECIDED BY THE CHANNEL AND NOT BY A TEXT BOX.
+   *
+   * The first version asked the broadcaster to type a PSN ID, and nothing
+   * stopped them typing somebody else's - the setting lived in Twitch's own
+   * configuration service, owned by that channel, where Kraken could neither
+   * see it nor clear it. Martin asked the right question the first time he saw
+   * it: "what happens if i picked someone else id, can i remove it on my end to
+   * stop grief". The answer was no.
+   *
+   * A panel cannot forge the channel it is running on. Twitch's helper hands
+   * over the numeric channel id on load, so matching that against a member who
+   * has run /twitch puts the mapping back with Kraken and the member. There is
+   * nothing left to type and nothing left to impersonate.
+   */
+  function resolve(channel) {
+    fetch(CHANNEL + encodeURIComponent(channel), { method: 'GET' })
+      .then(function (res) {
+        if (res.status === 404) throw new Error('unlinked');
+        if (!res.ok) throw new Error('http ' + res.status);
+        return res.json();
+      })
+      .then(function (body) {
+        if (!body || !body.hunter) throw new Error('unlinked');
+        start(body.hunter);
+      })
+      .catch(function (err) {
+        if (state.data) return;
+        if (String(err.message) === 'unlinked') {
+          showState('Channel not linked',
+            'This channel is not connected to a Platinum Intel hunter yet. The broadcaster '
+            + 'can link it by running /twitch in the Discord.');
+        } else {
+          showState('Cannot reach the board', 'It will try again in a minute.');
+        }
+      });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -531,24 +584,21 @@
     });
 
     if (!window.Twitch || !window.Twitch.ext) {
-      /* Opened outside Twitch — local test, or a curious person with the URL. */
+      /* Opened outside Twitch - local test, or a curious person with the URL. */
       showState('Needs Twitch', 'This panel only runs inside a Twitch channel.');
       return;
     }
 
-    var psn = readConfig();
-    if (psn) start(psn);
-
-    /* The configuration may arrive after the helper does, and it changes when
-       the broadcaster saves a new name without reloading anybody's page. */
-    window.Twitch.ext.configuration.onChanged(function () {
-      var next = readConfig();
-      if (!next) { unconfigured(); return; }
-      if (next !== state.psn) { state.data = null; start(next); }
-    });
-
-    window.Twitch.ext.onAuthorized(function () {
-      if (!state.psn && !readConfig()) unconfigured();
+    window.Twitch.ext.onAuthorized(function (auth) {
+      var channel = auth && auth.channelId;
+      if (!channel) {
+        showState('Cannot read this channel', 'Try reloading the page.');
+        return;
+      }
+      /* onAuthorized fires again when the token is refreshed. The channel does
+         not change underneath a panel, so once is enough. */
+      if (state.psn || state.timer) return;
+      resolve(channel);
     });
   });
 })();

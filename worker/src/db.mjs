@@ -824,10 +824,38 @@ export const rivalRows = (env, accountIds) =>
  * Stored lowercased because that is what Twitch matches on, and because the
  * uniqueness check below would otherwise let "Pelzio" and "pelzio" both exist.
  */
-export const setTwitch = (env, accountId, login) =>
-  env.DB.prepare('UPDATE members SET twitch_login = ? WHERE psn_account_id = ?')
-    .bind(login ? String(login).toLowerCase() : null, accountId)
-    .run();
+/**
+ * The channel, and its numeric id when Twitch would tell us.
+ *
+ * BOTH OR NEITHER. The id is what the Twitch panel matches a channel against,
+ * so a login left behind with somebody else's id is precisely the confusion the
+ * id exists to prevent - clearing the channel has to clear it too.
+ *
+ * A null id with a real login is fine and expected: Twitch may have been down,
+ * or the migration may not have run. The panel says the channel is not linked
+ * yet and the next stream fills it in on its own.
+ */
+export const setTwitch = (env, accountId, login, id = null) =>
+  env.DB.prepare('UPDATE members SET twitch_login = ?, twitch_id = ? WHERE psn_account_id = ?')
+    .bind(login ? String(login).toLowerCase() : null, login ? id : null, accountId)
+    .run()
+    /**
+     * `twitch_id` arrives in migration 029. On a database that has not run it
+     * the channel still has to be settable, because /twitch is what turns on
+     * the fast trophy pop and that mattered long before any panel existed.
+     */
+    .catch(() =>
+      env.DB.prepare('UPDATE members SET twitch_login = ? WHERE psn_account_id = ?')
+        .bind(login ? String(login).toLowerCase() : null, accountId)
+        .run());
+
+/** The hunter whose channel this is, by Twitch's numeric id. */
+export const memberByTwitchId = (env, id) =>
+  first(
+    env,
+    'SELECT psn_online_id FROM members WHERE twitch_id = ? AND rank IS NOT NULL LIMIT 1',
+    [String(id)],
+  );
 
 /** Whoever has claimed this channel, if anybody. */
 export const memberByTwitch = (env, login) =>

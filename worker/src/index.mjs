@@ -13,7 +13,7 @@
 import { verifyKey } from './verify.mjs';
 import * as db from './db.mjs';
 import * as oauth from './oauth.mjs';
-import { checkLive } from './twitch.mjs';
+import { checkLive, channelId } from './twitch.mjs';
 import { pollMember } from './live.mjs';
 import {
   message, container, text, section, thumbnail, row, button, linkButton, separator,
@@ -589,7 +589,14 @@ async function twitch(env, userId, channel) {
     );
   }
 
-  await db.setTwitch(env, me.psn_account_id, login);
+  /**
+   * Resolve the numeric channel id at the same moment, because that is what the
+   * Twitch panel matches on and this is the only point where somebody is
+   * actually waiting for an answer. A null is harmless: the live check fills it
+   * in the next time they stream.
+   */
+  const id = await channelId(env, login);
+  await db.setTwitch(env, me.psn_account_id, login, id);
 
   return reply(
     [

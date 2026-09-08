@@ -183,6 +183,43 @@ const commands = [
   },
   {
     /**
+     * The one list on this board that a person types. Everything else is
+     * scanned; what somebody INTENDS to play next is not a fact about the past
+     * and no API can be asked for it.
+     *
+     * No permission gate: it is their own list, on their own page and their own
+     * panel, the same as /twitch and /setgame.
+     */
+    name: 'wishlist',
+    description: 'The games you mean to play next. Shows on your hunter page and your Twitch panel',
+    options: [
+      {
+        /**
+         * The value is an np_comm_id rather than a title, because a wishlist
+         * entry is ONE trophy list and "God of War" does not say which of
+         * three. The picker searches the whole catalogue, not just your
+         * library - a game you do not own yet is the most natural thing to put
+         * on a list of what you will play next.
+         */
+        name: 'add',
+        description: 'A game to add to your list',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+      {
+        // Only what is actually on their list. Offering the catalogue here
+        // would be offering an error message.
+        name: 'remove',
+        description: 'A game to take off your list',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+    ],
+  },
+  {
+    /**
      * The fail-safe for PSN being slow to reorder a recently-played list.
      *
      * No `default_member_permissions`: it only ever changes your OWN bar, the

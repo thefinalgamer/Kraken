@@ -849,6 +849,86 @@ export const setTwitch = (env, accountId, login, id = null) =>
         .bind(login ? String(login).toLowerCase() : null, accountId)
         .run());
 
+/**
+ * The catalogue, for the /wishlist add picker.
+ *
+ * BY np_comm_id, NOT BY TITLE, and that is the difference between this and
+ * searchGames(). That one groups by name because /game and /flag are questions
+ * about a title; a wishlist entry is one trophy list, and "God of War" does not
+ * say which of three.
+ *
+ * `local_started > 0` for the same reason it is on searchGames: it cuts 26,000
+ * rows to about 500 and cuts them to the right 500. A game nobody here owns has
+ * no local column to print, which is half of why a row on this list is worth
+ * reading at all.
+ *
+ * Empty box offers the most-owned games here, which is a better guess than the
+ * alphabet and is usually where a wishlist wants to start anyway.
+ */
+export const searchGamesForWish = (env, query = '', limit = 25) =>
+  all(
+    env,
+    `SELECT np_comm_id, title, platform, trophy_count, max_points, local_started
+       FROM games
+      WHERE local_started > 0
+        AND TRIM(COALESCE(title, '')) <> ''
+        AND (? = '' OR title LIKE ? COLLATE NOCASE)
+      ORDER BY CASE WHEN title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+               local_started DESC, max_points DESC
+      LIMIT ?`,
+    [query, `%${query}%`, `${query}%`, limit],
+  );
+
+/**
+ * A hunter's list of games they mean to play next.
+ *
+ * Wrapped at every call site, because the table arrives in migration 030 and
+ * /wishlist has to fail with a sentence rather than a stack trace on a database
+ * that has not run it - the same seatbelt every feature since 019 carries.
+ */
+export const wishlist = (env, accountId) =>
+  all(
+    env,
+    `SELECT w.np_comm_id, w.added_at, g.title, g.platform, g.max_points,
+            g.local_started, g.unobtainable, g.closes_at,
+            (SELECT COUNT(*) FROM member_games x
+              WHERE x.np_comm_id = g.np_comm_id AND x.progress = 100) AS finished_here,
+            (SELECT mg.progress FROM member_games mg
+              WHERE mg.np_comm_id = g.np_comm_id
+                AND mg.psn_account_id = w.psn_account_id) AS my_progress
+       FROM wishlist w
+       JOIN games g ON g.np_comm_id = w.np_comm_id
+      WHERE w.psn_account_id = ?
+      ORDER BY w.added_at DESC`,
+    [accountId],
+  );
+
+/**
+ * Add one game. Returns false when it was already there.
+ *
+ * INSERT OR IGNORE against the table's own key, so adding the same game twice
+ * is a no-op rather than a duplicate row or an error - somebody re-running a
+ * command after a Discord timeout is the most ordinary thing in the world.
+ */
+export async function addWish(env, accountId, npCommId) {
+  const res = await env.DB.prepare(
+    'INSERT OR IGNORE INTO wishlist (psn_account_id, np_comm_id, added_at) VALUES (?,?,?)',
+  )
+    .bind(accountId, npCommId, Date.now())
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** Take one off. Returns whether a row actually went. */
+export async function removeWish(env, accountId, npCommId) {
+  const res = await env.DB.prepare(
+    'DELETE FROM wishlist WHERE psn_account_id = ? AND np_comm_id = ?',
+  )
+    .bind(accountId, npCommId)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
 /** The hunter whose channel this is, by Twitch's numeric id. */
 export const memberByTwitchId = (env, id) =>
   first(

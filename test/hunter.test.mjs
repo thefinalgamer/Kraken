@@ -102,6 +102,7 @@ let vsQueries = 0;
 
 const fakeEnv = ({
   onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [],
+  wishes = [],
   vsMember = null, vsAhead = [], vsTheirs = [],
   names = [{ psn_online_id: 'JFL__Leon' }, { psn_online_id: 'MRTheChez' },
     { psn_online_id: 'th3finalgamer--' }] } = {}) => ({
@@ -173,6 +174,15 @@ const fakeEnv = ({
          */
         if (sql.includes('FROM member_trophies')) {
           return { all: async () => ({ results: onStream }) };
+        }
+        /**
+         * The wishlist, routed for the same reason: it runs after the library
+         * query and falling through here overwrote `lastGamesSql`, so eight
+         * sort, paging and bar tests failed complaining about a query that had
+         * nothing to do with any of them.
+         */
+        if (sql.includes('FROM wishlist')) {
+          return { all: async () => ({ results: wishes }) };
         }
         lastGamesSql = sql;
         lastBind = args;

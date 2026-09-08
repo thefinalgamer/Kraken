@@ -190,6 +190,28 @@ const ON_STREAM = `
    GROUP BY np_comm_id`;
 
 /**
+ * What they mean to play next. See migration 030.
+ *
+ * The list itself is three columns; everything worth reading is what sits
+ * beside it. `local_started` and the finished count are the figures that turn a
+ * list of names into a reason to care about any of them, and they are the
+ * column no other trophy site has.
+ */
+const WISHLIST = `
+  SELECT w.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
+         g.local_started, g.unobtainable, g.closes_at,
+         (SELECT COUNT(*) FROM member_games x
+           WHERE x.np_comm_id = g.np_comm_id AND x.progress = 100) AS finished_here,
+         (SELECT mg.progress FROM member_games mg
+           WHERE mg.np_comm_id = g.np_comm_id
+             AND mg.psn_account_id = w.psn_account_id) AS my_progress
+    FROM wishlist w
+    JOIN games g ON g.np_comm_id = w.np_comm_id
+   WHERE w.psn_account_id = ?
+   ORDER BY w.added_at DESC
+   LIMIT 12`;
+
+/**
  * COMPARING TWO HUNTERS. MRTheChez asked for this, and the shape of the ask
  * mattered more than the feature: he did not want a scoreboard, he wanted to
  * know which of the games he already owns somebody else has got further into.
@@ -1042,6 +1064,22 @@ export async function onRequestGet({ params, env, request }) {
     ? await env.DB.prepare(rivalsSql(rivalIds.length)).bind(...rivalIds).all()
     : { results: [] };
 
+  /**
+   * The list of what they mean to play next, on the first page for the same
+   * reason rivals are: it is the same twelve rows however deep into a library
+   * you have scrolled.
+   *
+   * Wrapped, because the table arrives in migration 030. An empty list is a
+   * panel that teaches the command; a thrown query is no hunter page at all.
+   */
+  const { results: wishes = [] } =
+    pageNo === 1 && !q
+      ? await env.DB.prepare(WISHLIST)
+          .bind(m.psn_account_id)
+          .all()
+          .catch(() => ({ results: [] }))
+      : { results: [] };
+
   // Only when asked. Nobody pays for the dice unless somebody rolls them.
   const [backlogPicks, wildPicks] = rolling
     ? await Promise.all([
@@ -1249,6 +1287,60 @@ export async function onRequestGet({ params, env, request }) {
     </details>`;
 
   /**
+   * WHAT THEY MEAN TO PLAY NEXT.
+   *
+   * The only list on this site somebody typed, and it sits beside the rivals
+   * panel because they answer the two halves of the same question: who you are
+   * chasing, and what you are going to do about it.
+   *
+   * EVERY ROW CARRIES ITS PRICE. A list of game names is a list. A list where
+   * each game says what it pays here, how many of us own it and how many have
+   * finished it is the reason to read it, and it is the column nothing else on
+   * the internet can print.
+   *
+   * The empty state teaches the command, same as the rivals one: the person
+   * looking at it has just gone looking for the thing.
+   */
+  const wishRows = wishes
+    .map((g) => {
+      const owners = Number(g.local_started) || 0;
+      const done = Number(g.finished_here) || 0;
+      const mine = Number(g.my_progress);
+      const local =
+        owners > 1
+          ? `${n(owners)} of us own it${done ? `, ${n(done)} finished` : ', none finished'}`
+          : 'nobody else here owns it';
+      return `<tr>
+        <td class="who"><a href="${esc(gameHref(g.np_comm_id, name))}">${esc(g.title)}</a>${
+          closingState(g) === 'closing'
+            ? ` <b class="closes${isUrgent(g.closes_at) ? '' : ' later'}"
+                 >${esc(closingLabel(g.closes_at))}</b>`
+            : ''
+        }</td>
+        <td class="num">${n(g.max_points)}</td>
+        <td class="rk">${
+          Number.isFinite(mine) && mine > 0 ? `${mine}%` : ''
+        }</td>
+        <td class="num">${esc(local)}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const wishBlock = `<details class="numbers rivals wish">
+      <summary>Playing next<span class="soon-tag">${wishes.length}</span></summary>
+      ${
+        wishes.length
+          ? `<div class="tablewrap"><table class="rivaltab"><tbody>${wishRows}</tbody></table></div>
+             <p class="rivalnote">Points are what a full completion pays here.
+               Set with <code>/wishlist</code> in Discord.</p>`
+          : `<p class="rivalnote empty">Games ${esc(m.psn_online_id)} means to get to next.
+               Add them with <code>/wishlist add</code> in Discord and each one shows what it
+               pays on this board, how many of us own it and how many have finished it. It
+               feeds the Twitch panel too.</p>`
+      }
+    </details>`;
+
+  /**
    * The dice.
    *
    * The link carries a throwaway number so the browser treats every click as a
@@ -1393,7 +1485,7 @@ export async function onRequestGet({ params, env, request }) {
 
     ${splitBlock}
 
-    <div class="toolrow">${rivalsBlock}${numbersBlock}${rollLink}</div>
+    <div class="toolrow">${rivalsBlock}${wishBlock}${numbersBlock}${rollLink}</div>
 
     ${rollBlock}
 

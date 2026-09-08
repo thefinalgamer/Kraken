@@ -138,6 +138,14 @@ const errorReply = (msg) => ({
 const reply = (components, opts) => ({ type: REPLY.MESSAGE, data: message(components, opts) });
 const update = (components) => ({ type: REPLY.UPDATE_MESSAGE, data: message(components) });
 
+/**
+ * How many games a wishlist may hold.
+ *
+ * Twelve is a plan. Fifty is a library, and a Twitch panel 318 pixels wide can
+ * show neither the fifty nor a reason to care about any of them.
+ */
+const WISHLIST_MAX = 12;
+
 // ------------------------------------------------------------- commands ----
 
 async function handleCommand(interaction, env, ctx) {
@@ -168,6 +176,7 @@ async function handleCommand(interaction, env, ctx) {
     });
     case 'twitch':     return twitch(env, userId, opt('channel'));
     case 'setgame':    return setGame(env, userId, opt('game'));
+    case 'wishlist':   return wishlist(env, userId, opt('add'), opt('remove'));
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
@@ -413,6 +422,184 @@ async function unlink(interaction, env, targetId) {
  * read from later. Nobody gets to switch that on for somebody else, which is
  * why there is no member option on this command for mods.
  */
+/**
+ * The games a hunter means to play next. /wishlist
+ *
+ * THE ONLY LIST ON THIS BOARD SOMEBODY HAS TO TYPE, and it is the one thing no
+ * API can be asked for. What you own and what you finished are facts PSN
+ * reported; what you INTEND to play is not a fact about the past.
+ *
+ * SELF ONLY, like /twitch and /setgame. It is their plan and it goes on their
+ * channel; nobody adds a game to somebody else's evening.
+ *
+ * WHAT MAKES IT WORTH HAVING is what sits beside each row. A wishlist is a
+ * list. A wishlist where every game carries what it pays here, how many of us
+ * own it and how many have finished it is a pitch, and that column exists
+ * nowhere else.
+ *
+ * Bare shows the list, which is also how somebody finds out what is on it
+ * before deciding what to remove.
+ */
+async function wishlist(env, userId, add, remove) {
+  const me = await db.memberByDiscordId(env, userId);
+  if (!me) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  const missing = () =>
+    errorReply('The wishlist table is not in the database yet. Run migration `030-wishlist.sql`.');
+  const isMissing = (err) => /no such table|wishlist/i.test(String(err?.message ?? ''));
+
+  let rows;
+  try {
+    rows = await db.wishlist(env, me.psn_account_id);
+  } catch (err) {
+    if (isMissing(err)) return missing();
+    throw err;
+  }
+
+  const wanted = String(add ?? '').trim();
+  const dropping = String(remove ?? '').trim();
+
+  if (wanted && dropping) {
+    return errorReply('One at a time. Add a game or take one off, not both in the same command.');
+  }
+
+  // ------------------------------------------------------------- adding ---
+  if (wanted) {
+    /**
+     * TWELVE, and the cap is the point rather than a limit somebody hit. A list
+     * of twelve is a plan; a list of fifty is a library, and a panel 318 pixels
+     * wide can show neither the fifty nor a reason to care about any of them.
+     */
+    if (rows.length >= WISHLIST_MAX) {
+      return errorReply(
+        `Your list is full at ${WISHLIST_MAX} games. Take one off with ` +
+          '`/wishlist remove:` before adding another.',
+      );
+    }
+
+    const game = await db.gameById(env, wanted);
+    if (!game) {
+      return errorReply(
+        'Pick a game from the dropdown rather than typing it. It has to be one the board has ' +
+          'already seen, or there is nothing to price it with.',
+      );
+    }
+
+    let added;
+    try {
+      added = await db.addWish(env, me.psn_account_id, game.np_comm_id);
+    } catch (err) {
+      if (isMissing(err)) return missing();
+      throw err;
+    }
+
+    if (!added) return errorReply(`**${md(game.title)}** is already on your list.`);
+
+    /**
+     * The reply is the pitch, not a receipt. "Added" tells them nothing they did
+     * not know; what it is worth here and how many of us are already in it is
+     * the reason the list exists.
+     */
+    const owners = Number(game.local_started) || 0;
+    return reply(
+      [
+        container(
+          [
+            text(
+              `### Added ${md(game.title)}\n` +
+                `**${n(game.max_points)}** points at 100% &middot; ` +
+                (owners > 1
+                  ? `${n(owners)} of us own it`
+                  : owners === 1
+                    ? 'nobody else here owns it yet'
+                    : 'nobody here owns it yet') +
+                `\n\n-# ${rows.length + 1} of ${WISHLIST_MAX} on your list. ` +
+                'It shows on your hunter page and on your Twitch panel.',
+            ),
+          ],
+          COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  // ----------------------------------------------------------- removing ---
+  if (dropping) {
+    const row = rows.find((r) => r.np_comm_id === dropping);
+    if (!row) {
+      return errorReply('That game is not on your list. Pick one from the dropdown.');
+    }
+
+    try {
+      await db.removeWish(env, me.psn_account_id, dropping);
+    } catch (err) {
+      if (isMissing(err)) return missing();
+      throw err;
+    }
+
+    return reply(
+      [
+        container(
+          [text(`### Removed ${md(row.title)}\n-# ${rows.length - 1} left on your list.`)],
+          COLOR.grey,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  // -------------------------------------------------------- showing it ----
+  if (!rows.length) {
+    return reply(
+      [
+        container(
+          [
+            text(
+              '### Nothing on your list\n' +
+                'Add games you mean to play next with `/wishlist add:`.\n\n' +
+                '-# They show on your hunter page, and on your Twitch panel if you have one, ' +
+                'with what each is worth here beside it.',
+            ),
+          ],
+          COLOR.grey,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  const lines = rows.map((g) => {
+    const owners = Number(g.local_started) || 0;
+    const done = Number(g.finished_here) || 0;
+    const mine = Number(g.my_progress);
+    return (
+      `**${md(g.title)}**${clockMark(g)} - **${n(g.max_points)}** points &middot; ` +
+      (owners > 1 ? `${n(owners)} of us own it` : 'nobody else here owns it') +
+      (done ? `, ${n(done)} finished` : '') +
+      (Number.isFinite(mine) && mine > 0 ? ` &middot; you are ${mine}% in` : '')
+    );
+  });
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `## Your list\n-# ${rows.length} of ${WISHLIST_MAX} games\n\n` +
+              lines.join('\n') +
+              '\n\n-# `/wishlist remove:` takes one off.',
+          ),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
 /**
  * Pin the overlay to a game. /setgame
  *
@@ -2284,7 +2471,16 @@ async function handleAutocomplete(interaction, env) {
    * GAME_FIELDS branch or it would quietly get titles from the whole database.
    */
   const isPin = interaction.data.name === 'setgame' && option?.name === 'game';
-  if (!option || !(isMember || isFlagField || isPin || GAME_FIELDS.has(option.name))) {
+  /**
+   * `remove` is the one wishlist field with its own list: the games already on
+   * theirs. Offering the whole catalogue to remove from would be offering an
+   * error message. `add` falls through to the ordinary game search below.
+   */
+  const isWishDrop = interaction.data.name === 'wishlist' && option?.name === 'remove';
+  const isWishAdd = interaction.data.name === 'wishlist' && option?.name === 'add';
+  if (!option
+    || !(isMember || isFlagField || isPin || isWishDrop || isWishAdd
+         || GAME_FIELDS.has(option.name))) {
     return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
   }
 
@@ -2370,6 +2566,46 @@ async function handleAutocomplete(interaction, env) {
             value: String(t.trophy_id).slice(0, 100),
           })),
         ],
+      },
+    };
+  }
+
+  if (isWishAdd) {
+    /**
+     * The whole catalogue rather than their own library, because a game you do
+     * not own yet is exactly the sort of thing that belongs on a list of what
+     * you will play next. The value is an np_comm_id, not a title - see
+     * searchGamesForWish().
+     */
+    const rows = await db.searchGamesForWish(env, focused, 25).catch(() => []);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows.slice(0, 25).map((g) => ({
+          name: `${g.title} · ${g.platform || 'PlayStation'} · ${n(g.max_points)} pts · ` +
+            `${n(g.local_started)} here`.slice(0, 100),
+          value: String(g.np_comm_id).slice(0, 100),
+        })),
+      },
+    };
+  }
+
+  if (isWishDrop) {
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+    const me = userId ? await db.memberByDiscordId(env, userId) : null;
+    if (!me?.psn_account_id) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+
+    const rows = await db.wishlist(env, me.psn_account_id).catch(() => []);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows
+          .filter((g) => !focused || String(g.title).toLowerCase().includes(focused.toLowerCase()))
+          .slice(0, 25)
+          .map((g) => ({
+            name: `${g.title} · ${n(g.max_points)} pts`.slice(0, 100),
+            value: String(g.np_comm_id).slice(0, 100),
+          })),
       },
     };
   }

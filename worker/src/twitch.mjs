@@ -235,7 +235,8 @@ export async function checkLive(env, { onStreamEnd = null } = {}) {
   const { results: rows = [] } = await env.DB
     .prepare(
       `SELECT psn_account_id, discord_id, twitch_login, twitch_id, live_since,
-              live_game, last_stream_start, last_stream_end, last_update_at
+              live_checked_at, live_game, last_stream_start, last_stream_end,
+              last_update_at
          FROM members
         WHERE twitch_login IS NOT NULL AND TRIM(twitch_login) <> ''`,
     )

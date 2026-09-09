@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import {
-  END_SLACK_MS, MIN_STREAM_MS, SWEEP_WINDOW_MS,
+  END_SLACK_MS, MIN_STREAM_MS, SWEEP_WINDOW_MS, LIVE_STALE_MS,
   MARK_WINDOW_SQL, COUNT_WINDOW_SQL, streamWindow, sweepable,
 } from '../shared/on-stream.mjs';
 
@@ -54,6 +54,65 @@ test('a short stream still counts, because a short stream is still a stream', ()
   assert.equal(
     streamWindow(stream(20 * 60000, 0), { minMs: MIN_STREAM_MS }), null,
     'and only a caller that asks for the minimum gets it applied',
+  );
+});
+
+test('a stream still running has a window, and it runs to right now', () => {
+  /**
+   * KHAYU2Z, 8 SEPTEMBER. He streamed from 18:43 to 02:35 and ran /update in
+   * the middle of it. `last_stream_start` and `last_stream_end` are only
+   * written when a stream ENDS, so mid-broadcast they still describe the
+   * PREVIOUS session -- and everything reading them was handed last night's
+   * window and quietly did nothing for tonight's.
+   *
+   * He earned Evil Train at 20:31 and Evil Exposure at 21:31. The second was
+   * fresh enough for the live poll to catch; the first was eighty minutes old,
+   * so it had no row for anything to mark, and stayed unmarked for hours until
+   * the stream finally ended and the sweep ran. He noticed and reported it,
+   * with timestamps, which is how this was found.
+   */
+  const now = Date.now();
+  const w = streamWindow({
+    live_since: now - 2 * H,
+    live_checked_at: now - 60000,
+    // Last night's stream, which is what it used to use by mistake.
+    last_stream_start: now - 30 * H,
+    last_stream_end: now - 26 * H,
+  }, { now });
+
+  assert.ok(w.live, 'it knows the stream is still running');
+  assert.equal(w.from, now - 2 * H, 'from when they went live tonight');
+  assert.equal(w.to, now, 'to this instant');
+  assert.ok(w.to <= now, 'and never into the future, which would let the next trophy in early');
+});
+
+test('a stale live_since is not believed', () => {
+  /**
+   * `live_since` on its own is a lie the moment the live check stops running.
+   * Without this, a Worker outage would leave somebody "live" for days and
+   * every trophy they earned offline would be credited to a stream.
+   */
+  const now = Date.now();
+  const stale = {
+    live_since: now - 40 * H,
+    live_checked_at: now - 3 * H,
+    last_stream_start: now - 30 * H,
+    last_stream_end: now - 26 * H,
+  };
+  const w = streamWindow(stale, { now });
+
+  assert.ok(!w.live, 'it falls back to the finished stream');
+  assert.equal(w.from, now - 30 * H);
+  assert.ok(LIVE_STALE_MS <= 60 * 60000, 'and the staleness limit stays tight');
+});
+
+test('the minimum applies to a live stream too, so a fresh one fires nothing', () => {
+  const now = Date.now();
+  const justOn = { live_since: now - 4 * 60000, live_checked_at: now };
+  assert.ok(streamWindow(justOn, { now }), 'four minutes is still a window worth marking');
+  assert.equal(
+    streamWindow(justOn, { now, minMs: MIN_STREAM_MS }), null,
+    'but not one worth firing a whole scan for',
   );
 });
 

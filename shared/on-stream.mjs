@@ -76,7 +76,24 @@ export const COUNT_WINDOW_SQL = `
      AND earned_at <= ?`;
 
 /**
+ * How stale a live check has to be before `live_since` stops being believed.
+ * The same fifteen minutes the home page shelf uses: `live_since` on its own is
+ * a lie the moment the check stops running.
+ */
+export const LIVE_STALE_MS = 15 * 60 * 1000;
+
+/**
  * The bounds to bind, or null when there is no usable window.
+ *
+ * A STREAM STILL RUNNING HAS A WINDOW TOO, and missing that was a real bug.
+ * `last_stream_start` and `last_stream_end` are only written when a stream
+ * ENDS, so mid-broadcast they still describe the PREVIOUS session. Khayu2z ran
+ * /update an hour into an eight hour stream, and everything that depended on
+ * this got handed last night's window and quietly did nothing for tonight's.
+ *
+ * So a member the live check currently believes is on air gets a window that
+ * runs from the moment they went live to right now. Anything they earned in it
+ * was earned in front of an audience by definition.
  *
  * `minMs` DEFAULTS TO ZERO, and that is deliberate. A twenty minute stream is a
  * stream: the trophies earned in it count on the board like anybody else's, and
@@ -84,12 +101,22 @@ export const COUNT_WINDOW_SQL = `
  * thirty minute rule is about whether firing a whole scan is WORTH IT, which is
  * a different question, so only the dispatch passes MIN_STREAM_MS.
  */
-export function streamWindow(member, { minMs = 0 } = {}) {
+export function streamWindow(member, { minMs = 0, now = Date.now() } = {}) {
+  const since = Number(member?.live_since) || 0;
+  const checked = Number(member?.live_checked_at) || 0;
+
+  if (since > 0 && since < now && checked > now - LIVE_STALE_MS) {
+    const durationMs = now - since;
+    // No end slack: the window already runs to this instant, and a bound in the
+    // future would let the next trophy in before it has been earned.
+    return durationMs < minMs ? null : { from: since, to: now, durationMs, live: true };
+  }
+
   const from = Number(member?.last_stream_start) || 0;
   const to = Number(member?.last_stream_end) || 0;
   if (from <= 0 || to <= from) return null;
   if (to - from < minMs) return null;
-  return { from, to: to + END_SLACK_MS, durationMs: to - from };
+  return { from, to: to + END_SLACK_MS, durationMs: to - from, live: false };
 }
 
 /** Is that window recent enough to still be worth sweeping? */

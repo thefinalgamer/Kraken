@@ -447,6 +447,8 @@ async function scanMember(psn, member, updateNo) {
   const estimateCutoff = Date.now() - ESTIMATE_TTL_MS;
   const estimated = new Set();
   const freshness = new Map();
+  /** np_comm_id -> how many trophies we think the game has. */
+  const known = new Map();
   // Games whose trophy rows have no names. `earnedForTitle` does not return
   // them — only `titleTrophies` does — and until now nothing called it, so
   // `trophies.name` was never written for anything scanned by this build. See
@@ -459,7 +461,7 @@ async function scanMember(psn, member, updateNo) {
   for (let i = 0; i < gameRows.length; i += CHUNK) {
     const slice = gameRows.slice(i, i + CHUNK);
     const cached = await db.query(
-      `SELECT g.np_comm_id, g.refreshed_at, g.estimated,
+      `SELECT g.np_comm_id, g.refreshed_at, g.estimated, g.trophy_count,
               EXISTS (SELECT 1 FROM trophies t
                        WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL) AS has_names
          FROM games g
@@ -468,13 +470,53 @@ async function scanMember(psn, member, updateNo) {
     );
     for (const r of cached) {
       freshness.set(r.np_comm_id, r.refreshed_at);
+      known.set(r.np_comm_id, Number(r.trophy_count) || 0);
       if (r.estimated) estimated.add(r.np_comm_id);
       if (!r.has_names) unnamed.add(r.np_comm_id);
     }
   }
+
+  /**
+   * A GAME THAT HAS GROWN IS STALE, WHATEVER THE CLOCK SAYS.
+   *
+   * Pelziowo streamed Zenless Zone Zero, earned seven DLC trophies, and scored
+   * nothing for any of them. Leon spotted it from the outside in one line:
+   * *"Looks like your system hasnt got the new zenless dlc trophies yet. He is
+   * 111/104 lol"*. One hundred and eleven earned in a game the board thought
+   * had one hundred and four.
+   *
+   * The definitions were written before Sony added the DLC, and twelve members
+   * own the game, so `refreshed_at` was never thirty days old and the write was
+   * skipped on every scan since. Seven trophies nothing had ever heard of --
+   * unpriced on the streamers board, unpriced on the main board, and showing on
+   * his profile as a fraction over one.
+   *
+   * The signal was already in hand and unread. `getUserTitles` returns
+   * `definedTrophies` for every game on every scan, so PSN tells us the size of
+   * each trophy list before we decide whether to look at it. If that disagrees
+   * with what is stored, the list has changed and the definitions are wrong,
+   * however recently they were fetched.
+   *
+   * BOTH GUARDS MATTER. `defined > 0` because a PSN response missing the field
+   * must not mark the entire library stale and turn one update into a full
+   * rescan. `stored > 0` because a game nobody has ever scanned is handled by
+   * `!freshness.has()` a line below, and would otherwise be counted twice.
+   */
+  const grown = new Set(
+    gameRows
+      .filter((t) => {
+        const defined = sumTrophies(t.definedTrophies);
+        const stored = known.get(t.npCommunicationId) ?? 0;
+        return defined > 0 && stored > 0 && defined !== stored;
+      })
+      .map((t) => t.npCommunicationId),
+  );
+  if (grown.size) console.log(`  ${grown.size} game(s) changed size since we last looked`);
+
   const stale = new Set(
     gameRows
       .filter((t) => {
+        if (grown.has(t.npCommunicationId)) return true;
         const by = estimated.has(t.npCommunicationId) ? estimateCutoff : cutoff;
         return (freshness.get(t.npCommunicationId) ?? 0) < by;
       })

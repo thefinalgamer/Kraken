@@ -1295,6 +1295,10 @@ p.warn.dead.whole b{color:#ff8e86}
   .livedot{display:block;margin:3px 0 0;width:max-content}
 }
 
+/* A hunter whose live trophies are in a game nothing has priced yet. Quieter
+   than a number, because it is an absence rather than a small value. */
+.unpriced{color:var(--faint);font-weight:400;font-size:12px;white-space:nowrap}
+
 .deadmark{
   display:block;margin-top:4px;font-size:11.5px;line-height:1.35;color:var(--brass);
 }

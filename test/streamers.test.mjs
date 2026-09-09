@@ -183,6 +183,85 @@ test('a trophy worth less than a point reads "<1", not "0"', async () => {
   assert.match(out, /data-v="0"/, 'while still sorting as the zero it is');
 });
 
+test('the price join is OUTER, pinned in the SQL itself', () => {
+  /**
+   * THE ONLY TEST THAT COULD HAVE CAUGHT THIS ONE. Every other test here feeds
+   * rows straight past a stubbed database, so the join never runs and an inner
+   * join is completely invisible to them. Pelziowo vanished from a live board
+   * while the whole suite stayed green.
+   *
+   * So this reads the query as text. A `SUM(COALESCE(t.points, 0))` sitting on
+   * top of an inner join is two decisions that contradict each other, and the
+   * inner one always wins.
+   */
+  const src = readFileSync(
+    fileURLToPath(new URL('../functions/leaderboard/streamers.js', import.meta.url)), 'utf8',
+  );
+  const sql = src.slice(src.indexOf('const BOARD = `'), src.indexOf('`;', src.indexOf('const BOARD = `')));
+
+  assert.match(sql, /LEFT JOIN trophies/, 'an unpriced trophy must not delete its hunter');
+  assert.ok(
+    !/\n\s+JOIN trophies/.test(sql),
+    'and no inner join to trophies anywhere in it',
+  );
+  assert.match(sql, /COALESCE\(t\.points, 0\)/, 'a missing price is worth zero, not nothing');
+  assert.match(sql, /t\.trophy_id IS NULL THEN 1 ELSE 0 END\) AS unpriced/,
+    'and the page is told how many were never priced');
+
+  // members is still an inner join: a trophy row with no member is meaningless.
+  assert.match(sql, /JOIN members\s+m ON/, 'members stays inner');
+});
+
+test('a hunter is never dropped for owning a game nobody has priced', async () => {
+  /**
+   * PELZIOWO, 9 SEPTEMBER. He streamed for five and a half hours, earned seven
+   * trophies on camera, got a Discord card saying exactly that, and did not
+   * appear on the board at all. All seven were in NPWR41929_00, a game with no
+   * rows in `trophies`, and the query reached that table through an INNER join
+   * -- so it deleted him before the `COALESCE(t.points, 0)` sitting right above
+   * it could turn the missing price into a zero. Two decisions in one query that
+   * contradicted each other.
+   *
+   * ANY FIGURE THAT DISAGREES WITH ANOTHER FIGURE IS A BUG. This one disagreed
+   * with a message Kraken had already sent him.
+   */
+  const { out } = await render([
+    { ...hunters[0], psn_online_id: 'Pelziowo', live_trophies: 7, live_raw: 0, unpriced: 7 },
+  ]);
+
+  assert.ok(out.includes('Pelziowo'), 'he is on the board');
+  assert.match(out, /not priced yet/, 'and the reason is on the row');
+  assert.ok(!/&lt;1/.test(out), 'never "<1", which would claim we weighed them and found them wanting');
+  assert.match(out, /start paying the moment the game is priced/, 'the footer explains it');
+});
+
+test('"<1" and "not priced yet" are different states and stay different', async () => {
+  /**
+   * They look identical at zero points and mean opposite things: one has been
+   * valued and is worth a fraction, the other has never been valued at all.
+   */
+  const { out } = await render([
+    { ...hunters[0], psn_online_id: 'Priced', live_trophies: 1, live_raw: 1, unpriced: 0, completion: 80 },
+    { ...hunters[1], psn_online_id: 'Unpriced', live_trophies: 7, live_raw: 0, unpriced: 7 },
+  ]);
+
+  const rowIn = (name) => out.split('<tr>').find((tr) => tr.includes(`>${name}<`)) ?? '';
+  assert.match(rowIn('Priced'), /&lt;1/, 'valued, and worth under a point');
+  assert.ok(!/not priced yet/.test(rowIn('Priced')));
+  assert.match(rowIn('Unpriced'), /not priced yet/, 'never valued');
+  assert.ok(!/&lt;1/.test(rowIn('Unpriced')));
+});
+
+test('a partly priced hunter still shows the points they have earned', async () => {
+  // Only "nothing at all is priced" gets the label. Some priced and some not is
+  // an ordinary score with a bit missing, and printing a number is honest.
+  const { out } = await render([
+    { ...hunters[0], live_trophies: 10, live_raw: 400, unpriced: 3, completion: 90 },
+  ]);
+  assert.ok(!/not priced yet/.test(out.split('<tbody>')[1] ?? ''), 'no label on the row');
+  assert.match(out, /data-v="360"/, 'and the priced half still pays');
+});
+
 test('nobody is listed at zero', async () => {
   /**
    * Sixty-seven people tied on nil is not a board, it is a membership list with

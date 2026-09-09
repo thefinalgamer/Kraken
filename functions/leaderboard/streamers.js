@@ -42,9 +42,23 @@ import { displayBanked, hasCompletion } from '../../shared/scoring.mjs';
  * catch-up sweep afterwards, and has been filling since migration 024. It is set
  * to 1 or left NULL, never 0, so `= 1` is the whole test.
  *
- * The join to `trophies` is what prices it. Rows whose trophy definition has not
- * been scanned yet contribute 0 rather than dropping the hunter, which is why it
- * is COALESCE and not an inner condition.
+ * LEFT JOIN, AND THE WORD "LEFT" IS THE WHOLE BUG THAT WAS HERE.
+ *
+ * The join to `trophies` is what prices a trophy. It shipped as an inner join
+ * with `SUM(COALESCE(t.points, 0))` on top -- two decisions that contradict each
+ * other, because an inner join throws the unpriced row away long before the
+ * COALESCE could turn it into a zero.
+ *
+ * Pelziowo streamed for five and a half hours, earned seven trophies on camera,
+ * got a card in Discord saying exactly that, and never appeared on the board.
+ * All seven were in a game with no rows in `trophies` at all, so the join
+ * deleted him. The card counted honestly because it does not join `trophies`;
+ * the board did not. Any figure that disagrees with another figure is a bug, and
+ * this one disagreed with a message Kraken had already sent him.
+ *
+ * `unpriced` comes back alongside so the page can tell "worth less than a point"
+ * apart from "nobody has priced this yet". They look identical at zero and mean
+ * completely different things to the person reading the row.
  *
  * ORDERED BY THE RAW FIGURE ONLY AS A TIEBREAK. The real ordering happens after
  * the completion multiplier is applied, in JavaScript, because two hunters with
@@ -57,11 +71,12 @@ const BOARD = `
          m.live_since, m.live_checked_at,
          COUNT(*)                        AS live_trophies,
          SUM(COALESCE(t.points, 0))      AS live_raw,
+         SUM(CASE WHEN t.trophy_id IS NULL THEN 1 ELSE 0 END) AS unpriced,
          MAX(mt.earned_at)               AS last_live_at
     FROM member_trophies mt
     JOIN members  m ON m.psn_account_id = mt.psn_account_id
-    JOIN trophies t ON t.np_comm_id = mt.np_comm_id
-                   AND t.trophy_id  = mt.trophy_id
+    LEFT JOIN trophies t ON t.np_comm_id = mt.np_comm_id
+                        AND t.trophy_id  = mt.trophy_id
    WHERE mt.on_stream = 1
      AND mt.earned_at >= ?
      AND m.last_update_at IS NOT NULL
@@ -126,6 +141,31 @@ function when(at) {
   return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+/**
+ * What goes in the points cell, and the three cases are genuinely different.
+ *
+ * "<1", NOT "0". A single very common trophy is worth about a point raw, and the
+ * completion multiplier takes it under one, where the floor makes it nothing.
+ * Printing 0 next to "1 live trophy" reads as a bug or as an insult and is
+ * neither: they earned something, it is worth less than a whole point. Same
+ * instinct as the "335 of 335" card -- technically correct, tells the reader the
+ * wrong thing.
+ *
+ * "NOT PRICED YET" IS NOT THE SAME THING and must not wear the same badge.
+ * Pelziowo's seven live trophies were in a game with no rows in `trophies`, so
+ * nothing about them has been valued at all. Printing "<1" there would claim we
+ * had weighed them and found them wanting; we have not weighed them.
+ */
+function points(m) {
+  const earned = Number(m.live_trophies) || 0;
+  const unpriced = Number(m.unpriced) || 0;
+
+  if (earned > 0 && unpriced === earned) {
+    return '<span class="unpriced" title="Not scored yet: nobody has priced this game\u2019s trophies">not priced yet</span>';
+  }
+  return m.points === 0 && earned > 0 ? '&lt;1' : n(m.points);
+}
+
 function row(m, rank) {
   const country = flag(m.country);
   const live = liveNow(m);
@@ -142,17 +182,7 @@ function row(m, rank) {
         }</span>
       </span>
     </td>
-    <td class="num pts" data-v="${m.points}">${
-      /**
-       * "<1", NOT "0". A single very common trophy is worth about a point raw,
-       * and a completion multiplier takes it under one, where the floor makes it
-       * nothing. Printing 0 next to "1 live trophy" reads as a bug or as an
-       * insult, and it is neither: they earned something, it is just worth less
-       * than a whole point. This is the same instinct as "335 of 335" -- a
-       * number that is technically correct and tells the reader the wrong thing.
-       */
-      m.points === 0 && Number(m.live_trophies) > 0 ? '&lt;1' : n(m.points)
-    }</td>
+    <td class="num pts" data-v="${m.points}">${points(m)}</td>
     <td class="num tro hide-s" data-v="${Number(m.live_trophies) || 0}">${n(m.live_trophies)}</td>
     <td class="num hide-s" data-v="${Number(m.completion) || 0}">${pct(m.completion)}</td>
     <td class="num hide-s" data-v="${Number(m.last_live_at) || 0}">${esc(when(m.last_live_at))}</td>
@@ -240,6 +270,12 @@ export async function onRequestGet({ env }) {
            rows.some((m) => !hasCompletion(m.completion))
              ? 'A hunter part-way through their first scan shows their raw total until their completion lands.<br>'
              : '<br>'
+         }
+         ${
+           rows.some((m) => Number(m.unpriced) > 0)
+             ? 'A game nobody here has scanned yet has no prices on its trophies, so they count ' +
+               'as earned but not yet as points. They start paying the moment the game is priced.<br>'
+             : ''
          }
          To appear here, run <b>/twitch</b> in the Discord so Kraken knows when you are live.
          Nothing earned before you did that can be counted, because PSN does not say what was

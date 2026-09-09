@@ -101,12 +101,31 @@ export async function postUpdateResult({ member, result, interactionToken }) {
    * a session that produced nothing.
    */
   const live = Number(result?.onStream?.count) || 0;
+
+  /**
+   * "FINISHED" ONLY WHEN THEY HAVE ACTUALLY FINISHED.
+   *
+   * The card went out reading "Pelziowo finished streaming!" while Pelziowo was
+   * three and a half hours into a stream he was still running. The count was
+   * right and the duration was right; the verb was a guess.
+   *
+   * It was a guess because the first version of this could only ever be reached
+   * by the scan a stream END fires. Then mid-stream updates started producing a
+   * window too -- which was the point of that change -- and the heading was
+   * still talking about something that had not happened. `window.live` already
+   * knew; nothing was asking it.
+   */
+  const stillOn = result?.onStream?.live === true;
+  const duration = Number(result?.onStream?.durationMs);
+  const spell = Number.isFinite(duration) ? streamLength(duration) : null;
+  const count = `**${live}** ${live === 1 ? 'trophy' : 'trophies'}`;
+
   const heading = live
-    ? `## ${md(member.psn_online_id)} finished streaming!\n` +
-      `**${live}** ${live === 1 ? 'trophy' : 'trophies'} earned live` +
-      (Number.isFinite(Number(result?.onStream?.durationMs))
-        ? ` over ${streamLength(result.onStream.durationMs)}`
-        : '')
+    ? stillOn
+      ? `## ${md(member.psn_online_id)} is streaming!\n` +
+        `${count} earned live so far` + (spell ? `, ${spell} in` : '')
+      : `## ${md(member.psn_online_id)} finished streaming!\n` +
+        `${count} earned live` + (spell ? ` over ${spell}` : '')
     : `## ${md(member.psn_online_id)} update finished!`;
 
   const body = message([

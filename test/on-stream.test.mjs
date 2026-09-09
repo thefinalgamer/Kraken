@@ -214,12 +214,29 @@ test('the card says "finished streaming" only when trophies were earned live', a
 
   await postUpdateResult({
     member,
-    result: { ...base, onStream: { count: 14, durationMs: 10.5 * 3600000 } },
+    result: { ...base, onStream: { count: 14, durationMs: 10.5 * 3600000, live: false } },
   }).catch(() => {});
   const streaming = headingOf();
   assert.match(streaming, /finished streaming/, 'the streaming heading');
   assert.match(streaming, /14/, 'and how many were earned live');
   assert.match(streaming, /10h 30m/, 'and how long they were on for');
+
+  /**
+   * IT WENT OUT READING "Pelziowo finished streaming!" WHILE HE WAS STILL ON.
+   * He ran /update three and a half hours into a stream he had not finished.
+   * The count was right and the duration was right; the verb was a guess left
+   * over from when only a stream ending could reach this code.
+   */
+  posted.length = 0;
+  await postUpdateResult({
+    member,
+    result: { ...base, onStream: { count: 4, durationMs: 3.55 * 3600000, live: true } },
+  }).catch(() => {});
+  const midStream = headingOf();
+  assert.match(midStream, /is streaming/, 'present tense while they are on air');
+  assert.ok(!/finished streaming/.test(midStream), 'and never says they have finished');
+  assert.match(midStream, /so far/, 'the count is a running total, not a result');
+  assert.match(midStream, /3h 33m in/, 'and the time is how long they have been on');
 
   posted.length = 0;
   await postUpdateResult({ member, result: { ...base } }).catch(() => {});
@@ -230,7 +247,7 @@ test('the card says "finished streaming" only when trophies were earned live', a
   posted.length = 0;
   await postUpdateResult({
     member,
-    result: { ...base, onStream: { count: 0, durationMs: 2 * 3600000 } },
+    result: { ...base, onStream: { count: 0, durationMs: 2 * 3600000, live: false } },
   }).catch(() => {});
   assert.ok(
     !/finished streaming/.test(headingOf()),

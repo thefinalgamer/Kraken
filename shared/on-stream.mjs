@@ -53,6 +53,27 @@ export const SWEEP_WINDOW_MS = 72 * 60 * 60 * 1000;
 export const MIN_STREAM_MS = 30 * 60 * 1000;
 
 /**
+ * How recently a stream has to have finished for it to be worth ANNOUNCING.
+ *
+ * MARKING AND ANNOUNCING ARE DIFFERENT QUESTIONS AND THIS IS WHERE THEY SPLIT.
+ * Marking looks back three days, because a trophy earned on camera on Sunday is
+ * still a trophy earned on camera when the member finally updates on Tuesday.
+ * Announcing must not: PrimalxFear streamed on the 8th from 17:12 to 20:30, ran
+ * /update at 10:22 the next morning, and the card went out reading "PrimalxFear
+ * finished streaming! 11 trophies earned live over 3h 18m" fourteen hours after
+ * he had finished.
+ *
+ * The stream-end scan fires within about five minutes of going off air, so half
+ * an hour is generous for the case this exists to serve and short enough that
+ * yesterday never qualifies.
+ */
+export const ANNOUNCE_WINDOW_MS = 30 * 60 * 1000;
+
+/** Is this window current enough to say something about in a channel? */
+export const announceable = (window, now = Date.now()) =>
+  !!window && (window.live === true || window.to > now - ANNOUNCE_WINDOW_MS);
+
+/**
  * Mark everything a member earned inside their last stream.
  *
  * `COALESCE(on_stream, 0) = 0` is not an optimisation. Migration 024 adds the

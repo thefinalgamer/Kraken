@@ -29,6 +29,7 @@ import {
   md,
   COLOR,
 } from '../../shared/ui.mjs';
+import { announceable } from '../../shared/on-stream.mjs';
 
 const API = 'https://discord.com/api/v10';
 const env = process.env;
@@ -120,7 +121,22 @@ export async function postUpdateResult({ member, result, interactionToken }) {
   const spell = Number.isFinite(duration) ? streamLength(duration) : null;
   const count = `**${live}** ${live === 1 ? 'trophy' : 'trophies'}`;
 
-  const heading = live
+  /**
+   * AND ONLY IF THE STREAM IS STILL NEWS.
+   *
+   * Marking looks back three days on purpose: a trophy earned on camera on
+   * Sunday is still one when the member updates on Tuesday. Announcing must
+   * not. PrimalxFear finished at 20:30 on the 8th, updated at 10:22 the next
+   * morning, and the channel was told he had just finished streaming.
+   *
+   * Same mistake as the tense, one layer up: the card was written when the only
+   * way to reach it was a stream that had just ended, so "recent" was an
+   * assumption nobody had to state. It stopped being true the moment an
+   * ordinary /update could get here.
+   */
+  const fresh = announceable(result?.onStream);
+
+  const heading = live && fresh
     ? stillOn
       ? `## ${md(member.psn_online_id)} is streaming!\n` +
         `${count} earned live so far` + (spell ? `, ${spell} in` : '')

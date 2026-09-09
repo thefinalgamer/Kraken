@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import {
-  END_SLACK_MS, MIN_STREAM_MS, SWEEP_WINDOW_MS, LIVE_STALE_MS,
-  MARK_WINDOW_SQL, COUNT_WINDOW_SQL, streamWindow, sweepable,
+  END_SLACK_MS, MIN_STREAM_MS, SWEEP_WINDOW_MS, LIVE_STALE_MS, ANNOUNCE_WINDOW_MS,
+  MARK_WINDOW_SQL, COUNT_WINDOW_SQL, streamWindow, sweepable, announceable,
 } from '../shared/on-stream.mjs';
 
 /**
@@ -181,6 +181,42 @@ test('every place that marks on_stream uses this one definition', () => {
   }
 });
 
+test('marking looks back three days, announcing does not', () => {
+  /**
+   * PRIMALXFEAR, 9 SEPTEMBER. He streamed on the 8th from 17:12 to 20:30, ran
+   * /update at 10:22 the next morning, and the channel was told "PrimalxFear
+   * finished streaming! 11 trophies earned live over 3h 18m" -- fourteen hours
+   * after he had finished.
+   *
+   * The eleven trophies were marked correctly; they really were earned on
+   * camera. Only the announcement was wrong. Marking and announcing are
+   * different questions and had been sharing one answer.
+   */
+  const now = Date.now();
+  const yesterday = streamWindow({
+    last_stream_start: now - 17 * H,
+    last_stream_end: now - 14 * H,
+  }, { now });
+
+  assert.ok(sweepable(yesterday, now), 'still worth marking');
+  assert.ok(!announceable(yesterday, now), 'not worth announcing');
+
+  const justOff = streamWindow({
+    last_stream_start: now - 3 * H,
+    last_stream_end: now - 5 * 60000,
+  }, { now });
+  assert.ok(announceable(justOff, now), 'five minutes ago is the case this exists for');
+
+  const onAir = streamWindow({ live_since: now - 2 * H, live_checked_at: now }, { now });
+  assert.ok(announceable(onAir, now), 'and a stream still running is always news');
+
+  assert.ok(!announceable(null, now));
+  assert.ok(
+    ANNOUNCE_WINDOW_MS < SWEEP_WINDOW_MS,
+    'the announce window must never outrun the sweep window',
+  );
+});
+
 // -------------------------------------------------- the streaming card ----
 
 test('the card says "finished streaming" only when trophies were earned live', async () => {
@@ -214,7 +250,13 @@ test('the card says "finished streaming" only when trophies were earned live', a
 
   await postUpdateResult({
     member,
-    result: { ...base, onStream: { count: 14, durationMs: 10.5 * 3600000, live: false } },
+    // Just off air, which is when the stream-end scan fires.
+    result: {
+      ...base,
+      onStream: {
+        count: 14, durationMs: 10.5 * 3600000, live: false, to: Date.now() - 5 * 60000,
+      },
+    },
   }).catch(() => {});
   const streaming = headingOf();
   assert.match(streaming, /finished streaming/, 'the streaming heading');
@@ -230,7 +272,7 @@ test('the card says "finished streaming" only when trophies were earned live', a
   posted.length = 0;
   await postUpdateResult({
     member,
-    result: { ...base, onStream: { count: 4, durationMs: 3.55 * 3600000, live: true } },
+    result: { ...base, onStream: { count: 4, durationMs: 3.55 * 3600000, live: true, to: Date.now() } },
   }).catch(() => {});
   const midStream = headingOf();
   assert.match(midStream, /is streaming/, 'present tense while they are on air');
@@ -253,4 +295,24 @@ test('the card says "finished streaming" only when trophies were earned live', a
     !/finished streaming/.test(headingOf()),
     'a stream that produced nothing is not announced as one',
   );
+
+  /**
+   * And yesterday's stream is not today's news. PrimalxFear updated fourteen
+   * hours after going off air; the trophies still count, the card does not
+   * mention it.
+   */
+  posted.length = 0;
+  await postUpdateResult({
+    member,
+    result: {
+      ...base,
+      onStream: {
+        count: 11, durationMs: 3.3 * 3600000, live: false,
+        to: Date.now() - 14 * 3600000,
+      },
+    },
+  }).catch(() => {});
+  const stale = headingOf();
+  assert.match(stale, /update finished/, 'the ordinary card');
+  assert.ok(!/streaming/.test(stale), 'yesterday is not announced as if it just happened');
 });

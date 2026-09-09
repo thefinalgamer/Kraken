@@ -221,9 +221,21 @@ test('the cron is registered, and it is the only scheduled work', () => {
     fileURLToPath(new URL('../worker/src/index.mjs', import.meta.url)), 'utf8',
   );
   const fn = src.slice(src.indexOf('async scheduled('), src.indexOf('async fetch('));
-  assert.match(fn, /checkLive\(env\)/, 'the tick asks Twitch');
+  assert.match(fn, /checkLive\(env/, 'the tick asks Twitch');
   assert.match(fn, /catch\(/, 'and a failing cron never throws into the void');
-  assert.ok(!/dispatchScan|getUserTitles/.test(fn), 'no heavy work crept into the Worker');
+
+  /**
+   * THE GUARD IS ABOUT PSN, NOT ABOUT DISPATCHING.
+   *
+   * It used to forbid `dispatchScan` here too, which was right while the tick
+   * only read Twitch. Now a stream ending fires a scan, and that is not heavy
+   * work: a dispatch is one POST to the GitHub Actions API, the same call
+   * /update makes from the fetch handler. The hundreds of PSN requests happen
+   * on a runner with no subrequest cap, which is the thing this ever protected.
+   *
+   * So the line that must never appear is a PSN one.
+   */
+  assert.ok(!/getUserTitles|getTrophies|psn\./.test(fn), 'no PSN work crept into the Worker');
 });
 
 const workerSrc = () => readFileSync(
@@ -482,24 +494,32 @@ test('a stream that is still running does not get an end written', async () => {
   );
 });
 
+/**
+ * A member who streamed, and has run /update since it started.
+ *
+ * `now` IS PASSED IN, NOT READ AGAIN. It used to call Date.now() itself while
+ * the test called it too, and the two straddled a millisecond often enough to
+ * fail the build at random. A fixture built from a clock the assertions cannot
+ * see is a flaky test waiting to happen.
+ */
+const streamed = (now, o = {}) => ({
+  psn_account_id: 'a9', twitch_login: 'pelzio', live_since: null, live_game: null,
+  last_stream_start: now - 4 * 60 * 60000,
+  last_stream_end: now - 30 * 60000,
+  last_update_at: now - 5 * 60000,
+  ...o,
+});
+
 test('trophies that arrive after the stream still get marked', async () => {
   /**
    * THE CATCH-UP SWEEP. The poll marks things while somebody is on air; this is
-   * for the rows that only turn up afterwards. It runs on the five minute tick
-   * for anybody whose stream finished in the last twelve hours.
+   * for the rows that only turn up afterwards, when they run /update.
    */
   const now = Date.now();
-  const { env, writes } = harness({
-    members: [{
-      psn_account_id: 'a9', twitch_login: 'pelzio', live_since: null, live_game: null,
-      last_stream_start: now - 4 * 60 * 60000,
-      last_stream_end: now - 30 * 60000,
-    }],
-    streams: [],
-  });
+  const { env, writes } = harness({ members: [streamed(now)], streams: [] });
   await checkLive(env);
 
-  const sweep = writes.find((w) => w.sql.includes('UPDATE member_trophies SET on_stream'));
+  const sweep = writes.find((w) => /UPDATE member_trophies\s+SET on_stream/.test(w.sql));
   assert.ok(sweep, 'the window is swept');
   assert.equal(sweep.args[0], 'a9');
   assert.equal(sweep.args[1], now - 4 * 60 * 60000, 'from the start of that stream');
@@ -510,18 +530,199 @@ test('trophies that arrive after the stream still get marked', async () => {
   assert.match(sweep.sql, /COALESCE\(on_stream, 0\) = 0/, 'and it leaves marked rows alone');
 });
 
-test('a stream from last week is not swept forever', async () => {
+test('somebody who updates the morning after their stream is still caught', async () => {
+  /**
+   * RAGOWIT, 8 SEPTEMBER. He streamed for ten hours, finished at 17:15, and ran
+   * /update at 08:56 the next morning -- three hours and forty-one minutes
+   * after the twelve hour sweep had given up on him. Fourteen trophies earned
+   * on camera, none marked, and nothing anywhere said why he was missing from
+   * the board.
+   *
+   * The poll could not have saved him. It only sees what PSN has published, and
+   * a member whose console does not sync mid-session publishes nothing until
+   * they update. For anybody who plays that way the sweep is the only route, so
+   * its window has to outlast a night's sleep.
+   */
   const now = Date.now();
+  const H = 3600000;
   const { env, writes } = harness({
-    members: [{
-      psn_account_id: 'a9', twitch_login: 'pelzio', live_since: null, live_game: null,
-      last_stream_start: now - 7 * 86400000,
-      last_stream_end: now - 7 * 86400000 + 3600000,
-    }],
+    members: [streamed(now, {
+      last_stream_start: now - 26 * H,   // started yesterday morning
+      last_stream_end: now - 16 * H,     // ten hours later
+      last_update_at: now - 5 * 60000,   // updated just now, 15h41m after
+    })],
     streams: [],
   });
   await checkLive(env);
-  assert.ok(!writes.some((w) => w.sql.includes('UPDATE member_trophies')), 'twelve hours is the limit');
+
+  const sweep = writes.find((w) => /UPDATE member_trophies\s+SET on_stream/.test(w.sql));
+  assert.ok(sweep, 'fifteen hours later is still swept');
+  assert.equal(sweep.args[1], now - 26 * H, 'and only across the window he actually streamed');
+});
+
+test('a stream from last week is not swept forever', async () => {
+  const now = Date.now();
+  const { env, writes } = harness({
+    members: [streamed(now, {
+      last_stream_start: now - 7 * 86400000,
+      last_stream_end: now - 7 * 86400000 + 3600000,
+    })],
+    streams: [],
+  });
+  await checkLive(env);
+  assert.ok(!writes.some((w) => /UPDATE member_trophies/.test(w.sql)), 'three days is the limit');
+});
+
+test('nobody is swept who has not updated since their stream began', async () => {
+  /**
+   * If they have not scanned since the stream started, no new rows can have
+   * arrived and the statement is pure waste. This is what stops a widened
+   * window turning into a UPDATE per streamer every five minutes for three
+   * days, almost all of them no-ops.
+   */
+  const now = Date.now();
+  const { env, writes } = harness({
+    members: [streamed(now, { last_update_at: now - 30 * 86400000 })],
+    streams: [],
+  });
+  await checkLive(env);
+  assert.ok(
+    !writes.some((w) => /UPDATE member_trophies/.test(w.sql)),
+    'nothing new can have landed, so nothing is asked',
+  );
+});
+
+test('widening the window cannot mark a trophy earned off camera', async () => {
+  /**
+   * The safety property that makes the change cheap to reason about. The window
+   * SWEPT is fixed by last_stream_start and last_stream_end; the three days
+   * only decides how long we keep re-running the same sweep. A longer wait can
+   * never reach a trophy the shorter one would not have.
+   */
+  const now = Date.now();
+  const H = 3600000;
+  const { env, writes } = harness({
+    members: [streamed(now, {
+      last_stream_start: now - 50 * H,
+      last_stream_end: now - 48 * H,
+      last_update_at: now - 60000,
+    })],
+    streams: [],
+  });
+  await checkLive(env);
+
+  const sweep = writes.find((w) => /UPDATE member_trophies\s+SET on_stream/.test(w.sql));
+  assert.ok(sweep, 'two days later, still swept');
+  assert.equal(sweep.args[1], now - 50 * H, 'lower bound is the stream start, not the window');
+  assert.ok(
+    sweep.args[2] <= now - 48 * H + 120000,
+    'upper bound is the stream end plus a little slack, and nothing beyond it',
+  );
+});
+
+// -------------------------------------------------- the stream-end scan ----
+
+/** checkLive with the dispatcher stubbed, recording every scan it asks for. */
+const withDispatch = (opts, fail = false) => {
+  const asked = [];
+  const h = harness(opts);
+  const onStreamEnd = async (env, discordId, token, extra) => {
+    asked.push({ discordId, token, extra });
+    if (fail) throw new Error('github said no');
+  };
+  return { ...h, asked, onStreamEnd };
+};
+
+/** Somebody who is live in the fixture and about to be found offline. */
+const wasLive = (o = {}) => ({
+  psn_account_id: 'a9', discord_id: '159003777851064320', twitch_login: 'ragowit',
+  live_since: Date.now() - 10 * 3600000, live_game: null,
+  last_stream_start: null, last_stream_end: null, last_update_at: Date.now() - 86400000,
+  ...o,
+});
+
+test('a stream ending fires a scan, so console players never have to remember', async () => {
+  /**
+   * Martin: *"i think we need an auto update for when some ends stream, this
+   * way it will help people on console or people who aint using the overlay"*.
+   *
+   * The live poll only ever sees what PSN has published, so a member whose
+   * console does not sync mid-session is invisible to it for the whole
+   * broadcast. Ragowit streamed for ten hours and the poll caught nothing,
+   * because there was nothing published to catch. Before this, those members
+   * had no route that did not depend on remembering to run /update.
+   */
+  const { env, asked, onStreamEnd } = withDispatch({ members: [wasLive()], streams: [] });
+  await checkLive(env, { onStreamEnd });
+
+  assert.equal(asked.length, 1, 'one scan, for the one stream that ended');
+  assert.equal(asked[0].discordId, '159003777851064320', 'by discord id, which is what a scan takes');
+  assert.equal(asked[0].token, null, 'and no interaction token, because nobody is waiting on a reply');
+  assert.equal(asked[0].extra.reason, 'stream-end');
+});
+
+test('a flapping connection does not fire a scan per reconnect', async () => {
+  /**
+   * Martin's rule, and it is better than the cooldown it replaced: *"could we
+   * do if they have been streaming for at least 30 mins, that way someone
+   * dropping net wont be an issue"*. Twitch reports a dropped connection as one
+   * stream ending and another starting, so each fragment is short and none of
+   * them qualifies. One real session that drops and comes back for another hour
+   * fires twice, which is two scans for an evening and affordable.
+   */
+  const { env, asked, onStreamEnd } = withDispatch({
+    members: [wasLive({ live_since: Date.now() - 4 * 60000 })],
+    streams: [],
+  });
+  await checkLive(env, { onStreamEnd });
+  assert.equal(asked.length, 0, 'four minutes is a blip, not a stream');
+});
+
+test('a stream that is still running is not scanned', async () => {
+  const { env, asked, onStreamEnd } = withDispatch({
+    members: [wasLive()],
+    streams: [live('ragowit')],
+  });
+  await checkLive(env, { onStreamEnd });
+  assert.equal(asked.length, 0, 'nothing has ended');
+});
+
+test('a member with no discord id is skipped rather than dispatched blank', async () => {
+  // A scan is addressed by discord id; without one there is nothing to fire at,
+  // and a dispatch with an empty target fails on the runner instead of here.
+  const { env, asked, onStreamEnd } = withDispatch({
+    members: [wasLive({ discord_id: null })],
+    streams: [],
+  });
+  await checkLive(env, { onStreamEnd });
+  assert.equal(asked.length, 0);
+});
+
+test('a failing dispatch does not take the live check down with it', async () => {
+  /**
+   * Nothing in the live check is allowed to be load bearing. If GitHub is
+   * having a bad morning the sweep still runs, the stream window is still
+   * written, and the member can still run /update themselves.
+   */
+  const { env, writes, asked, onStreamEnd } = withDispatch(
+    { members: [wasLive()], streams: [] }, true,
+  );
+
+  const summary = await checkLive(env, { onStreamEnd });
+  assert.equal(asked.length, 1, 'it tried');
+  assert.match(summary, /watched/, 'and the check still finished');
+  assert.ok(
+    writes.some((w) => w.sql.includes('last_stream_start')),
+    'the window was still recorded',
+  );
+});
+
+test('the live check works with no dispatcher at all', async () => {
+  // The callback is optional on purpose: every existing caller and every test
+  // that predates this passes nothing, and none of them should have to care.
+  const { env } = harness({ members: [wasLive()], streams: [] });
+  const summary = await checkLive(env);
+  assert.match(summary, /watched/);
 });
 
 // ------------------------------------------------------ the channel id ----

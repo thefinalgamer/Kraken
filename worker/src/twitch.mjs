@@ -18,6 +18,10 @@
  * be load bearing.
  */
 
+import {
+  MARK_WINDOW_SQL, MIN_STREAM_MS, SWEEP_WINDOW_MS, streamWindow, sweepable,
+} from '../../shared/on-stream.mjs';
+
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const STREAMS_URL = 'https://api.twitch.tv/helix/streams';
 const USERS_URL = 'https://api.twitch.tv/helix/users';
@@ -223,15 +227,16 @@ export async function lookupChannels(env, { logins = [], ids = [] } = {}) {
  * value actually moves, so a quiet Tuesday costs no writes at all beyond the
  * timestamps.
  */
-export async function checkLive(env) {
+export async function checkLive(env, { onStreamEnd = null } = {}) {
   if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) {
     return 'twitch: no credentials, skipped';
   }
 
   const { results: rows = [] } = await env.DB
     .prepare(
-      `SELECT psn_account_id, twitch_login, twitch_id, live_since, live_game,
-              last_stream_start, last_stream_end FROM members
+      `SELECT psn_account_id, discord_id, twitch_login, twitch_id, live_since,
+              live_game, last_stream_start, last_stream_end, last_update_at
+         FROM members
         WHERE twitch_login IS NOT NULL AND TRIM(twitch_login) <> ''`,
     )
     .all();
@@ -257,6 +262,8 @@ export async function checkLive(env) {
   const writes = [];
   // Whoever went off air on this tick. Used after the batch to drop game pins.
   const ended = [];
+  /** The same streams as objects, for the scan dispatch below. */
+  const finished = [];
 
   for (const r of rows) {
     const on = live.get(String(r.twitch_login).toLowerCase()) ?? null;
@@ -282,7 +289,10 @@ export async function checkLive(env) {
      * So the window is kept, and swept for a while afterwards.
      */
     const justEnded = wasOn && !on;
-    if (justEnded) ended.push(r.psn_account_id);
+    if (justEnded) {
+      ended.push(r.psn_account_id);
+      finished.push({ row: r, from: Number(r.live_since), to: now });
+    }
 
     writes.push(
       !on && !wasOn
@@ -357,34 +367,108 @@ export async function checkLive(env) {
   /**
    * THE CATCH-UP SWEEP.
    *
-   * Marks anything earned inside a stream window that has finished in the last
-   * twelve hours. The poll already does this while somebody is on air; this is
-   * for the rows that only turn up afterwards, when they finally run /update.
+   * Marks anything earned inside a stream window. The poll already does this
+   * while somebody is on air; this is for the rows that only turn up
+   * afterwards, when they finally run /update.
    *
    * A little slack past the end of the stream, because a trophy that popped in
    * the last minute of a broadcast has an `earned_at` fractionally after the
    * moment Twitch noticed the stream stop.
    *
-   * Only rows that are not already flagged, only members who actually streamed
-   * recently, and it runs at most once every five minutes for the whole board.
+   * THE WINDOW USED TO BE TWELVE HOURS AND THAT WAS TOO SHORT. Ragowit streamed
+   * for ten hours on 8 September, finished at 17:15, and ran /update the next
+   * morning at 08:56 -- three hours and forty-one minutes after the sweep had
+   * given up on him. Fourteen trophies earned on camera, none of them marked,
+   * and nothing anywhere said why he was missing from the board.
+   *
+   * The poll could not save him either. It only sees what PSN has published,
+   * and a member whose console does not sync mid-session publishes nothing
+   * until they update. For anybody who plays that way -- which is most people;
+   * Leon syncing after every trophy is the unusual one -- the sweep is the ONLY
+   * route, so its window has to be longer than a night's sleep.
+   *
+   * WIDENING THIS CANNOT MARK A TROPHY THAT WAS NOT EARNED ON STREAM. The
+   * window being swept is fixed by `last_stream_start` and `last_stream_end`;
+   * the number below only decides how long we keep re-running the same sweep in
+   * case more rows arrive. Three days covers "streamed at the weekend, updated
+   * on Monday" without pretending a week-old session is still settling.
+   *
+   * STILL ONLY THE LAST STREAM. `last_stream_start`/`last_stream_end` is one
+   * pair of columns, so somebody who streams Monday and Tuesday and updates on
+   * Wednesday gets Tuesday and loses Monday. Fixing that needs a table of
+   * windows, which is a migration and is parked.
+   *
+   * Only rows that are not already flagged, only members who have actually
+   * updated since the stream began -- if they have not, there are provably no
+   * new rows to find and the statement is pure waste -- and it runs at most
+   * once every five minutes for the whole board.
    */
-  const twelveHours = now - 12 * 60 * 60 * 1000;
-  const recent = rows.filter(
-    (r) => Number(r.last_stream_end) > twelveHours && Number(r.last_stream_start) > 0,
-  );
+  const recent = rows
+    .map((r) => ({ r, w: streamWindow(r) }))
+    .filter(
+      ({ r, w }) =>
+        sweepable(w, now) &&
+        // Nothing new can have arrived if they have not scanned since the
+        // stream began, so the statement would be pure waste. This is what
+        // stops a three day window becoming an UPDATE per streamer every five
+        // minutes for three days, almost all of them no-ops.
+        Number(r.last_update_at) > w.from,
+    );
 
   if (recent.length) {
     await env.DB.batch(
-      recent.map((r) =>
-        env.DB.prepare(
-          `UPDATE member_trophies SET on_stream = 1
-            WHERE psn_account_id = ?
-              AND earned_at >= ?
-              AND earned_at <= ?
-              AND COALESCE(on_stream, 0) = 0`,
-        ).bind(r.psn_account_id, Number(r.last_stream_start), Number(r.last_stream_end) + 120000),
+      recent.map(({ r, w }) =>
+        env.DB.prepare(MARK_WINDOW_SQL).bind(r.psn_account_id, w.from, w.to),
       ),
     ).catch(() => {});
+  }
+
+  /**
+   * A STREAM ENDING IS THE MOMENT TO GO AND LOOK.
+   *
+   * Martin: *"i think we need an auto update for when some ends stream, this
+   * way it will help people on console or people who aint using the overlay"*.
+   * He is right, and it is the root fix rather than the patch the sweep is: the
+   * sweep exists because trophies arrive late, and scanning on stream end is
+   * how they stop arriving late.
+   *
+   * WHO IT ACTUALLY HELPS. The live poll only ever sees what PSN has published,
+   * so a member whose console does not sync mid-session is invisible to it for
+   * the entire broadcast. Ragowit streamed for ten hours and the poll caught
+   * nothing, because there was nothing published to catch. Those members have
+   * never had a route that did not depend on them remembering to run /update.
+   *
+   * THIRTY MINUTES, NOT A COOLDOWN. Twitch reports a dropped connection as a
+   * stream ending and a new one starting, so a flapping evening would otherwise
+   * be a dozen scans. Martin's rule handles it more cleanly than a timer: each
+   * fragment of a flapping connection is short, so none of them qualifies,
+   * while one real session that drops and comes back for another hour fires
+   * twice -- two scans for one evening, which is affordable.
+   *
+   * IT IS A DISPATCH, NOT A SCAN. All this does is post to the GitHub Actions
+   * API, exactly as /update does; the hundreds of PSN calls happen on a runner
+   * with no subrequest cap. No heavy work enters the Worker.
+   *
+   * The callback is passed in rather than imported, because the Worker's
+   * dispatcher lives in index.mjs and index.mjs imports this file. Same shape
+   * oauth.handleCallback already uses for the same reason.
+   */
+  if (onStreamEnd) {
+    for (const { row, from, to } of finished) {
+      if (!row.discord_id) continue;
+      if (to - from < MIN_STREAM_MS) continue;
+      try {
+        await onStreamEnd(env, String(row.discord_id), null, {
+          reason: 'stream-end',
+          stream_start: from,
+          stream_end: to,
+        });
+      } catch (err) {
+        // A failed dispatch must never take the live check down with it. The
+        // sweep is still there, and they can still run /update themselves.
+        console.error('stream-end scan dispatch failed:', err?.message ?? err);
+      }
+    }
   }
 
   return `twitch: ${live.size} live of ${rows.length} watched`;

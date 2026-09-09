@@ -48,8 +48,16 @@ export default {
    * a convenience; the board does not depend on it.
    */
   async scheduled(event, env, ctx) {
+    /**
+     * `dispatchScan` is handed in rather than imported by the live check,
+     * because it lives here and this file imports that one. Same shape
+     * oauth.handleCallback already uses, for the same circular-import reason.
+     *
+     * It is still not heavy work: a dispatch is one POST to the GitHub Actions
+     * API, exactly as /update does, and the scan itself runs on a runner.
+     */
     ctx.waitUntil(
-      checkLive(env)
+      checkLive(env, { onStreamEnd: dispatchScan })
         .then((summary) => console.log(summary))
         .catch((err) => console.error('twitch check failed:', err?.message ?? err)),
     );

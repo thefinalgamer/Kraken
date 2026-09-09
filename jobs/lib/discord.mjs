@@ -59,6 +59,18 @@ async function rest(path, { method = 'POST', body, useBotToken = true } = {}) {
 }
 
 /**
+ * "3h 20m", "45m". Hours and minutes only: a stream measured in seconds is not
+ * a stream, and one measured in days is a stuck `live_since` rather than a
+ * fact worth printing.
+ */
+function streamLength(ms) {
+  const mins = Math.max(0, Math.round(Number(ms) / 60000));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+/**
  * Publish a finished update.
  *
  * The result ALWAYS goes to #updates, whichever channel the member happened to
@@ -73,8 +85,32 @@ async function rest(path, { method = 'POST', body, useBotToken = true } = {}) {
  * to live.
  */
 export async function postUpdateResult({ member, result, interactionToken }) {
+  /**
+   * A SCAN THAT FOLLOWS A STREAM SAYS SO.
+   *
+   * Martin, on the auto-scan a stream end now fires: *"yes have the card a
+   * streaming one! thats a good idea still send it to the updates thats fine
+   * with me"*. So it is the same channel and the same card underneath -- only
+   * the heading changes, and only when there is something true to say.
+   *
+   * THE CONDITION IS THE COUNT, NOT THE TRIGGER. It reads "finished streaming"
+   * because trophies were earned inside the window, not because a cron fired.
+   * That means a member who runs /update themselves twenty minutes after going
+   * off air gets the streaming heading too, which is correct -- and a stream
+   * where nobody earned anything gets the ordinary one, instead of announcing
+   * a session that produced nothing.
+   */
+  const live = Number(result?.onStream?.count) || 0;
+  const heading = live
+    ? `## ${md(member.psn_online_id)} finished streaming!\n` +
+      `**${live}** ${live === 1 ? 'trophy' : 'trophies'} earned live` +
+      (Number.isFinite(Number(result?.onStream?.durationMs))
+        ? ` over ${streamLength(result.onStream.durationMs)}`
+        : '')
+    : `## ${md(member.psn_online_id)} update finished!`;
+
   const body = message([
-    container([text(`## ${md(member.psn_online_id)} update finished!`)], COLOR.grey),
+    container([text(heading)], live ? COLOR.blurple : COLOR.grey),
     updateCard({
       member,
       updateNo: result.updateNo,

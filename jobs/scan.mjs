@@ -32,6 +32,9 @@ import {
   isUnrated, explainDelta, completionWeight, applyCompletion, scoreGameTrophies,
 } from '../shared/scoring.mjs';
 import { memberCompletion } from './lib/completion.mjs';
+import {
+  MARK_WINDOW_SQL, COUNT_WINDOW_SQL, streamWindow, sweepable,
+} from '../shared/on-stream.mjs';
 import { settleLocalRarity } from './lib/settle.mjs';
 import {
   postUpdateResult,
@@ -223,6 +226,35 @@ async function main() {
     result.durationSeconds = Math.round((Date.now() - started) / 1000);
 
     await finaliseUpdate(updateNo, result, member);
+
+    /**
+     * CLASSIFY WHAT WE JUST WROTE, BEFORE ANYBODY IS TOLD ABOUT IT.
+     *
+     * The scan is what puts rows in `member_trophies`, so it is the earliest
+     * honest moment to say which of them were earned on camera. Leaving it to
+     * the five minute sweep meant the update card went out first and read "0
+     * earned live" about a stream that had just produced fourteen.
+     *
+     * Same window, same SQL, same file as the sweep and the live poll --
+     * shared/on-stream.mjs -- because three copies of a window definition is
+     * three chances to disagree.
+     *
+     * Best effort on purpose. The scan is finished and saved by this point, and
+     * a failure here must cost a badge on a card, never a member's library.
+     */
+    const window = streamWindow(member);
+    if (window && sweepable(window)) {
+      try {
+        await db.run(MARK_WINDOW_SQL, [member.psn_account_id, window.from, window.to]);
+        const row = await db.one(COUNT_WINDOW_SQL, [
+          member.psn_account_id, window.from, window.to,
+        ]);
+        result.onStream = { count: Number(row?.n) || 0, ...window };
+      } catch (err) {
+        console.error('Could not mark the stream window:', err?.message ?? err);
+      }
+    }
+
     const movements = await recomputeRanks();
 
     // Everything past this point is ANNOUNCING the result, not producing it.

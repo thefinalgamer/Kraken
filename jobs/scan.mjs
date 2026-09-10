@@ -39,6 +39,7 @@ import { settleLocalRarity } from './lib/settle.mjs';
 import {
   postUpdateResult,
   postProjects,
+  postGroupCompletions,
   postUpdateFailure,
   postMovements,
   publishLeaderboard,
@@ -289,6 +290,9 @@ async function main() {
     // it costs one query and cannot affect the result either way.
     await announce('the project cards', () =>
       postProjects(db, member, result, { first: isFirstScan }),
+    );
+    await announce('the DLC cards', () =>
+      postGroupCompletions(db, member, result, { first: isFirstScan }),
     );
     if (movements.length) await announce('the rank movements', () => postMovements(movements));
 
@@ -683,6 +687,11 @@ async function scanMember(psn, member, updateNo) {
   // Price the new trophies at what they are worth NOW, after the settle. Until
   // this runs every changelog entry says points_gained: 0.
   await priceTheChangelog(changelog);
+
+  // Which DLC packs, or base games, finished this session. Batched the same way
+  // and for the same reason: a handful of queries after the loop beats one per
+  // game inside it.
+  await findCompletedGroups(accountId, changelog);
 
   const totals = await rollUp(summary, titles, pointsByGame, accountId);
   const pointsEarned = changelog.reduce((n, c) => n + c.points_gained, 0);
@@ -1105,6 +1114,138 @@ async function scanGame(
  * Anything the new trophies do not explain stays in `drift`, which is correct:
  * the rest of the movement really is other people playing.
  */
+/**
+ * Which trophy GROUPS a member finished this session.
+ *
+ * Martin: *"dlcs when someone completed it, say x completed x dlc?"*. The whole
+ * thing was already in the database and unused. Migration 012 put
+ * `trophies.group_id` on every trophy -- "default" for the base game, "001",
+ * "002" per add-on -- and `trophy_groups` holds each pack's real name and icon,
+ * filled by backfill-names. 1,142 of the 1,144 owned games with DLC already
+ * have their pack names. Nothing new has to be fetched or stored.
+ *
+ * IT ALSO CLOSES A GAP NOBODY HAD NAMED. The existing #completed card fires at
+ * 100% of the whole TITLE, so somebody who plats the base game of a title with
+ * expansions they do not own gets total silence. That is a real achievement
+ * going unmarked, and it comes free once groups can be detected at all.
+ *
+ * ONLY ON A GAME WITH MORE THAN ONE GROUP. On a single-group game "finished the
+ * base game" and "finished the game" are the same event, and the 100% card
+ * already says it. Two messages for one thing is worse than either.
+ *
+ * BATCHED, LIKE priceTheChangelog. A query per game inside the scan loop would
+ * be thousands of round trips on a large library; three queries afterwards is
+ * the same answer. And it reads what the scan has already written, so the
+ * "after" state comes from the database rather than being carried through the
+ * whole job in memory.
+ *
+ * NEVER ON A FIRST SIGHTING. A game we have never seen has no "before", so
+ * nothing about it can have been completed THIS session -- announcing a pack
+ * somebody finished three years ago is the same mistake as announcing a stream
+ * that ended yesterday.
+ */
+async function findCompletedGroups(accountId, changelog) {
+  const candidates = changelog.filter((c) => c.kind !== 'new' && c.new_trophy_ids?.length);
+  if (!candidates.length) return;
+
+  const ids = candidates.map((c) => c.np_comm_id);
+  const byGame = new Map(candidates.map((c) => [c.np_comm_id, c]));
+
+  /** np_comm_id -> Map(group_id -> Set(trophy_id)) */
+  const groups = new Map();
+  for (let i = 0; i < ids.length; i += 80) {
+    const slice = ids.slice(i, i + 80);
+    const rows = await db.query(
+      `SELECT np_comm_id, trophy_id, COALESCE(group_id, 'default') AS group_id
+         FROM trophies
+        WHERE np_comm_id IN (${slice.map(() => '?').join(',')})`,
+      slice,
+    );
+    for (const r of rows) {
+      if (!groups.has(r.np_comm_id)) groups.set(r.np_comm_id, new Map());
+      const g = groups.get(r.np_comm_id);
+      if (!g.has(r.group_id)) g.set(r.group_id, new Set());
+      g.get(r.group_id).add(Number(r.trophy_id));
+    }
+  }
+
+  // What they hold NOW, as the scan has just written it.
+  const held = new Map();
+  for (let i = 0; i < ids.length; i += 80) {
+    const slice = ids.slice(i, i + 80);
+    const rows = await db.query(
+      `SELECT np_comm_id, earned_ids FROM member_games
+        WHERE psn_account_id = ? AND np_comm_id IN (${slice.map(() => '?').join(',')})`,
+      [accountId, ...slice],
+    );
+    for (const r of rows) {
+      held.set(r.np_comm_id, new Set((safeJson(r.earned_ids, []) ?? []).map(Number)));
+    }
+  }
+
+  const finished = [];
+  for (const [npCommId, packs] of groups) {
+    // One group means the 100% card already covers it.
+    if (packs.size < 2) continue;
+
+    const entry = byGame.get(npCommId);
+    const after = held.get(npCommId);
+    if (!entry || !after) continue;
+
+    // Before = what they hold now, minus what they earned this session.
+    const gained = new Set(entry.new_trophy_ids.map(Number));
+    const complete = (ids_, without) =>
+      ids_.size > 0 && [...ids_].every((id) => after.has(id) && !(without && gained.has(id)));
+
+    // How many of this game's groups are still unfinished afterwards, so a base
+    // game card can say what is left rather than implying the game is done.
+    const remaining = [...packs.values()].filter((t) => !complete(t, false)).length;
+
+    for (const [groupId, trophyIds] of packs) {
+      if (!complete(trophyIds, false)) continue;   // not finished now
+      if (complete(trophyIds, true)) continue;     // was already finished before
+      finished.push({
+        np_comm_id: npCommId, group_id: groupId, size: trophyIds.size, remaining,
+      });
+    }
+  }
+
+  if (!finished.length) return;
+
+  // The pack names, which is the only part that is not already in hand.
+  const names = new Map();
+  const gameIds = [...new Set(finished.map((f) => f.np_comm_id))];
+  for (let i = 0; i < gameIds.length; i += 80) {
+    const slice = gameIds.slice(i, i + 80);
+    const rows = await db.query(
+      `SELECT np_comm_id, group_id, name, icon_url FROM trophy_groups
+        WHERE np_comm_id IN (${slice.map(() => '?').join(',')})`,
+      slice,
+    );
+    for (const r of rows) names.set(`${r.np_comm_id} ${r.group_id}`, r);
+  }
+
+  for (const f of finished) {
+    const meta = names.get(`${f.np_comm_id} ${f.group_id}`);
+    const entry = byGame.get(f.np_comm_id);
+    (entry.groups_completed ??= []).push({
+      group_id: f.group_id,
+      base: f.group_id === 'default',
+      // "Pack 2" beats nothing at all, and beats a bare "001" by a mile. The
+      // name is nullable on purpose -- see migration 012.
+      name: meta?.name || (f.group_id === 'default' ? 'the base game' : `Pack ${f.group_id}`),
+      icon_url: meta?.icon_url || null,
+      size: f.size,
+      remaining: f.remaining,
+    });
+  }
+
+  const packs = finished.filter((f) => f.group_id !== 'default').length;
+  console.log(
+    `  ${finished.length} group(s) completed this session (${packs} DLC, ${finished.length - packs} base)`,
+  );
+}
+
 async function priceTheChangelog(changelog) {
   const games = changelog.filter((c) => c.new_trophy_ids?.length);
   if (!games.length) return;

@@ -17,6 +17,7 @@ import {
   text,
   boardBlocks,
   projectBlocks,
+  groupBlocks,
   contestedBlocks,
   selectMenu,
   linkButton,
@@ -776,6 +777,35 @@ export const PROJECT_FILTER = {
   new: (c) => c.kind === 'new',
   completed: (c) => c.kind === 'completed' || (c.kind === 'new' && c.progress_to === 100),
 };
+
+/**
+ * DLC packs and base games finished this session. #completed, same channel.
+ *
+ * Same shape as postProjects and the same seatbelts: off entirely when the
+ * channel variable is unset, silent on a first scan, and it reads only what the
+ * scan has already written so a failure here cannot cost anybody a scan.
+ *
+ * A FIRST SCAN SAYS NOTHING. Pelziowo joining would otherwise announce every
+ * expansion he has ever finished, which is the same mistake #new-projects made
+ * before `first` existed.
+ */
+export async function postGroupCompletions(db, member, result, { first = false } = {}) {
+  const channel = env.DISCORD_COMPLETED_CHANNEL_ID;
+  if (first || !channel || !result?.changelog?.length) return;
+
+  const items = [];
+  for (const c of result.changelog) {
+    for (const g of c.groups_completed ?? []) items.push({ ...g, title: c.title });
+  }
+  if (!items.length) return;
+
+  // Base games first: finishing one is the bigger thing, and on a game with
+  // several packs it is what the rest were building towards.
+  items.sort((a, b) => Number(b.base) - Number(a.base) || b.size - a.size);
+
+  const blocks = groupBlocks(member, items);
+  if (blocks) await rest(`/channels/${channel}/messages`, { body: message([blocks]) });
+}
 
 export async function postProjects(db, member, result, { first = false } = {}) {
   if (first || !result?.changelog?.length) return;

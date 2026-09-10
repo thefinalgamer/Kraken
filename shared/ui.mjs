@@ -973,6 +973,74 @@ export function contestedBlocks(rows, { standing = true } = {}) {
  * @param {'new'|'completed'} kind
  * @param {Array}   games - enriched rows, most valuable first
  */
+/**
+ * A DLC pack, or a base game, finished.
+ *
+ * SEPARATE FROM projectBlocks ON PURPOSE. That card is about a whole title and
+ * carries the title's stats: trophy count, what it pays, what is left in it. A
+ * pack is a slice of a title, and every one of those figures would be either
+ * wrong or about the wrong thing. What this says instead is the only thing that
+ * matters: which pack, in which game, and how big it was.
+ *
+ * ITS OWN ICON, NOT THE TICK. A green tick already means "100%'d the whole
+ * game" in this channel and it has meant that for months. Reusing it for a pack
+ * would quietly devalue every tick that came before.
+ */
+export function groupBlocks(member, items) {
+  if (!items?.length) return null;
+
+  const line = (g) =>
+    g.base
+      ? `## 🧩 ${md(member.psn_online_id)} finished the base game of ${md(g.title)}`
+      : `## 🧩 ${md(member.psn_online_id)} finished ${md(g.name)}`;
+
+  /**
+   * THE GAME, THEN THE SIZE. The pack's name is already in the heading directly
+   * above and printing it twice reads like a stutter -- which is exactly what
+   * the first version did: "finished Vessel of Hatred / Diablo IV · Vessel of
+   * Hatred · 8 trophies".
+   */
+  const sub = (g) =>
+    `-# ${md(g.title)} · ${n(g.size)} ${g.size === 1 ? 'trophy' : 'trophies'}` +
+    (g.remaining ? ` · ${n(g.remaining)} more to go` : '');
+
+  if (items.length === 1) {
+    const g = items[0];
+    return container(
+      [section([line(g), sub(g)], thumbnail(g.icon_url || FALLBACK_AVATAR, g.name || g.title))],
+      COLOR.blurple,
+    );
+  }
+
+  /**
+   * Somebody clearing several packs in one session is almost always clearing
+   * them in ONE game, so say which. "finished 3 of them" is a heading that
+   * assumes the reader saw something that is not there.
+   */
+  const titles = [...new Set(items.map((g) => g.title))];
+  const heading =
+    titles.length === 1
+      ? `## 🧩 ${md(member.psn_online_id)} finished ${n(items.length)} parts of ${md(titles[0])}`
+      : `## 🧩 ${md(member.psn_online_id)} finished ${n(items.length)} DLC packs`;
+
+  return container(
+    [
+      text(heading),
+      // The game is in the heading when they all share one, so the rows do not
+      // repeat it. Same stutter the single card had.
+      ...items.map((g) =>
+        text(
+          `**${g.base ? 'Base game' : md(g.name)}**\n` +
+            `-# ${titles.length === 1 ? '' : `${md(g.title)} · `}${n(g.size)} ${
+              g.size === 1 ? 'trophy' : 'trophies'
+            }`,
+        ),
+      ),
+    ],
+    COLOR.blurple,
+  );
+}
+
 export function projectBlocks(member, kind, games) {
   if (!games?.length) return null;
   const started = kind === 'new';

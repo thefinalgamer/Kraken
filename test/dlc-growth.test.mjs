@@ -63,6 +63,46 @@ test('a missing definedTrophies cannot mark the whole library stale', () => {
   assert.match(code, /stored > 0/, 'and a game we have never scanned is handled elsewhere');
 });
 
+test('PSN disagreeing about progress is a reason to rescan on its own', () => {
+  /**
+   * MRTHECHEZ, 10 SEPTEMBER. He owns Diablo IV twice and Kraken showed 83% on
+   * one stack and 72% on the other, with the SAME twenty-six trophies on both.
+   * Same trophies cannot be two percentages.
+   *
+   * Diablo added DLC: the list went from 38 trophies to 46, so his twenty-six
+   * stopped being 83% and became 72%. His earned count never moved, so
+   * `earned_total` still matched what was stored, so nothing ever looked at the
+   * game again and the stale figure sat there for months.
+   *
+   * `getUserTitles` returns `progress` for every game on every scan. It is
+   * Sony's own weighted figure, it was in hand the whole time, and it was only
+   * ever read when some OTHER reason had already triggered a scan of that game.
+   */
+  assert.match(code, /const drifted = was && was\.progress !== \(t\.progress \?\? 0\)/,
+    'stored progress is compared against what PSN says now');
+  assert.match(code, /was\.earned_total !== earnedTotal \|\| was\.scanned_at == null \|\| drifted/,
+    'and a disagreement joins the other reasons to rescan');
+});
+
+test('a grown game skips the refresh budget', () => {
+  /**
+   * `staleOnly` is capped so an update cannot balloon into a full rescan, which
+   * is right for rarity going gently out of date. A game that changed SIZE is
+   * not slightly old, it is wrong now: the member holds trophies nothing has a
+   * definition for, against a denominator that moved. So it goes in with the
+   * changed games, which are never capped.
+   */
+  assert.match(
+    code,
+    /const changedIds = new Set\(\[\s*\.\.\.needsEarnedScan\.map\(\(t\) => t\.npCommunicationId\),\s*\.\.\.grown,\s*\]\)/,
+    'grown games are scanned, not queued',
+  );
+  assert.ok(
+    code.indexOf('const grown') < code.indexOf('const changedIds'),
+    'and grown is computed before anything reads it',
+  );
+});
+
 test('it complements the orphan self-heal rather than duplicating it', () => {
   /**
    * There was already a repair for games with NO definitions at all — it asks

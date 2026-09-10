@@ -437,7 +437,29 @@ async function scanMember(psn, member, updateNo) {
     const was = prior.get(t.npCommunicationId);
     const earnedTotal = sumTrophies(t.earnedTrophies);
     gameRows.push(t);
-    if (!was || was.earned_total !== earnedTotal || was.scanned_at == null) {
+
+    /**
+     * PSN'S PROGRESS DISAGREEING WITH OURS IS A REASON ON ITS OWN.
+     *
+     * MRTheChez had Diablo IV twice and Kraken showed 83% on one stack and 72%
+     * on the other, with the SAME twenty-six trophies on both. Same trophies
+     * cannot be two percentages. Diablo added DLC: the list went from 38
+     * trophies to 46, so twenty-six of them stopped being 83% and became 72%.
+     * His earned count never moved, so `earned_total` still matched, so nothing
+     * ever looked at the game again and the old figure sat there for months.
+     *
+     * The right answer was in hand the whole time. `getUserTitles` returns
+     * `progress` for every game on every scan and it is Sony's own weighted
+     * figure -- authoritative, free, and until now read only when some OTHER
+     * reason had already triggered a scan of that game.
+     *
+     * A member gaining nothing is the ordinary case; a member gaining nothing
+     * while their percentage moves means the game changed underneath them, and
+     * that is exactly when the stored row is wrong.
+     */
+    const drifted = was && was.progress !== (t.progress ?? 0);
+
+    if (!was || was.earned_total !== earnedTotal || was.scanned_at == null || drifted) {
       needsEarnedScan.push(t);
     }
   }
@@ -531,7 +553,23 @@ async function scanMember(psn, member, updateNo) {
   // A game needs that call if the member's earned count moved (their progress
   // changed) or the cached rarity has gone stale (the world moved). Everything
   // else is answered from the database for free.
-  const changedIds = new Set(needsEarnedScan.map((t) => t.npCommunicationId));
+  /**
+   * A GROWN GAME IS SCANNED, NOT QUEUED.
+   *
+   * `staleOnly` below is capped by STALE_REFRESH_BUDGET so an update cannot
+   * balloon into a full rescan, which is right for rarity going gently out of
+   * date. A game that changed SIZE is a different thing: the member is holding
+   * trophies nothing has a definition for and a percentage computed against the
+   * wrong denominator. That is wrong now, not slightly old, so it skips the
+   * queue.
+   *
+   * There are never many. It only ever fires the once per game after Sony ships
+   * a DLC, and only for members who own it.
+   */
+  const changedIds = new Set([
+    ...needsEarnedScan.map((t) => t.npCommunicationId),
+    ...grown,
+  ]);
   const changed = gameRows.filter((t) => changedIds.has(t.npCommunicationId));
 
   // Stale rarity is refreshed on a BUDGET, oldest first.

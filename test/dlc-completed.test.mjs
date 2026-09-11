@@ -89,6 +89,36 @@ test('packs spanning two games say which is which', () => {
   assert.match(out, /Minecraft/);
 });
 
+test('base games across two titles are called base games, not DLC packs', () => {
+  /**
+   * Shamansoull, 10 September: "finished 2 DLC packs" over two rows that each
+   * said "Base game". JFL_Leon: *"2 base games but says its dlc packs"*. The
+   * rows were right; the heading counted everything as a pack.
+   */
+  const out = JSON.stringify(groupBlocks(ME, [
+    { base: true, name: 'the base game', title: "Assassin's Creed IV Black Flag", size: 51 },
+    { base: true, name: 'the base game', title: 'Enter The Gungeon', size: 49 },
+  ]));
+  assert.match(out, /finished 2 base games/);
+  assert.doesNotMatch(out, /DLC/, 'there is no DLC on this card');
+  assert.match(out, /Black Flag\*\*\\n-# Base game · 51 trophies/, 'the game leads the row');
+});
+
+test('a mix of base games and packs names both', () => {
+  const one = JSON.stringify(groupBlocks(ME, [
+    { base: true, name: 'the base game', title: 'Returnal', size: 30 },
+    { base: false, name: 'Vessel of Hatred', title: 'Diablo IV', size: 8 },
+  ]));
+  assert.match(one, /finished 1 base game and 1 DLC pack\b/);
+
+  const many = JSON.stringify(groupBlocks(ME, [
+    { base: true, name: 'the base game', title: 'Returnal', size: 30 },
+    { base: false, name: 'Vessel of Hatred', title: 'Diablo IV', size: 8 },
+    { base: false, name: 'Nether Update', title: 'Minecraft', size: 12 },
+  ]));
+  assert.match(many, /finished 1 base game and 2 DLC packs/);
+});
+
 test('the sub-line never repeats the pack name above it', () => {
   /**
    * The first version read: "finished Vessel of Hatred / Diablo IV · Vessel of

@@ -220,3 +220,15 @@ test('the settings page tells a broadcaster how to link, and nothing else', asyn
   assert.match(js, /This channel is linked/, 'and confirms when it is');
   assert.match(js, /\/twitch/, 'naming the command that does it');
 });
+
+test('the milestone names its game, or it reads as the game above it', async () => {
+  /**
+   * "1 trophy from their 313th platinum" sat directly under Sea of Thieves at
+   * 281/294 and read as one more SoT trophy and the plat. The milestone is the
+   * nearest platinum anywhere in the library, so the game has to be on it.
+   */
+  const js = await read('panel.js');
+  const block = js.slice(js.indexOf('if (d.milestone)'), js.indexOf('if (live)'));
+  assert.match(block, /d\.milestone\.title/, 'the game title is rendered');
+  assert.doesNotMatch(block, /'from their '/, 'the old sentence is gone');
+});

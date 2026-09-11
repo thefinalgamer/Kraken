@@ -219,13 +219,22 @@
      * API refuses to send one otherwise. A panel that always has something to
      * say is a panel nobody reads.
      */
+    /*
+     * IT NAMES THE GAME. The milestone is the nearest platinum ANYWHERE in their
+     * library, which is usually not the game on screen - but it sits directly
+     * under the NOW card, so "1 trophy from their 313th platinum" read as one
+     * more Sea of Thieves trophy and the plat. Martin, 11 September: it
+     * "sounding like leon needs one more in sot". The game is the missing half
+     * of the sentence, and the API had been sending its title all along.
+     */
     if (d.milestone) {
       var m = el('div', 'miles');
       m.appendChild(svgCup());
-      var mt = el('span');
-      mt.appendChild(el('span', 'n', n(d.milestone.need) + (d.milestone.need === 1 ? ' trophy' : ' trophies')));
+      var mt = el('span', 'mb');
+      mt.appendChild(el('span', 'n', n(d.milestone.need) + (d.milestone.need === 1 ? ' trophy' : ' trophies') + ' to go'));
+      if (d.milestone.title) mt.appendChild(el('span', 'g', d.milestone.title));
       var line = el('span', 't');
-      line.appendChild(document.createTextNode('from their '));
+      line.appendChild(document.createTextNode('for their '));
       line.appendChild(el('b', null, n(d.milestone.at) + ordinal(d.milestone.at) + ' platinum'));
       mt.appendChild(line);
       m.appendChild(mt);

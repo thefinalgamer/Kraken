@@ -1018,24 +1018,44 @@ export function groupBlocks(member, items) {
    * assumes the reader saw something that is not there.
    */
   const titles = [...new Set(items.map((g) => g.title))];
+
+  /**
+   * COUNT WHAT IS ACTUALLY THERE. The heading used to call everything across
+   * several games "DLC packs", so Shamansoull finishing the base games of Black
+   * Flag and Enter the Gungeon was announced as "finished 2 DLC packs" over two
+   * rows that each said "Base game". JFL_Leon: *"2 base games but says its dlc
+   * packs"*. The rows were right and the heading contradicted them, so the
+   * heading now counts the two kinds separately and names only what is there.
+   */
+  const bases = items.filter((g) => g.base).length;
+  const packs = items.length - bases;
+  const plural = (k, one, many) => `${n(k)} ${k === 1 ? one : many}`;
+  const what = [
+    bases ? plural(bases, 'base game', 'base games') : '',
+    packs ? plural(packs, 'DLC pack', 'DLC packs') : '',
+  ].filter(Boolean).join(' and ');
+
   const heading =
     titles.length === 1
       ? `## 🧩 ${md(member.psn_online_id)} finished ${n(items.length)} parts of ${md(titles[0])}`
-      : `## 🧩 ${md(member.psn_online_id)} finished ${n(items.length)} DLC packs`;
+      : `## 🧩 ${md(member.psn_online_id)} finished ${what}`;
 
   return container(
     [
       text(heading),
       // The game is in the heading when they all share one, so the rows do not
       // repeat it. Same stutter the single card had.
-      ...items.map((g) =>
-        text(
-          `**${g.base ? 'Base game' : md(g.name)}**\n` +
-            `-# ${titles.length === 1 ? '' : `${md(g.title)} · `}${n(g.size)} ${
-              g.size === 1 ? 'trophy' : 'trophies'
-            }`,
-        ),
-      ),
+      // Across several games, a base game row leads with the GAME, because
+      // "Base game" in bold is the least informative thing on the line.
+      ...items.map((g) => {
+        const size = `${n(g.size)} ${g.size === 1 ? 'trophy' : 'trophies'}`;
+        if (titles.length === 1) {
+          return text(`**${g.base ? 'Base game' : md(g.name)}**\n-# ${size}`);
+        }
+        return g.base
+          ? text(`**${md(g.title)}**\n-# Base game · ${size}`)
+          : text(`**${md(g.name)}**\n-# ${md(g.title)} · ${size}`);
+      }),
     ],
     COLOR.blurple,
   );

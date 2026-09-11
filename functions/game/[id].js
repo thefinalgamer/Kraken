@@ -181,7 +181,7 @@ const OWNERS = `
  * they earned, this reads it back.
  */
 const VIEWER = `
-  SELECT m.psn_online_id, m.avatar_url, mg.earned_ids, mg.progress, mg.points
+  SELECT m.psn_online_id, m.avatar_url, m.completion, mg.earned_ids, mg.progress, mg.points
     FROM member_games mg
     JOIN members m ON m.psn_account_id = mg.psn_account_id
    WHERE m.psn_online_id = ? COLLATE NOCASE
@@ -300,7 +300,7 @@ function clockBlock(g, trophies = []) {
  * a game you have not played, which is the entire risk. Somebody determined to
  * read it through the blur has, by definition, decided to.
  */
-function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null }) {
+function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null, completion = null }) {
   const b = band(t.earned_rate);
   const metal = METALS[String(t.type)] || 'b';
   const secret = Number(t.hidden) === 1;
@@ -436,7 +436,23 @@ function trophyCard(t, { localTotal, earned, live, theirs = null, whose = null }
               ? '<span class="lcap">one of us</span>'
               : ''
         }</span>
-        <span class="tpts">${n(t.points)}</span>
+        ${
+          /**
+           * ON A HUNTER'S PAGE, WHAT IT IS WORTH TO THEM. The trophy pop on
+           * their stream has always printed the trophy times their completion
+           * -- 587 at Leon's 87% pops as +510 -- while this list printed the
+           * bare 587 under his name. Two surfaces, one trophy, one person, two
+           * numbers, and Martin checked one against the other and rightly
+           * called it wrong. The bare catalogue still shows the full value,
+           * because it is not about anybody; the full value stays in the
+           * tooltip here so nothing is hidden.
+           */
+          hasCompletion(completion)
+            ? `<span class="tpts" title="${esc(
+                `${n(t.points)} full value \u00d7 ${pct(completion)} completion`,
+              )}">${n(displayBanked(t.points, completion))}</span>`
+            : `<span class="tpts">${n(t.points)}</span>`
+        }
       </span>
     </span>
   </li>`;
@@ -723,6 +739,8 @@ export async function onRequestGet({ params, env, request }) {
           live,
           theirs: comparing ? theirs : null,
           whose: viewer?.psn_online_id ?? null,
+          // Not when comparing: two people, two completions, one column.
+          completion: comparing ? null : viewer?.completion ?? null,
         }),
       )
       .join('')}</ol>`;

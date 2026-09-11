@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bodyOf } from './helpers.mjs';
+import { displayBanked } from '../shared/scoring.mjs';
+import { n } from '../functions/_lib/page.js';
 import { readFile } from 'node:fs/promises';
 
 /**
@@ -339,6 +341,24 @@ test('?as= lights up that hunter\'s trophies and nobody else\'s', async () => {
     !/class="tc m-p got"/.test(out),
     'the platinum is NOT lit — they have not earned it',
   );
+});
+
+test('on a hunter\'s page a trophy shows what it is worth to THEM, same as their pop', async () => {
+  /**
+   * Leon's Sea of Thieves trophies are worth 587 each; at 87.8% completion his
+   * stream pop says +510. This list said 587 under his name, so the pop and
+   * his own page disagreed about the same trophy and Martin called it wrong.
+   * Both now go through displayBanked, so they cannot drift.
+   */
+  const { out } = await render({ viewer: { ...VIEWER, completion: 87.8 } }, '?as=JFL__Leon');
+  const pts = [...bodyOf(out).matchAll(/class="tpts"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  assert.ok(pts.includes(n(displayBanked(900, 87.8))), 'the 900 trophy shows 783');
+  assert.ok(!pts.includes('900'), 'and not its full value');
+  assert.match(out, /900 full value × 87.80% completion/, 'the full value is in the tooltip');
+
+  const bare = await render({});
+  const plain = [...bodyOf(bare.out).matchAll(/class="tpts"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  assert.ok(plain.includes('900'), 'the bare catalogue still shows the full value');
 });
 
 test('no ?as= means nothing is dimmed', async () => {

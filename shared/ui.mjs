@@ -835,11 +835,16 @@ export function digestBlocks(d) {
     add(
       'Biggest climber',
       `**${md(d.climber.onlineId)}** - ${movement(d.climber)}` +
-        (d.climber.points ? `, ${signed(d.climber.points)}` : ''),
+        (d.climber.points ? `, ${signed(d.climber.points)}` : '') +
+        (d.climber.topEarner ? ', the most anyone earned' : ''),
     );
   }
   if (d.faller) {
     add('Biggest fall', `**${md(d.faller.onlineId)}** - ${movement(d.faller)}`);
+  }
+  // After the pair, not between them: a climb and a fall are one event.
+  if (d.earner) {
+    add('Biggest earner', `**${md(d.earner.onlineId)}** - ${signed(d.earner.points)} points`);
   }
   if (d.rarestPlat) {
     add(

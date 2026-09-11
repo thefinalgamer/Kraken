@@ -34,6 +34,7 @@ import {
 import { memberCompletion } from './lib/completion.mjs';
 import {
   MARK_WINDOW_SQL, COUNT_WINDOW_SQL, streamWindow, sweepable,
+  streamWindows, MEMBER_WINDOWS_SQL, SWEEP_WINDOW_MS,
 } from '../shared/on-stream.mjs';
 import { settleLocalRarity } from './lib/settle.mjs';
 import {
@@ -243,7 +244,23 @@ async function main() {
      * Best effort on purpose. The scan is finished and saved by this point, and
      * a failure here must cost a badge on a card, never a member's library.
      */
+    /**
+     * EVERY STREAM SINCE THEY LAST LOOKED, not just the newest. Migration 031.
+     * The card still describes the newest one -- that is the stream people
+     * want to hear about -- but the marking covers every stored window, so a
+     * Monday stream updated on Wednesday counts. The stored rows are best
+     * effort: no table means the pair of columns, which is the old behaviour.
+     */
     const window = streamWindow(member);
+    const stored = await db
+      .query(MEMBER_WINDOWS_SQL, [member.psn_account_id, Date.now() - SWEEP_WINDOW_MS])
+      .catch(() => []);
+    for (const w of streamWindows(member, stored)) {
+      if (window && w.from === window.from) continue; // marked below, with its count
+      await db
+        .run(MARK_WINDOW_SQL, [member.psn_account_id, w.from, w.to])
+        .catch((err) => console.error('Could not mark an older stream:', err?.message ?? err));
+    }
     if (window && sweepable(window)) {
       try {
         await db.run(MARK_WINDOW_SQL, [member.psn_account_id, window.from, window.to]);

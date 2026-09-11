@@ -316,3 +316,45 @@ test('the card says "finished streaming" only when trophies were earned live', a
   assert.match(stale, /update finished/, 'the ordinary card');
   assert.ok(!/streaming/.test(stale), 'yesterday is not announced as if it just happened');
 });
+
+/* ---- migration 031: every stream ---- */
+
+test('streamWindows returns every stored stream, oldest first, without doubling the newest', async () => {
+  const { streamWindows } = await import('../shared/on-stream.mjs');
+  const now = Date.now();
+  const member = { last_stream_start: now - 26 * H, last_stream_end: now - 22 * H };
+  const stored = [
+    { started_at: now - 26 * H, ended_at: now - 22 * H }, // the same stream as the pair
+    { started_at: now - 50 * H, ended_at: now - 46 * H }, // Monday
+    { started_at: now - 100 * H, ended_at: now - 96 * H }, // too old to sweep
+    { started_at: 0, ended_at: 0 },                         // junk
+  ];
+  const ws = streamWindows(member, stored, { now });
+  assert.deepEqual(ws.map((w) => w.from), [now - 50 * H, now - 26 * H]);
+  assert.ok(ws.every((w) => w.live === false));
+  assert.equal(ws[0].to, now - 46 * H + END_SLACK_MS, 'stored windows get the same end slack');
+});
+
+test('with no stored rows it is exactly the old single window', async () => {
+  const { streamWindows } = await import('../shared/on-stream.mjs');
+  const m = stream(4 * H, 1 * H);
+  assert.deepEqual(streamWindows(m, []), [streamWindow(m)]);
+  assert.deepEqual(streamWindows({}, undefined), []);
+});
+
+test('migration 031 is safe to run twice', () => {
+  const sql = readFileSync(
+    fileURLToPath(new URL('../migrations/031-stream-windows.sql', import.meta.url)), 'utf8',
+  ).replace(/--[^\n]*/g, '');
+  const statements = sql.split(';').map((s) => s.trim()).filter(Boolean);
+  assert.equal(statements.length, 3);
+  for (const s of statements) {
+    assert.match(s, /IF NOT EXISTS|OR IGNORE/, `not idempotent:\n${s}`);
+  }
+});
+
+test('the scan marks every stored stream, through the shared SQL', () => {
+  const src = readFileSync(fileURLToPath(new URL('../jobs/scan.mjs', import.meta.url)), 'utf8');
+  assert.match(src, /MEMBER_WINDOWS_SQL/);
+  assert.match(src, /streamWindows\(member, stored\)/);
+});

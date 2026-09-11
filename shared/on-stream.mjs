@@ -143,3 +143,60 @@ export function streamWindow(member, { minMs = 0, now = Date.now() } = {}) {
 /** Is that window recent enough to still be worth sweeping? */
 export const sweepable = (window, now = Date.now()) =>
   !!window && window.to > now - SWEEP_WINDOW_MS;
+
+/**
+ * EVERY STREAM, NOT JUST THE LAST ONE. Migration 031.
+ *
+ * `last_stream_start` / `last_stream_end` is one pair of columns, so it only
+ * ever remembered the most recent stream. Somebody who streamed Monday and
+ * Tuesday and updated on Wednesday got Tuesday marked and lost Monday for good:
+ * PSN cannot be asked what was on screen, so a window we forgot is a window
+ * nobody can ever reconstruct.
+ *
+ * `stream_windows` keeps one row per finished stream. The pair of columns stays
+ * -- it is still the newest stream, the API still reads it, and it is the
+ * fallback on a database that has not run 031 -- but marking now walks every
+ * window still inside SWEEP_WINDOW_MS.
+ */
+export const RECORD_WINDOW_SQL = `
+  INSERT OR IGNORE INTO stream_windows (psn_account_id, started_at, ended_at)
+  VALUES (?, ?, ?)`;
+
+/** Every member's finished streams that are still worth sweeping. */
+export const RECENT_WINDOWS_SQL = `
+  SELECT psn_account_id, started_at, ended_at
+    FROM stream_windows
+   WHERE ended_at > ?`;
+
+/** One member's, for the scan. */
+export const MEMBER_WINDOWS_SQL = `
+  SELECT started_at, ended_at
+    FROM stream_windows
+   WHERE psn_account_id = ?
+     AND ended_at > ?`;
+
+/**
+ * Every window to mark for one member: the live one or the newest pair (both
+ * from streamWindow, so the rules above still hold), plus every stored stream.
+ *
+ * Deduplicated on the start, because the newest stored row and the pair of
+ * columns are written at the same moment and describe the same stream. Oldest
+ * first, and only what is still sweepable -- the same three day limit as ever,
+ * now applied per stream.
+ */
+export function streamWindows(member, stored = [], { now = Date.now() } = {}) {
+  const byStart = new Map();
+  const add = (w) => {
+    if (w && sweepable(w, now) && !byStart.has(w.from)) byStart.set(w.from, w);
+  };
+
+  add(streamWindow(member, { now }));
+  for (const s of stored ?? []) {
+    const from = Number(s?.started_at) || 0;
+    const to = Number(s?.ended_at) || 0;
+    if (from <= 0 || to <= from) continue;
+    add({ from, to: to + END_SLACK_MS, durationMs: to - from, live: false });
+  }
+
+  return [...byStart.values()].sort((a, b) => a.from - b.from);
+}

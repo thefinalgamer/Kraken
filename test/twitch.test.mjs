@@ -30,6 +30,7 @@ function harness({
   tokenRow = null,
   tokenStatus = 200,
   streamStatus = 200,
+  windows = [],
 } = {}) {
   const writes = [];
   const calls = [];
@@ -47,7 +48,10 @@ function harness({
             if (sql.includes('worker_state')) return tokenRow;
             return null;
           },
-          async all() { return { results: members }; },
+          async all() {
+            if (sql.includes('FROM stream_windows')) return { results: windows };
+            return { results: members };
+          },
           async run() { writes.push({ sql, args: stmt.args }); return { success: true }; },
         };
         return stmt;
@@ -786,4 +790,59 @@ test('the id write sits outside the batch, like the pin clear', () => {
   const after = src.slice(src.indexOf('await env.DB.batch(writes)'));
   assert.match(after, /twitch_id = \? WHERE psn_account_id/, 'written after the batch');
   assert.match(after.slice(after.indexOf('twitch_id')), /catch\(\(\) => \{\}\)/, 'and guarded');
+});
+
+
+/* ---- every stream, not just the last one (migration 031) ---- */
+
+test('a Monday stream still counts when they stream again Tuesday and update Wednesday', async () => {
+  /**
+   * The pair of columns only remembers the newest stream, so Monday used to be
+   * lost for good. stream_windows keeps both, and the sweep marks both.
+   */
+  const now = Date.now();
+  const H = 3600000;
+  const monday = { psn_account_id: 'a9', started_at: now - 50 * H, ended_at: now - 46 * H };
+  const tuesday = { psn_account_id: 'a9', started_at: now - 26 * H, ended_at: now - 22 * H };
+  const { env, writes } = harness({
+    members: [streamed(now, {
+      last_stream_start: tuesday.started_at, last_stream_end: tuesday.ended_at,
+    })],
+    windows: [monday, tuesday],
+  });
+  await checkLive(env);
+
+  const sweeps = writes.filter((w) => /UPDATE member_trophies\s+SET on_stream/.test(w.sql));
+  assert.deepEqual(
+    sweeps.map((w) => w.args[1]).sort(),
+    [monday.started_at, tuesday.started_at].sort(),
+    'both streams are swept, and Tuesday only once although it is stored twice',
+  );
+});
+
+test('a stored stream older than three days is left alone, same limit as ever', async () => {
+  const now = Date.now();
+  const H = 3600000;
+  const old = { psn_account_id: 'a9', started_at: now - 100 * H, ended_at: now - 96 * H };
+  const { env, writes } = harness({ members: [streamed(now)], windows: [old] });
+  await checkLive(env);
+  const sweeps = writes.filter((w) => /UPDATE member_trophies\s+SET on_stream/.test(w.sql));
+  assert.ok(!sweeps.some((w) => w.args[1] === old.started_at));
+});
+
+test('a stream ending records its own row, outside the batch', async () => {
+  const now = Date.now();
+  const { env, writes } = harness({
+    members: [{ ...streamed(now), live_since: now - 2 * 3600000, live_checked_at: now - 60000 }],
+    streams: [],
+  });
+  await checkLive(env);
+  const row = writes.find((w) => w.sql.includes('INSERT OR IGNORE INTO stream_windows'));
+  assert.ok(row, 'the finished stream is stored');
+  assert.equal(row.args[0], 'a9');
+  assert.equal(row.args[1], now - 2 * 3600000, 'from when they went live');
+
+  const src = readFileSync(new URL('../worker/src/twitch.mjs', import.meta.url), 'utf8');
+  const after = src.slice(src.indexOf('await env.DB.batch(writes)'));
+  assert.match(after, /RECORD_WINDOW_SQL/, 'written after the batch, so a missing table costs one row');
 });

@@ -166,3 +166,53 @@ test('the biggest mover wins, not the first one found', async () => {
   // real fall. What matters is that a fall was found at all.
   assert.match(card, /Biggest fall/);
 });
+
+/* ---- the biggest earner ---- */
+
+test('the biggest earner is named when the board barely moved', async () => {
+  const was = [
+    ['1', { rank: 1, points: 900 }],
+    ['2', { rank: 2, points: 800 }],
+    ['3', { rank: 3, points: 700 }],
+  ];
+  // Nobody changed places, but Bee had a big week.
+  const board = [member('1', 'Ant', 1, 950), member('2', 'Bee', 2, 880), member('3', 'Cat', 3, 710)];
+  const card = cardOf(await run(board, was));
+  assert.match(card, /Biggest earner\*\* \*\*Bee\*\* - \+80 points/);
+  assert.ok(!card.includes('Biggest climber'));
+});
+
+test('a newcomer\'s first scan is not "earnings"', async () => {
+  /**
+   * A first scan books a whole library at once. Measured against last week's
+   * snapshot, somebody who was not here last week has nothing to measure.
+   */
+  const was = [['1', { rank: 1, points: 900 }], ['2', { rank: 2, points: 800 }]];
+  const board = [
+    member('9', 'Newbie', 1, 40000),
+    member('1', 'Ant', 2, 910),
+    member('2', 'Bee', 3, 830),
+  ];
+  const card = cardOf(await run(board, was));
+  assert.ok(!card.includes('Newbie'), 'the newcomer is not the biggest earner');
+  assert.match(card, /Biggest earner\*\* \*\*Bee\*\* - \+30 points/);
+});
+
+test('the climber who also earned most is one line, with one number', async () => {
+  const was = [
+    ['1', { rank: 1, points: 900 }],
+    ['2', { rank: 2, points: 800 }],
+    ['3', { rank: 3, points: 700 }],
+  ];
+  const board = [member('1', 'Ant', 1, 910), member('3', 'Cat', 2, 890), member('2', 'Bee', 3, 805)];
+  const card = cardOf(await run(board, was));
+  assert.match(card, /Biggest climber\*\* \*\*Cat\*\*[^"]*\+190, the most anyone earned/);
+  assert.ok(!card.includes('Biggest earner'), 'not repeated on a second line');
+});
+
+test('a week where everybody lost points names no earner', async () => {
+  const was = [['1', { rank: 1, points: 900 }], ['2', { rank: 2, points: 800 }]];
+  const board = [member('1', 'Ant', 1, 890), member('2', 'Bee', 2, 790)];
+  const card = cardOf(await run(board, was));
+  assert.ok(!card.includes('Biggest earner'));
+});

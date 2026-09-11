@@ -143,6 +143,32 @@ export async function buildWeeklyDigest(db, { now = Date.now() } = {}) {
     }
   }
 
+  /**
+   * THE BIGGEST EARNER. Rank movement says who overtook whom, and on a board
+   * whose top ten barely moves that is often nobody. Points gained says who
+   * actually had the week.
+   *
+   * MEASURED THE SAME WAY AS THE CLIMBER'S FIGURE: points now against last
+   * week's snapshot, over the same shared field. Summing `updates.d_points`
+   * instead looked cheaper and would have been wrong twice over -- a newcomer's
+   * first scan books their whole library as one week's "earnings" and would win
+   * every week somebody joined, and it would disagree with the "+N" already
+   * printed beside the climber, which is the snapshot figure. Two numbers for
+   * one person on one card is the bug this project keeps having to fix.
+   */
+  let earner = null;
+  for (const m of shared) {
+    const gained = (Number(m.points) || 0) - (Number(was.get(m.discord_id).points) || 0);
+    if (gained > 0 && (!earner || gained > earner.points)) {
+      earner = { onlineId: m.psn_online_id, points: gained, discordId: m.discord_id };
+    }
+  }
+  // Somebody who climbed furthest AND earned most is one story, not two lines.
+  if (earner && climber && earner.onlineId === climber.onlineId) {
+    climber.topEarner = true;
+    earner = null;
+  }
+
   // Leave next week's baseline behind. Written even on a silent week, because a
   // gap in the snapshots is what turns one quiet Monday into a fortnight of
   // wrong movement figures.
@@ -152,13 +178,14 @@ export async function buildWeeklyDigest(db, { now = Date.now() } = {}) {
   );
 
   const nothingHappened =
-    !climber && !faller && !completions.length && !(totals?.points > 0) && !(joined?.c > 0);
+    !climber && !faller && !earner && !completions.length && !(totals?.points > 0) && !(joined?.c > 0);
   if (nothingHappened) return null;
 
   return digestBlocks({
     range: `${fmt(since)} – ${fmt(now)}`,
     climber,
     faller,
+    earner: earner ? { onlineId: earner.onlineId, points: earner.points } : null,
     rarestPlat: rarest
       ? { title: rarest.title, rate: rarest.plat_rate, onlineId: rarest.psn_online_id }
       : null,

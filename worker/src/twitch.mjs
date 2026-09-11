@@ -20,6 +20,7 @@
 
 import {
   MARK_WINDOW_SQL, MIN_STREAM_MS, SWEEP_WINDOW_MS, streamWindow, sweepable,
+  streamWindows, RECORD_WINDOW_SQL, RECENT_WINDOWS_SQL,
 } from '../../shared/on-stream.mjs';
 
 const TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
@@ -354,6 +355,21 @@ export async function checkLive(env, { onStreamEnd = null } = {}) {
       .catch(() => {});
   }
 
+  /**
+   * EVERY FINISHED STREAM GETS ITS OWN ROW. Migration 031.
+   *
+   * The pair of columns above only remembers the newest stream, which is what
+   * cost somebody streaming Monday and Tuesday their Monday. Outside the batch
+   * for the usual reason: a database that has not run 031 loses one row here,
+   * never the live check.
+   */
+  for (const f of finished) {
+    await env.DB.prepare(RECORD_WINDOW_SQL)
+      .bind(f.row.psn_account_id, f.from, f.to)
+      .run()
+      .catch(() => {});
+  }
+
   if (ended.length) {
     await env.DB.prepare(
       'UPDATE members SET live_pin = NULL, live_pin_at = NULL WHERE psn_account_id IN (' +
@@ -394,21 +410,32 @@ export async function checkLive(env, { onStreamEnd = null } = {}) {
    * case more rows arrive. Three days covers "streamed at the weekend, updated
    * on Monday" without pretending a week-old session is still settling.
    *
-   * STILL ONLY THE LAST STREAM. `last_stream_start`/`last_stream_end` is one
-   * pair of columns, so somebody who streams Monday and Tuesday and updates on
-   * Wednesday gets Tuesday and loses Monday. Fixing that needs a table of
-   * windows, which is a migration and is parked.
+   * EVERY STREAM, NOT JUST THE LAST ONE. It used to read only the pair of
+   * columns, so somebody who streamed Monday and Tuesday and updated on
+   * Wednesday got Tuesday and lost Monday. Now it walks `stream_windows`
+   * (migration 031) as well -- one query for the whole board, then a mark per
+   * window. If the table is missing it falls back to the pair, which is
+   * exactly the old behaviour.
    *
    * Only rows that are not already flagged, only members who have actually
    * updated since the stream began -- if they have not, there are provably no
    * new rows to find and the statement is pure waste -- and it runs at most
    * once every five minutes for the whole board.
    */
+  const { results: storedRows = [] } = await env.DB.prepare(RECENT_WINDOWS_SQL)
+    .bind(now - SWEEP_WINDOW_MS)
+    .all()
+    .catch(() => ({ results: [] }));
+  const stored = new Map();
+  for (const s of storedRows) {
+    if (!stored.has(s.psn_account_id)) stored.set(s.psn_account_id, []);
+    stored.get(s.psn_account_id).push(s);
+  }
+
   const recent = rows
-    .map((r) => ({ r, w: streamWindow(r) }))
+    .flatMap((r) => streamWindows(r, stored.get(r.psn_account_id), { now }).map((w) => ({ r, w })))
     .filter(
       ({ r, w }) =>
-        sweepable(w, now) &&
         // Nothing new can have arrived if they have not scanned since the
         // stream began, so the statement would be pure waste. This is what
         // stops a three day window becoming an UPDATE per streamer every five

@@ -540,3 +540,32 @@ test('a pin PSN cannot see still goes when a trophy lands somewhere else', async
   assert.equal(playOf(writes).id, 'NPWR_A', 'and the bar lands on what they are really playing');
   assert.equal(playOf(writes).counts, true, 'with real counts again');
 });
+
+test('a trophy earned this session is priced with them counted, like the pop', async () => {
+  /**
+   * The local multiplier counts how many of US hold a trophy, and only a scan
+   * recounts it, so between the pop and their update the stored price is the
+   * one from before they had it. Leon's Sailor of the Merchant Alliance sat at
+   * 695 and settled at 587. Summed as stored, the bar climbs 695 and then drops
+   * 108 when /update lands.
+   */
+  const { withEarnerCounted } = await import('../shared/scoring.mjs');
+  const { env, writes } = harness({
+    member: { ...LIVE_MEMBER, last_update_at: NOW - 3 * 3600000 },
+    priced: [
+      { trophy_id: 11, points: 695, local_earned: 2, local_started: 15 }, // earned 30s ago
+      { trophy_id: 12, points: 23, local_earned: 9, local_started: 15 },  // earned 5h ago
+      { trophy_id: 13, points: 99, local_earned: 1, local_started: 15 },  // not earned
+    ],
+  });
+  await pollMember(env, { ...LIVE_MEMBER, last_update_at: NOW - 3 * 3600000 });
+
+  const plays = writes.filter((w) => w.sql.includes('live_play'));
+  const last = JSON.parse(plays[plays.length - 1].args[0]);
+  assert.equal(
+    last.points,
+    withEarnerCounted(695, 2, 15) + 23,
+    'the new one is corrected, the old one is left as the settle priced it',
+  );
+  assert.ok(last.points < 695 + 23, 'and it is lower than the uncorrected sum');
+});

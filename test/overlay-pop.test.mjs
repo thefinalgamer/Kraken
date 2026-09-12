@@ -282,3 +282,52 @@ test('an unpriced trophy shows neither rather than guessing', async () => {
   assert.ok(!out.includes('have it'), 'nothing invented from a null');
   assert.ok(!out.includes('+0'), 'and still no nought');
 });
+
+/* ---- the pop and the website must agree (11 September) ---- */
+
+const SAILOR = {
+  np_comm_id: 'NPWR_SOT', trophy_id: 4, earned_at: NOW - 2 * MIN,
+  name: 'Sailor of the Merchant Alliance', type: 'gold',
+  earned_rate: 0.1, game: 'Sea of Thieves',
+  points: 695,          // priced when 2 of the 15 owners had it
+  local_earned: 2, local_started: 15,
+};
+
+test('the pop prices the trophy with the person who just earned it counted', async () => {
+  /**
+   * LEON'S CLIP. The pop said +604, the website said 587 and his own page said
+   * 510, and all three were the same sum at different moments: the local
+   * multiplier counts how many of US have a trophy, and the poll writes the row
+   * before anything has counted him. 695 x 87% = 604 was the price from when he
+   * did not have it; once counted it is 587, and 587 x 87% = 510.
+   */
+  const { out } = await render({
+    member: { ...MEMBER, completion: 87.8, last_update_at: NOW - 3 * 60 * MIN },
+    trophy: SAILOR,
+  });
+  const body = bodyOf(out);
+  assert.match(body, /\+510/, 'the figure his own page will show');
+  assert.ok(!body.includes('604'), 'not the price from before he had it');
+  assert.ok(!body.includes('587'), 'and not the unmultiplied one either');
+});
+
+test('once their scan has counted it, the stored price is used as it stands', async () => {
+  /**
+   * A scan is the only thing that runs the settle, so a member who has updated
+   * since the trophy landed already has the settled figure in the column.
+   * Correcting it again would take the same 15% off twice.
+   */
+  const { out } = await render({
+    member: { ...MEMBER, completion: 87.8, last_update_at: NOW - MIN },
+    trophy: { ...SAILOR, points: 587, local_earned: 3 },
+  });
+  assert.match(bodyOf(out), /\+510/);
+});
+
+test('a database with no local counts is left exactly as it was', async () => {
+  const { out } = await render({
+    member: { ...MEMBER, completion: 87.8 },
+    trophy: { ...SAILOR, local_earned: null, local_started: null },
+  });
+  assert.match(bodyOf(out), new RegExp(`\\+${displayBanked(695, 87.8)}`));
+});

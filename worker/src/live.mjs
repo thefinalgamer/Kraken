@@ -28,6 +28,7 @@
 
 import { isLive } from './twitch.mjs';
 import { accessToken, recentTitles, earnedForTitle } from './psn.mjs';
+import { withEarnerCounted } from '../../shared/scoring.mjs';
 
 /** How often one member can be looked at. */
 export const POLL_EVERY_MS = 10000;
@@ -328,17 +329,47 @@ export async function pollMember(env, member) {
      */
     if (moved.npCommunicationId === play.id) {
       const { results: priced = [] } = await env.DB.prepare(
-        'SELECT trophy_id, points FROM trophies WHERE np_comm_id = ?',
+        `SELECT t.trophy_id, t.points, t.local_earned, g.local_started
+           FROM trophies t
+           LEFT JOIN games g ON g.np_comm_id = t.np_comm_id
+          WHERE t.np_comm_id = ?`,
       )
         .bind(moved.npCommunicationId)
         .all()
         .catch(() => ({ results: [] }));
 
-      const price = new Map(priced.map((r) => [Number(r.trophy_id), Number(r.points) || 0]));
+      const price = new Map(priced.map((r) => [Number(r.trophy_id), r]));
       const held = trophies.filter((t) => t.earned).map((t) => Number(t.trophyId));
 
+      /**
+       * THE ONES THEY JUST EARNED ARE PRICED AS IF THEY HAD NOT.
+       *
+       * The local multiplier counts how many of US have a trophy, and only a
+       * scan recounts it. So for the minutes between the pop and their update,
+       * `trophies.points` still holds the price from before they had it --
+       * Leon's Sailor of the Merchant Alliance was stored at 695 and settled at
+       * 587. Summed as they stand, the bar would climb too far and then drop
+       * back when /update landed, which is the sort of number that gets
+       * screenshotted. Anything earned since their last scan is corrected the
+       * same way the pop corrects it.
+       */
+      const settledAt = Number(member.last_update_at) || 0;
+      const earnedAt = new Map(
+        trophies
+          .filter((t) => t.earned && t.earnedDateTime)
+          .map((t) => [Number(t.trophyId), Date.parse(t.earnedDateTime)]),
+      );
+      const worth = (id) => {
+        const row = price.get(id);
+        const points = Number(row.points) || 0;
+        const at = Number(earnedAt.get(id));
+        return Number.isFinite(at) && at > settledAt
+          ? withEarnerCounted(points, row.local_earned, row.local_started)
+          : points;
+      };
+
       if (held.length && held.every((id) => price.has(id))) {
-        play.points = held.reduce((sum, id) => sum + price.get(id), 0);
+        play.points = held.reduce((sum, id) => sum + worth(id), 0);
         await env.DB.prepare('UPDATE members SET live_play = ? WHERE psn_account_id = ?')
           .bind(JSON.stringify(play), member.psn_account_id)
           .run()

@@ -246,6 +246,44 @@ export function localMultiplier(finished = 0, started = 0, cfg = LOCAL_RARITY) {
 }
 
 /**
+ * The same trophy, priced with the person who just earned it counted.
+ *
+ * WHY THE POP WAS WRONG BY 94 POINTS. `trophies.points` carries the local
+ * multiplier, and the local multiplier is per trophy: how many of us have it
+ * against how many of us own the game. The live poll writes the row the instant
+ * a trophy pops but cannot re-run the settle, so for the minutes between the
+ * pop and the member's scan the stored price is the one from BEFORE they had
+ * it -- when they were one of two, not one of three.
+ *
+ * Leon, 11 September, Sailor of the Merchant Alliance (0.10%, 15 of us own the
+ * game): the pop said +604, the website said 587, and his page said 510. All
+ * three were the same arithmetic at different moments. 279 base x 2.49 (2 of 15
+ * had it) = 695, x 87% completion = 604. Once his own earn was counted,
+ * 279 x 2.1044 (3 of 15) = 587, x 87% = 510.
+ *
+ * SCALED, NOT RECOMPUTED. Multiplying the stored figure by the ratio of the two
+ * multipliers keeps the curve, the cap, the shovelware floor and the unrated
+ * fallback exactly as the rescore decided them. Recomputing from the rate would
+ * quietly reimplement scoreGameTrophies() in a second place, and the two would
+ * drift the first time the curve changed.
+ *
+ * Returns the figure unchanged whenever the counts cannot support the
+ * correction -- no owners recorded, or a count that already includes them.
+ */
+export function withEarnerCounted(points, earnedHere, ownersHere) {
+  const p = Number(points) || 0;
+  const done = Number(earnedHere);
+  const owned = Number(ownersHere);
+  if (p <= 0 || !Number.isFinite(done) || !Number.isFinite(owned)) return p;
+  if (done < 0 || owned <= 0 || done + 1 > owned) return p;
+
+  const before = localMultiplier(done, owned);
+  const after = localMultiplier(done + 1, owned);
+  if (!(before > 0)) return p;
+  return Math.max(1, Math.round((p * after) / before));
+}
+
+/**
  * What a trophy is worth when PSN has told us NOTHING about the game.
  *
  * 152 games have not a single rated trophy — Sony publishes no rarity for them

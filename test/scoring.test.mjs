@@ -532,3 +532,19 @@ test('per-game banked figures sum close to, but not exactly, the card', () => {
   assert.ok(Math.abs(summed - once) <= games.length,
     `drift ${Math.abs(summed - once)} should be under one point per game`);
 });
+
+test('withEarnerCounted is the settle, applied to one trophy', async () => {
+  const { withEarnerCounted, localMultiplier } = await import('../shared/scoring.mjs');
+
+  // Leon's Sailor of the Merchant Alliance: 279 base, 2 of 15 owners had it.
+  const stored = Math.round(279 * localMultiplier(2, 15));
+  assert.equal(stored, 695);
+  assert.equal(withEarnerCounted(stored, 2, 15), Math.round(279 * localMultiplier(3, 15)));
+
+  // Nothing to correct, or nothing to correct WITH.
+  assert.equal(withEarnerCounted(695, 15, 15), 695, 'everybody already has it');
+  assert.equal(withEarnerCounted(695, null, null), 695, 'no counts stored');
+  assert.equal(withEarnerCounted(0, 2, 15), 0, 'a worthless trophy stays worthless');
+  assert.equal(withEarnerCounted(2, 2, 15), Math.max(1, Math.round(2 * (localMultiplier(3, 15) / localMultiplier(2, 15)))));
+  assert.ok(withEarnerCounted(3, 0, 40) >= 1, 'and it never floors a real trophy to nothing');
+});

@@ -23,7 +23,7 @@
  */
 
 import { esc, n, mendQuery } from '../../_lib/page.js';
-import { displayBanked } from '../../../shared/scoring.mjs';
+import { displayBanked, withEarnerCounted } from '../../../shared/scoring.mjs';
 
 /**
  * TEN SECONDS, and the number is doing two jobs.
@@ -52,7 +52,8 @@ const REFRESH = 10;
 const FRESH_MS = 30 * 60 * 1000;
 
 const MEMBER = `
-  SELECT psn_account_id, psn_online_id, completion, rank, prev_rank, overlay_seen_at
+  SELECT psn_account_id, psn_online_id, completion, rank, prev_rank, overlay_seen_at,
+         last_update_at
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -66,8 +67,8 @@ const MEMBER = `
  */
 const NEWEST = `
   SELECT mt.np_comm_id, mt.trophy_id, mt.earned_at,
-         t.name, t.type, t.points, t.earned_rate,
-         g.title AS game
+         t.name, t.type, t.points, t.earned_rate, t.local_earned,
+         g.title AS game, g.local_started
     FROM member_trophies mt
     JOIN trophies t ON t.np_comm_id = mt.np_comm_id AND t.trophy_id = mt.trophy_id
     LEFT JOIN games g ON g.np_comm_id = mt.np_comm_id
@@ -372,7 +373,24 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
         metal: String(row.type ?? '').toLowerCase(),
         name: row.name || `Trophy #${row.trophy_id}`,
         game: row.game,
-        points: displayBanked(row.points, member.completion),
+        /**
+         * PRICED WITH THEM COUNTED, which is what every other surface will say
+         * about it a few minutes from now. The poll writes the row the moment
+         * the trophy pops and cannot re-run the local rarity settle, so until
+         * their scan lands `trophies.points` is still the price from when they
+         * did NOT have it. Leon's Sailor of the Merchant Alliance popped at
+         * +604 and settled at 510 on his own page -- see withEarnerCounted().
+         *
+         * `last_update_at` is the cheap, exact test for whether the settle has
+         * already happened: a scan is the only thing that moves it, and a scan
+         * is the only thing that counts the trophy.
+         */
+        points: displayBanked(
+          Number(member.last_update_at) >= Number(row.earned_at)
+            ? row.points
+            : withEarnerCounted(row.points, row.local_earned, row.local_started),
+          member.completion,
+        ),
         rate: row.earned_rate,
         climb,
       }),

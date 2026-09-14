@@ -222,8 +222,18 @@ const NEXT_GROUPS = `
     JOIN games g ON g.np_comm_id = t.np_comm_id
    WHERE t.group_id IS NOT NULL
      AND t.group_id <> 'default'
+     -- PER PACK, NOT PER GAME. This asked whether the game had ANY row in
+     -- trophy_groups, so Borderlands 4 -- named when it had four packs -- was
+     -- skipped when Sony shipped a fifth and a sixth, and the page headed them
+     -- "DLC 5" and "DLC 6". That is the third place in this codebase where an
+     -- all-or-nothing check could not see a set that grew: the Zenless
+     -- definitions, the trophy names, and now the pack names. If you are
+     -- adding a fourth backfill, ask it "which of these are missing", never
+     -- "are any of these present".
      AND NOT EXISTS (
-           SELECT 1 FROM trophy_groups tg WHERE tg.np_comm_id = t.np_comm_id)
+           SELECT 1 FROM trophy_groups tg
+            WHERE tg.np_comm_id = t.np_comm_id
+              AND tg.group_id = t.group_id)
    GROUP BY t.np_comm_id
    ORDER BY g.local_started DESC, t.np_comm_id ASC
    LIMIT ?`;

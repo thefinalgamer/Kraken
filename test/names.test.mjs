@@ -94,3 +94,16 @@ test('the backfill can also repair a game that is only PARTLY named', async () =
   assert.match(SRC, /stuck\.add\(game\.np_comm_id\)/,
     'a game PSN publishes no names for is skipped rather than asked forever');
 });
+
+test('pack names are chased per PACK, not per game', () => {
+  /**
+   * The third all-or-nothing check in this codebase, and the one Martin saw
+   * last: NEXT_GROUPS asked whether the game had ANY row in trophy_groups.
+   * Borderlands 4 was named when it had four packs, so a fifth and a sixth were
+   * never fetched and the page headed them "DLC 5" and "DLC 6".
+   */
+  const q = query('NEXT_GROUPS');
+  assert.match(q, /tg\.np_comm_id = t\.np_comm_id\s*\n?\s*AND tg\.group_id = t\.group_id/,
+    'the pack has to match, not just the game');
+  assert.match(q, /t\.group_id <> 'default'/, 'and the base game is not a pack');
+});

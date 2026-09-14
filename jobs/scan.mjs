@@ -848,8 +848,74 @@ async function backfillNames(psn, title, stats = null) {
       );
     }
     if (stats) stats.named += 1;
+    await namePacks(psn, title, named);
   } catch (err) {
     console.error(`  could not fetch trophy names for ${title.trophyTitleName}:`, err.message);
+  }
+}
+
+/**
+ * What this game's DLC packs are CALLED.
+ *
+ * The trophies now land in the right pack -- that was the group_id fix -- and
+ * the page still headed the new ones "DLC 5" and "DLC 6", because the pack
+ * names live in their own table and only the backfill job ever wrote it. So a
+ * DLC stayed unnamed until somebody pressed a button in Actions.
+ *
+ * ONLY THE PACKS THAT ARE MISSING, and only when there are any: one query
+ * against a table with a few thousand rows, then at most one PSN call. A game
+ * whose packs are all named costs the query and nothing else, and the base
+ * game is never asked about -- every game has a "default" group and the page
+ * calls it "Base game" without being told.
+ *
+ * Never throws, same as its caller: a pack with no name renders as "DLC 5",
+ * which is worse than "Mad Ellie and the Vault of the Damned" and much better
+ * than a scan that died fetching it.
+ */
+async function namePacks(psn, title, defs) {
+  try {
+    const wanted = new Set(
+      defs.map((t) => t.trophyGroupId).filter((g) => g && g !== 'default'),
+    );
+    if (!wanted.size) return;
+
+    const have = await db.query(
+      'SELECT group_id FROM trophy_groups WHERE np_comm_id = ?',
+      [title.npCommunicationId],
+    );
+    for (const r of have) wanted.delete(r.group_id);
+    if (!wanted.size) return;
+
+    const groups = await psn.titleTrophyGroups(
+      title.npCommunicationId,
+      title.trophyTitlePlatform,
+    );
+    if (!groups.length) return;
+
+    const cols = ['np_comm_id', 'group_id', 'name', 'icon_url', 'fetched_at'];
+    const perChunk = D1.chunkSize(cols.length);
+    const now = Date.now();
+    for (let i = 0; i < groups.length; i += perChunk) {
+      const slice = groups.slice(i, i + perChunk);
+      await db.run(
+        `INSERT INTO trophy_groups (${cols.join(',')})
+         VALUES ${slice.map(() => '(?,?,?,?,?)').join(',')}
+         ON CONFLICT(np_comm_id, group_id) DO UPDATE SET
+           name = excluded.name,
+           icon_url = excluded.icon_url,
+           fetched_at = excluded.fetched_at`,
+        slice.flatMap((gr) => [
+          title.npCommunicationId,
+          gr.trophyGroupId ?? 'default',
+          gr.trophyGroupName ?? null,
+          gr.trophyGroupIconUrl ?? null,
+          now,
+        ]),
+      );
+    }
+    console.log(`  named ${wanted.size} DLC pack(s) for ${title.trophyTitleName}`);
+  } catch (err) {
+    console.error(`  could not fetch pack names for ${title.trophyTitleName}:`, err.message);
   }
 }
 

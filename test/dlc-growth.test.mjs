@@ -191,3 +191,20 @@ test('games already sitting with gaps get a names-only pass of their own', () =>
   assert.match(code, /await backfillNames\(psn, t, stats\)/);
   assert.match(code, /if \(nameBudget <= 0\) break/, 'and it stays inside the same budget');
 });
+
+test('a new DLC pack gets its NAME too, not just its group', () => {
+  /**
+   * Second half of the Borderlands 4 report. With group ids filled in, the two
+   * stacks moved out of the base game and into their own sections -- headed
+   * "DLC 5" and "DLC 6", because the pack names live in `trophy_groups` and
+   * only the backfill job had ever written that table. A pack stayed unnamed
+   * until somebody pressed a button in Actions.
+   */
+  assert.match(code, /async function namePacks\(psn, title, defs\)/);
+  assert.match(code, /await namePacks\(psn, title, named\)/, 'called when names are fetched');
+  assert.match(code, /INSERT INTO trophy_groups/);
+  assert.match(code, /t\.trophyGroupId\)\.filter\(\(g\) => g && g !== 'default'\)/,
+    'the base game is never asked about');
+  assert.match(code, /SELECT group_id FROM trophy_groups WHERE np_comm_id = \?/,
+    'and it only pays the PSN call when a pack is actually missing');
+});

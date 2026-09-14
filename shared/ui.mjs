@@ -629,6 +629,7 @@ export function blockChars(blocks) {
 /** The `/update` result — same shape as the old embed, plus the explanation. */
 export function updateCard({
   member, updateNo, before, after, delta, gamesChanged, durationSeconds, repaired = 0,
+  grew = [],
 }) {
   const gained = [
     after.platinum - before.platinum && `${EMOJI.platinum} ${signed(after.platinum - before.platinum)}`,
@@ -663,13 +664,35 @@ export function updateCard({
         `old games you didn't touch today.`,
     );
   } else if (backlog < 0) {
-    // Starting new games costs you. Say so plainly — it is a design decision,
-    // not a malfunction, and the member is owed the reason.
+    /**
+     * A DIP HAS TWO CAUSES AND THEY ARE NOT THE SAME STORY.
+     *
+     * Starting a game is the member's own doing. A DLC landing in a game they
+     * already own is not: Sony adds trophies, those trophies join the
+     * denominator, and a library re-prices down for somebody who did nothing.
+     * PrimalxFear read the old wording -- which only knew about starting games
+     * -- and filed it as points being taken away, because as far as he was
+     * concerned it was.
+     *
+     * Naming the game is the whole fix. The arithmetic was never in question.
+     */
+    const names = (grew ?? []).filter((g) => g?.title);
+    const rest = names.length > 2 ? ` and ${n(names.length - 2)} more` : '';
+    const listed = names.slice(0, 2).map((g) => md(g.title)).join(rest ? ', ' : ' and ');
+    const added = names.reduce((sum, g) => sum + (Number(g.added) || 0), 0);
+
     lines.push(
-      `> **Completion dipped ${pct(before.completion)} → ${pct(after.completion)}** ` +
-        `(${signed(backlog)}). Starting a game adds trophies you haven't earned yet, ` +
-        `so your share of everything drops a little. Finish it and you get this back ` +
-        `with interest.`,
+      names.length
+        ? `> **Completion dipped ${pct(before.completion)} → ${pct(after.completion)}** ` +
+          `(${signed(backlog)}). ${listed}${rest} gained ` +
+          `${added > 0 ? `**${n(added)}** new ` : 'new '}` +
+          `${added === 1 ? 'trophy' : 'trophies'}. That is new DLC rather than ` +
+          `anything you did, and DLC counts towards your completion like every ` +
+          `other trophy. Earn them and you get this back with interest.`
+        : `> **Completion dipped ${pct(before.completion)} → ${pct(after.completion)}** ` +
+          `(${signed(backlog)}). Starting a game adds trophies you haven't earned yet, ` +
+          `so your share of everything drops a little. Finish it and you get this back ` +
+          `with interest.`,
     );
   }
 

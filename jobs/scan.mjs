@@ -478,7 +478,26 @@ async function scanMember(psn, member, updateNo) {
      * while their percentage moves means the game changed underneath them, and
      * that is exactly when the stored row is wrong.
      */
-    const drifted = was && was.progress !== (t.progress ?? 0);
+    /**
+     * CLAMPED, BECAUSE SONY SOMETIMES SAYS MORE THAN ALL OF IT.
+     *
+     * PrimalxFear, 14 September: *"Minecraft: PlayStation 4 Edition Set 2 --
+     * 102% -> 100%"*, and *"this keeps happening with multiple games"*, with
+     * MRTheChez seeing the same. 102% is Sony's own figure: when a DLC pack
+     * lands, PSN's weighted progress can overshoot until their side settles.
+     * It is their arithmetic, not ours, and we were printing it verbatim on
+     * update cards and profiles.
+     *
+     * A percentage of a trophy list cannot exceed the list, so it is clamped
+     * where it enters the job rather than at each of the places that draw it.
+     *
+     * THE COMPARISON IS CLAMPED TOO, or a game Sony left at 102 would disagree
+     * with the stored 100 on every update and be deep-scanned every time for no
+     * new information. Growth is detected by definedTrophies against
+     * trophy_count -- a count, not a percentage -- and is unaffected.
+     */
+    t.progress = pct(t.progress);
+    const drifted = was && was.progress !== t.progress;
 
     if (!was || was.earned_total !== earnedTotal || was.scanned_at == null || drifted) {
       needsEarnedScan.push(t);
@@ -794,6 +813,24 @@ async function scanMember(psn, member, updateNo) {
     changelog,
     gamesChanged: changelog.length,
     repaired: repairs.length,
+    /**
+     * WHICH GAMES GOT BIGGER, so the card can say why the completion moved.
+     *
+     * PrimalxFear, 14 September: *"you get minus points when its getting over
+     * 100% and get them back when its back to 100%"*. He had not started
+     * anything -- Sony added a DLC to a game he had already finished, those
+     * trophies joined his completion denominator, and his whole library
+     * re-priced down until he earned them. The card told him "starting a game
+     * adds trophies you haven't earned yet", which is the right arithmetic
+     * attached to the wrong cause, and reads like the board inventing a
+     * penalty.
+     */
+    grew: gameRows
+      .filter((t) => grown.has(t.npCommunicationId))
+      .map((t) => ({
+        title: t.trophyTitleName,
+        added: Math.max(0, sumTrophies(t.definedTrophies) - (known.get(t.npCommunicationId) ?? 0)),
+      })),
   };
 }
 
@@ -1096,7 +1133,9 @@ async function scanGame(
   const earnedIds = mine.map((t) => t.id);
   const counts = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
   for (const t of mine) if (counts[t.type] !== undefined) counts[t.type]++;
-  const progress = title.progress ?? 0;
+  // Clamped at the top of the scan; belt and braces for any path that reaches
+  // scanGame() with a title object from somewhere else.
+  const progress = pct(title.progress);
   const points = mine.reduce((n, t) => n + t.points, 0);
 
   // The span between their first and last trophy in this game. NULL when
@@ -1635,6 +1674,14 @@ const https = (url) => {
 };
 
 const placeholders = (n) => Array.from({ length: n }, () => '?').join(',');
+
+/**
+ * A progress percentage, as a percentage: 0 to 100, never more. See the note on
+ * the drift check for why Sony sometimes hands us 102.
+ */
+function pct(v) {
+  return Math.max(0, Math.min(100, Number(v) || 0));
+}
 
 function sumTrophies(t = {}) {
   return (t.platinum ?? 0) + (t.gold ?? 0) + (t.silver ?? 0) + (t.bronze ?? 0);

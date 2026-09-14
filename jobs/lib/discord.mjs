@@ -156,6 +156,7 @@ export async function postUpdateResult({ member, result, interactionToken }) {
       gamesChanged: result.gamesChanged,
       durationSeconds: result.durationSeconds,
       repaired: result.repaired,
+      grew: result.grew,
     }),
   ]);
 

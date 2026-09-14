@@ -78,8 +78,10 @@ test('PSN disagreeing about progress is a reason to rescan on its own', () => {
    * Sony's own weighted figure, it was in hand the whole time, and it was only
    * ever read when some OTHER reason had already triggered a scan of that game.
    */
-  assert.match(code, /const drifted = was && was\.progress !== \(t\.progress \?\? 0\)/,
+  assert.match(code, /const drifted = was && was\.progress !== t\.progress/,
     'stored progress is compared against what PSN says now');
+  assert.match(code, /t\.progress = pct\(t\.progress\)/,
+    'both sides clamped, so a game Sony leaves at 102 is not rescanned forever');
   assert.match(code, /was\.earned_total !== earnedTotal \|\| was\.scanned_at == null \|\| drifted/,
     'and a disagreement joins the other reasons to rescan');
 });
@@ -207,4 +209,16 @@ test('a new DLC pack gets its NAME too, not just its group', () => {
     'the base game is never asked about');
   assert.match(code, /SELECT group_id FROM trophy_groups WHERE np_comm_id = \?/,
     'and it only pays the PSN call when a pack is actually missing');
+});
+
+test('a percentage never leaves this job above 100', () => {
+  /**
+   * PrimalxFear: "Minecraft: PlayStation®4 Edition Set 2 - 102% → 100%", and
+   * "this keeps happening with multiple games". 102% is Sony's own number --
+   * PSN's weighted progress overshoots while a DLC pack lands -- and the job
+   * was storing and printing it verbatim.
+   */
+  assert.match(code, /function pct\(v\) \{[\s\S]{0,120}Math\.min\(100/, 'clamped to 100');
+  assert.match(code, /Math\.max\(0,/, 'and not below nothing either');
+  assert.match(code, /const progress = pct\(title\.progress\)/, 'what gets stored is clamped');
 });

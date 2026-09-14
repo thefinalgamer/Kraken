@@ -411,3 +411,57 @@ test('no backtick ever gets into a CSS comment in a template literal', async () 
     );
   }
 });
+
+test('a completion dip caused by DLC says so, and names the game', async () => {
+  /**
+   * PRIMALXFEAR, 14 SEPTEMBER: *"you get minus points when its getting over
+   * 100% and get them back when its back to 100%"*. He had started nothing.
+   * Sony added a DLC to a game he had already finished, those trophies joined
+   * his completion denominator, and his whole library re-priced down until he
+   * earned them. The card told him "starting a game adds trophies you haven't
+   * earned yet", which is the right arithmetic attached to the wrong cause.
+   */
+  const { updateCard } = await import('../shared/ui.mjs');
+  const args = {
+    member: { psn_online_id: 'PrimalxFear' },
+    updateNo: 91,
+    before: { platinum: 1, gold: 1, silver: 1, bronze: 1, projects: 10, completed: 5, completion: 91.2 },
+    after: { platinum: 1, gold: 1, silver: 1, bronze: 1, projects: 10, completed: 5, completion: 90.8 },
+    delta: { net: -1204, earned: 0, backlog: -1204, drift: 0 },
+    gamesChanged: 1,
+    durationSeconds: 30,
+  };
+
+  const dlc = JSON.stringify(updateCard({
+    ...args,
+    grew: [{ title: 'Minecraft: PlayStation 4 Edition Set 2', added: 8 }],
+  }));
+  assert.match(dlc, /Minecraft: PlayStation 4 Edition Set 2/, 'the game is named');
+  assert.match(dlc, /8\*\* new trophies/, 'and how many it gained');
+  assert.ok(!dlc.includes("Starting a game"), 'and it does not blame them for starting it');
+
+  // With nothing grown, the old sentence is still the right one.
+  const started = JSON.stringify(updateCard({ ...args, grew: [] }));
+  assert.match(started, /Starting a game adds trophies/);
+});
+
+test('several games growing at once are listed, not enumerated forever', async () => {
+  const { updateCard } = await import('../shared/ui.mjs');
+  const out = JSON.stringify(updateCard({
+    member: { psn_online_id: 'MRTheChez' },
+    updateNo: 92,
+    before: { platinum: 0, gold: 0, silver: 0, bronze: 0, projects: 1, completed: 1, completion: 80 },
+    after: { platinum: 0, gold: 0, silver: 0, bronze: 0, projects: 1, completed: 1, completion: 79.5 },
+    delta: { net: -50, earned: 0, backlog: -50, drift: 0 },
+    gamesChanged: 3,
+    durationSeconds: 12,
+    grew: [
+      { title: 'Diablo IV', added: 8 },
+      { title: 'Borderlands 4', added: 11 },
+      { title: 'Zenless Zone Zero', added: 7 },
+      { title: 'Sea of Thieves', added: 3 },
+    ],
+  }));
+  assert.match(out, /Diablo IV, Borderlands 4 and 2 more/);
+  assert.match(out, /29\*\* new trophies/, 'the total added is the sum of all of them');
+});

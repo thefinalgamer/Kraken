@@ -75,6 +75,10 @@ export const FAQ = [
       '▫️ Somebody finished a game you both own, so it is back to its normal value\n' +
       '▫️ You started a new game. That lowers your completion %, which pays out across your ' +
       'entire library\n' +
+      '▫️ A game you own got new DLC. Sony adding trophies is the same thing as you ' +
+      'starting a game: they join your completion denominator, so your % dips until you ' +
+      'earn them. A game you had at 100% can stop being at 100% overnight, and there is ' +
+      'nothing anybody here can do about that\n' +
       '▫️ A trophy you own got more common worldwide\n\n' +
       'Nothing is ever taken away. `/update` shows you the split every time.\n\n' +
       '**This doesn\'t match PSNProfiles.**\n' +

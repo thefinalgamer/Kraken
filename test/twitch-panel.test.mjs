@@ -176,9 +176,16 @@ test('a panel that has already drawn is never replaced by an error', async () =>
 });
 
 test('an unlinked channel explains itself rather than looking broken', async () => {
+  /**
+   * It says the channel is not linked and stops there. It used to add "the
+   * broadcaster can link it by running /twitch in the Discord", which is a
+   * setup instruction aimed at an audience who cannot act on it, off Twitch --
+   * the same policy 4.5 problem as the link button. The command is on the
+   * configuration page, where the one person who can run it will see it.
+   */
   const js = await readCode('panel.js');
   assert.match(js, /Channel not linked/);
-  assert.match(js, /\/twitch/, 'and says which command fixes it');
+  assert.match(await readCode('config.js'), /\/twitch/, 'the command lives on the config page');
 });
 
 test('WHOSE BOARD IT IS COMES FROM THE CHANNEL, NEVER FROM TYPED INPUT', async () => {
@@ -231,4 +238,53 @@ test('the milestone names its game, or it reads as the game above it', async () 
   const block = js.slice(js.indexOf('if (d.milestone)'), js.indexOf('if (live)'));
   assert.match(block, /d\.milestone\.title/, 'the game title is rendered');
   assert.doesNotMatch(block, /'from their '/, 'the old sentence is gone');
+});
+
+/* ---- policy 4.5: nothing in here is a way off Twitch ---- */
+
+test('the panel offers no link out, because Twitch rejected the last one that did', async () => {
+  /**
+   * VERSION 0.0.1 WAS REFUSED. Twitch, 14 September, policy 4.5: *"Extensions
+   * may not encourage or reward users to take specific actions outside
+   * Twitch/Amazon properties, especially if the principal use case for the
+   * Extension is to act as a link out"*, citing
+   * platinumintel.co.uk/hunter/th3finalgamer — the "Full profile" button.
+   *
+   * READING THE API IS NOT LINKING OUT. The panel still fetches from
+   * platinumintel.co.uk, which is a request the viewer never sees and which
+   * the Capabilities allowlist exists to permit. What it must never do again is
+   * put a door on the page.
+   */
+  for (const file of ['panel.js', 'config.js']) {
+    const src = code(await read(file));
+    assert.ok(!/\.href\s*=/.test(src), `${file} sets an href`);
+    assert.ok(!/_blank/.test(src), `${file} opens a tab`);
+    assert.ok(!/createElement\(\s*['"]a['"]|el\(\s*['"]a['"]/.test(src), `${file} builds an anchor`);
+  }
+
+  for (const file of ['panel.html', 'config.html']) {
+    const src = code(await read(file));
+    // The stylesheet is the only href either page is allowed to carry.
+    const hrefs = [...src.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+    assert.deepEqual(hrefs.filter((h) => h !== 'style.css'), [], `${file} links out`);
+  }
+});
+
+test('the site address is only ever an API endpoint', async () => {
+  const src = code(await read('panel.js'));
+  for (const url of src.match(/https:\/\/platinumintel\.co\.uk[^'"\s]*/g) ?? []) {
+    assert.ok(url.startsWith('https://platinumintel.co.uk/api/'), `${url} is not an API call`);
+  }
+});
+
+test('a viewer is not told to go and do something in Discord', async () => {
+  /**
+   * The unlinked state used to tell the whole audience the broadcaster could
+   * link the channel by running /twitch in the Discord. Only the broadcaster
+   * can act on that, and it is an action off Twitch, so it lives on the
+   * configuration page now and nowhere a viewer can see.
+   */
+  const src = code(await read('panel.js'));
+  assert.ok(!/Discord/i.test(src), 'the panel never names it');
+  assert.match(code(await read('config.js')), /Discord/, 'the config page still explains it');
 });

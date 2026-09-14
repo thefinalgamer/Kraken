@@ -23,7 +23,20 @@
 
   var API = 'https://platinumintel.co.uk/api/hunter/';
   var CHANNEL = 'https://platinumintel.co.uk/api/channel/';
-  var SITE = 'https://platinumintel.co.uk';
+  /*
+   * THERE IS NO LINK OUT OF THIS PANEL, AND THAT IS A RULE RATHER THAN A CHOICE.
+   *
+   * Twitch rejected version 0.0.1 under policy 4.5 -- "Extensions may not
+   * encourage or reward users to take specific actions outside Twitch/Amazon
+   * properties, especially if the principal use case for the Extension is to
+   * act as a link out" -- citing the "Full profile" button, which pointed at
+   * platinumintel.co.uk/hunter/th3finalgamer.
+   *
+   * The site address is deliberately NOT a constant here any more. The panel
+   * still READS from the API, which is a fetch and allowed; what it must never
+   * do is offer somebody a way off Twitch. If a future version needs a link,
+   * it needs a policy reading first, not a constant.
+   */
 
   /* Half the API's cache, so the panel is never showing something the edge has
      already replaced, and slow enough that a busy channel costs nothing. */
@@ -134,14 +147,6 @@
     svg.appendChild(p);
     if (cls) svg.setAttribute('class', cls);
     return svg;
-  }
-
-  function linkBtn(text, href, go) {
-    var a = el('a', 'btn' + (go ? ' go' : ''), text);
-    a.href = href;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    return a;
   }
 
   /* ------------------------------------------------------------- states -- */
@@ -302,9 +307,6 @@
       out.appendChild(b);
     }
 
-    var f = el('div', 'foot');
-    f.appendChild(linkBtn('Full profile ›', SITE + '/hunter/' + encodeURIComponent(d.hunter.name)));
-    out.appendChild(f);
   }
 
   /* ------------------------------------------------------------ tab: list - */
@@ -318,7 +320,7 @@
     if (!d.list.length) {
       var empty = card();
       empty.appendChild(el('p', 'muted',
-        'Nothing lined up yet. This fills in when they add games to their list in Discord.'));
+        'Nothing lined up yet. It fills in when they pick what they are playing next.'));
       empty.style.margin = '0';
       out.appendChild(empty);
     } else {
@@ -419,10 +421,11 @@
       out.appendChild(rc);
     }
 
-    var f = el('div', 'foot');
-    f.appendChild(linkBtn('Full profile ›', SITE + '/hunter/' + encodeURIComponent(h.name)));
-    if (h.updatedAt) f.appendChild(el('p', 'fine', 'Last scanned ' + ago(h.updatedAt)));
-    out.appendChild(f);
+    if (h.updatedAt) {
+      var f = el('div', 'foot');
+      f.appendChild(el('p', 'fine', 'Last scanned ' + ago(h.updatedAt)));
+      out.appendChild(f);
+    }
   }
 
   /* ----------------------------------------------------------- tab: board - */
@@ -466,10 +469,6 @@
       + n(d.hunter.of) + ' hunters, every trophy scanned rather than typed in.'));
     out.appendChild(pitch);
 
-    var f = el('div', 'foot');
-    f.appendChild(linkBtn('Join Platinum Intel', SITE, true));
-    f.appendChild(linkBtn('See the whole board ›', SITE + '/leaderboard'));
-    out.appendChild(f);
   }
 
   /* ------------------------------------------------------------- render -- */
@@ -575,9 +574,15 @@
       .catch(function (err) {
         if (state.data) return;
         if (String(err.message) === 'unlinked') {
+          /*
+           * NO SETUP INSTRUCTIONS FOR A VIEWER. The step that links a channel
+           * happens off Twitch, so telling the whole audience to go and do it
+           * is the same policy 4.5 problem as the button was. The broadcaster
+           * is told how, on the configuration page, which is the only person
+           * who can act on it anyway.
+           */
           showState('Channel not linked',
-            'This channel is not connected to a Platinum Intel hunter yet. The broadcaster '
-            + 'can link it by running /twitch in the Discord.');
+            'This channel is not connected to a Platinum Intel hunter yet.');
         } else {
           showState('Cannot reach the board', 'It will try again in a minute.');
         }

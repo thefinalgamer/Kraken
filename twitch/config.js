@@ -22,8 +22,6 @@
   'use strict';
 
   var CHANNEL = 'https://platinumintel.co.uk/api/channel/';
-  var SITE = 'https://platinumintel.co.uk';
-
   function el(tag, cls, text) {
     var e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -31,18 +29,18 @@
     return e;
   }
 
-  function show(box, label, line, link) {
+  /*
+   * NO LINK BUTTON HERE EITHER. This page used to offer "Open their hunter page"
+   * once a channel resolved. Twitch rejected version 0.0.1 under policy 4.5 for
+   * exactly that kind of link out, so the page says what it knows and stops.
+   * The setup step is written as plain text because it genuinely is the only
+   * way to link a channel -- it is an instruction to the broadcaster, not an
+   * invitation to an audience.
+   */
+  function show(box, label, line) {
     box.textContent = '';
     box.appendChild(el('span', 'lbl', label));
     box.appendChild(el('p', 'muted', line));
-    if (link) {
-      var a = el('a', 'btn', 'Open their hunter page ›');
-      a.href = link;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.style.marginTop = '10px';
-      box.appendChild(a);
-    }
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -68,12 +66,7 @@
         })
         .then(function (body) {
           if (!body || !body.hunter) throw new Error('unlinked');
-          show(
-            box,
-            'This channel is linked',
-            'The panel is showing ' + body.hunter + '.',
-            SITE + '/hunter/' + encodeURIComponent(body.hunter),
-          );
+          show(box, 'This channel is linked', 'The panel is showing ' + body.hunter + '.');
         })
         .catch(function (err) {
           if (String(err.message) === 'unlinked') {

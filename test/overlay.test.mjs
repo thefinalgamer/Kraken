@@ -791,3 +791,61 @@ test('overtaking on points says so, and does not award the rank', async () => {
   assert.match(body, /<b>past<\/b> 1st/, 'and says what happened');
   assert.match(body, /class="rank">2<sup>/, 'while the rank itself stays put');
 });
+
+/* ---- 13 September: a white error page on a live stream ---- */
+
+test('a database that falls over shows nothing, not an error page', async () => {
+  /**
+   * LEON'S STREAM, and the worst kind of bug: a Pages Function that throws
+   * hands the browser source Cloudflare's own error page -- white, full width,
+   * across the top of the game -- and that page carries no refresh, so one bad
+   * second sits on the channel until somebody restarts the source. Chat asked
+   * him what was going on. Martin: *"i have zero clue"*.
+   *
+   * The empty overlay is the correct output for every failure here. It draws
+   * nothing, and it keeps the sixty second refresh, so the next tick repairs
+   * itself with nobody touching OBS.
+   */
+  const env = {
+    DB: {
+      prepare() {
+        throw new Error('D1_ERROR: Network connection lost');
+      },
+    },
+  };
+  const res = await mod.onRequestGet({
+    env,
+    request: new Request('https://kraken.test/overlay/Pelzio'),
+    params: { name: 'Pelzio' },
+  });
+  const out = await res.text();
+
+  assert.equal(res.status, 200, 'not a status a browser source might dress up itself');
+  assert.match(out, /http-equiv="refresh"/, 'and it heals on the next tick');
+  assert.ok(!/class="bar/.test(out), 'nothing is drawn');
+  assert.ok(!/Something went wrong|error/i.test(out), 'and nothing is said');
+});
+
+test('a query that fails mid-render still draws the rest of the bar', async () => {
+  // The member row is the only thing the page cannot do without. Everything
+  // else already falls back, and now the board total does too.
+  const good = fakeEnv();
+  const env = {
+    DB: {
+      prepare(sql) {
+        if (sql.includes('COUNT(*)')) {
+          const boom = async () => { throw new Error('D1_ERROR: storage kaput'); };
+          return { first: boom, bind: () => ({ first: boom, all: boom }) };
+        }
+        return good.DB.prepare(sql);
+      },
+    },
+  };
+  const res = await mod.onRequestGet({
+    env,
+    request: new Request('https://kraken.test/overlay/Pelzio'),
+    params: { name: 'Pelzio' },
+  });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /class="bar/, 'the bar still renders');
+});

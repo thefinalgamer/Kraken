@@ -1842,6 +1842,43 @@ p.warn.dead.whole b{color:#ff8e86}
    CENTRED ON THE CARD, not on the picture. Half a card lower would need a magic
    number for the height of the name row underneath, and that number would be
    wrong the first time the row changed. */
+/* ONE PAIR OF ARROWS PER GROUP, and only the current group's pair is drawn.
+   The arrows used to be two fixed anchors -- first card, last group -- so on a
+   shelf with three groups you could go right exactly once. Now :target says
+   which group was jumped to and :has lets the wrapper read it, so each pair
+   points at the groups either side of it and forward keeps working.
+   display:contents, so the wrapper adds no box of its own and the anchors go on
+   positioning against .lvwrap exactly as they did.
+   The first pair is the default: a browser without :has() gets the old
+   behaviour rather than a shelf with no arrows at all. */
+.lvnav{display:none}
+.lvnav.n0{display:contents}
+/* Which pair is current, keyed on the card that was jumped to. Card ids run
+   lv0..lv11 -- the live query stops at twelve -- and three to a group, so the
+   group is the id divided by three. Every id is listed rather than generated
+   per page, so this stays in the one stylesheet the site ships and no page has
+   to carry a <style> block of its own. If LIVE_PER_VIEW or that LIMIT ever
+   change, these change with them; a test in home.test.mjs fails the build if
+   they drift apart. */
+.lvwrap:has(#lv3:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv3:target) .lvnav.n1{display:contents}
+.lvwrap:has(#lv4:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv4:target) .lvnav.n1{display:contents}
+.lvwrap:has(#lv5:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv5:target) .lvnav.n1{display:contents}
+.lvwrap:has(#lv6:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv6:target) .lvnav.n2{display:contents}
+.lvwrap:has(#lv7:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv7:target) .lvnav.n2{display:contents}
+.lvwrap:has(#lv8:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv8:target) .lvnav.n2{display:contents}
+.lvwrap:has(#lv9:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv9:target) .lvnav.n3{display:contents}
+.lvwrap:has(#lv10:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv10:target) .lvnav.n3{display:contents}
+.lvwrap:has(#lv11:target) .lvnav.n0{display:none}
+.lvwrap:has(#lv11:target) .lvnav.n3{display:contents}
+
 .lvgo{
   position:absolute;z-index:3;top:50%;transform:translateY(-50%);
   width:42px;height:42px;border-radius:50%;

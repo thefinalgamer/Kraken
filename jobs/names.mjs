@@ -123,6 +123,36 @@ const NEXT_UNGROUPED = `
    ORDER BY g.local_started DESC, g.trophy_count DESC, g.np_comm_id ASC
    LIMIT ?`;
 
+/**
+ * Games that are PARTLY named, or partly grouped.
+ *
+ * BOTH QUERIES ABOVE ASK AN ALL-OR-NOTHING QUESTION, and that is the same blind
+ * spot that cost Pelziowo his Zenless DLC and MRTheChez his Borderlands 4
+ * stacks. A game whose base list was named in August and which gained eight DLC
+ * trophies in September has names, so the first query skips it; it has group
+ * ids, so the second skips it. The eight new rows have neither, and a NULL
+ * group id renders as the base game -- which is exactly what he reported:
+ * *"Both stacks seem to be placed with 0 points in the base game section"*.
+ *
+ * The comment on NEXT_GAMES said a half-named game "is already served by
+ * whatever named the other half". That was true when trophy lists never
+ * changed size. Sony ships DLC, so it is not true any more.
+ *
+ * Owned games only, same as the group pass and for the same reason: a page is
+ * only ever drawn for a game one of us owns.
+ */
+const NEXT_PARTIAL = `
+  SELECT g.np_comm_id, g.title, g.platform, g.local_started, g.trophy_count
+    FROM games g
+   WHERE g.local_started > 0
+     AND EXISTS (
+           SELECT 1 FROM trophies t
+            WHERE t.np_comm_id = g.np_comm_id
+              AND (t.name IS NULL OR t.group_id IS NULL)
+         )
+   ORDER BY g.local_started DESC, g.trophy_count DESC, g.np_comm_id ASC
+   LIMIT ?`;
+
 /** One game's names, written straight in. Mirrors backfillNames() in scan.mjs. */
 async function nameGame(psn, game) {
   const defs = await psn.titleTrophies(game.np_comm_id, game.platform);
@@ -385,6 +415,42 @@ while (!groupOut) {
   }
 }
 if (regrouped) console.log(`\nFilled in trophy groups for ${regrouped} games.`);
+
+/**
+ * The gaps pass: games that have SOME names or SOME groups and are missing the
+ * rest. Every pass above can only see a game that has none at all.
+ *
+ * Inside the group pass's budget reserve for the same reason it has one: the
+ * pack names below are what stop a DLC heading reading "Pack 1".
+ *
+ * IT IS NOT RESUMABLE BY CONSTRUCTION THE WAY THE OTHERS ARE. A game PSN
+ * publishes no names for keeps its NULLs, so it would be selected again on
+ * every page and pin the pass to a loop. The ones that come back empty are
+ * remembered for the run and skipped.
+ */
+let repaired = 0;
+const stuck = new Set();
+while (Date.now() - started <= GROUP_BUDGET_MS) {
+  const games = await db.query(NEXT_PARTIAL, [PAGE]);
+  const batch = games.filter((g) => !stuck.has(g.np_comm_id));
+  if (!batch.length) break;
+
+  for (const game of batch) {
+    if (Date.now() - started > GROUP_BUDGET_MS) break;
+    try {
+      const n = await nameGame(psn, game);
+      if (n === 0) stuck.add(game.np_comm_id);
+      else repaired += 1;
+    } catch (err) {
+      failed++;
+      stuck.add(game.np_comm_id);
+      console.error(`  x gaps for ${game.title}: ${err.message}`);
+    }
+  }
+}
+if (repaired) {
+  console.log(`\nFilled in missing names or packs for ${repaired} games that had gaps.`);
+}
 
 /**
  * Third pass: what the DLC packs are called.

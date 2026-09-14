@@ -347,46 +347,73 @@ function liveStrip(rows, channels = []) {
   const pages = Math.ceil(rows.length / LIVE_PER_VIEW);
 
   /**
-   * THE ARROWS, because nobody found the dots.
+   * THE ARROWS, and they now STEP.
    *
-   * Martin, relaying the server: "the tiny buttons on the bottom people can not
-   * see them". They were 22 by 4 pixels of --rule underneath a row of 16:9
-   * stills, which is a control that only reads as a control once you already
-   * know it is one.
+   * Martin, 14 September, with five people live: *"i can go right once but then
+   * cant go right again to see pelzio"*. He was right, and the note that used
+   * to be here explained why without noticing it was describing a bug: the
+   * arrows were two fixed anchors, first card and first card of the last group,
+   * on the argument that an anchor cannot know where the shelf currently sits.
+   * At two groups that is back and forward. At three it is a shelf with a
+   * middle you can only reach through dots four pixels tall.
    *
-   * THEY ARE ANCHORS, NOT BUTTONS, and that is the constraint that shapes the
-   * whole design. This site ships no JavaScript, so there is no such thing as
-   * "one page forward from wherever you are" - an anchor goes to a FIXED card
-   * and nothing can tell it where the shelf currently sits. A CSS :target trick
-   * could fake it, and would then be wrong the instant somebody dragged or
-   * scrolled the shelf, which is the primary way this thing is used.
+   * IT CAN KNOW. `:target` is the page saying which card was last jumped to,
+   * and `:has()` lets the wrapper read it. So there is one pair of arrows per
+   * group, only the pair belonging to the current group is displayed, and each
+   * pair points at the groups either side of it. Click forward three times and
+   * you move forward three groups, with no JavaScript anywhere.
    *
-   * So they go to the two places that are correct no matter where the shelf is:
-   * the first card, and the first card of the last group. At two pages - which
-   * is four to six people live, and the busiest this server realistically gets -
-   * that IS back and forward, and it is never wrong. Past that the dots take
-   * over for the middle.
+   * The first pair is the default, so a browser without `:has()` gets exactly
+   * what this did before rather than nothing.
    *
-   * A shelf that fits on screen gets neither. There is nowhere to go.
+   * DRAGGING STILL WINS, and it stays the primary way this is used: the shelf
+   * is still a scroll container with snap points. The one seam is that dragging
+   * does not move `:target`, so after a long drag the next arrow click jumps
+   * back to where the arrows think you are. That is a jump to a real place on a
+   * shelf of at most four groups, and it resyncs on that click.
+   *
+   * A shelf that fits on screen gets no arrows. There is nowhere to go.
    */
-  const lastPage = (pages - 1) * LIVE_PER_VIEW;
+  /**
+   * FORWARD AIMS AT THE LAST CARD OF THE NEXT GROUP, NOT THE FIRST.
+   *
+   * An anchor does not scroll a box to put the target at the edge; it scrolls
+   * the LEAST it can to bring the target into view. Aiming at the first card of
+   * the next group therefore moved the shelf by one card and left the last
+   * person still cut off at the edge -- which is exactly what Martin saw with
+   * five live: forward once, and Pelziowo was still off the end. Aiming at the
+   * last card of that group scrolls far enough to show the whole group, and on
+   * the final group it lands flush against the end.
+   *
+   * Back aims at the FIRST card of the previous group, for the mirror reason.
+   */
+  const start = (p) => p * LIVE_PER_VIEW;
+  const end = (p) => Math.min(rows.length - 1, p * LIVE_PER_VIEW + LIVE_PER_VIEW - 1);
   const arrows = pages > 1
-    ? `<a class="lvgo back" href="#lv0" aria-label="Back to the newest stream">${chevron('back')}</a>
-       <a class="lvgo fwd" href="#lv${lastPage}" aria-label="The rest of the streams">${chevron('fwd')}</a>`
+    ? Array.from({ length: pages }, (_, p) =>
+        `<span class="lvnav n${p}">${
+          p > 0
+            ? `<a class="lvgo back" href="#lv${start(p - 1)}" aria-label="Previous live streams">${chevron('back')}</a>`
+            : ''
+        }${
+          p < pages - 1
+            ? `<a class="lvgo fwd" href="#lv${end(p + 1)}" aria-label="More live streams">${chevron('fwd')}</a>`
+            : ''
+        }</span>`).join('')
     : '';
 
   /**
-   * The dots survive, at three pages and up, and only there.
+   * The dots survive, at three groups and up, and only there.
    *
-   * With two pages the arrows already reach everything and a row of two dots
+   * With two groups the arrows already reach everything and a row of two dots
    * underneath them is furniture repeating what the arrows just said. With
-   * three or more there is a middle the arrows cannot reach, and that is a job
-   * worth keeping them for.
+   * three or more they are the one control that is right whatever the shelf has
+   * been dragged to, because every dot is an absolute destination.
    */
   const dots = pages > 2
     ? `<nav class="lvdots" aria-label="More live streams">${Array.from(
         { length: pages },
-        (_, p) => `<a href="#lv${p * LIVE_PER_VIEW}" aria-label="Streams from ${
+        (_, p) => `<a href="#lv${start(p)}" aria-label="Streams from ${
           p * LIVE_PER_VIEW + 1
         }"></a>`,
       ).join('')}</nav>`

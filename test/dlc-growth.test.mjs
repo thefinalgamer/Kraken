@@ -138,3 +138,56 @@ test('the definitions insert still leaves prices to the rescore', () => {
   assert.ok(!/\bpoints = excluded\.points/.test(block), 'points belong to the rescore');
   assert.ok(!/local_earned = excluded/.test(block), 'and so does local_earned');
 });
+
+/* ---- 13 September: Borderlands 4's DLC stacks in the base game ---- */
+
+test('a game that gained trophies is asked for their names and packs too', () => {
+  /**
+   * MRTheChez: Borderlands 4's two new stacks *"seem to be placed with 0 points
+   * in the base game section"*.
+   *
+   * The growth fix pulled the new trophies in through the EARNED path, which
+   * carries type, rarity and points and NOT name or group_id. So they landed
+   * nameless, with a null group, and a null group reads as the base game. The
+   * names call was never made because `has_names` asks whether the game has ANY
+   * name — and the base game's hundred trophies all had one.
+   *
+   * The same all-or-nothing shape as the original Zenless bug, one table along.
+   */
+  assert.match(code, /t\.name IS NULL OR t\.group_id IS NULL/, 'it looks for the gaps');
+  assert.match(code, /name_gaps/);
+  assert.match(code, /!r\.has_names \|\| r\.name_gaps/, 'either one means ask PSN');
+});
+
+test('a grown game does not wait its turn in the name budget', () => {
+  /**
+   * The budget drains a backlog of never-named games gently across updates,
+   * which is right for a backlog and wrong for a game holding trophies the
+   * member earned tonight. Sixty games ahead of it in the queue would mean the
+   * DLC sat nameless in the base game section for weeks.
+   */
+  assert.match(code, /const grownNow = grown\.has\(t\.npCommunicationId\)/);
+  assert.match(code, /needsNames =\s*\n?\s*grownNow \|\|/, 'growth comes first');
+  assert.match(code, /if \(needsNames && !grownNow\) nameBudget -= 1/,
+    'and it does not spend the budget it skipped');
+});
+
+test('the names call still writes the group, which is the half that was missing', () => {
+  assert.match(code, /group_id = excluded\.group_id/);
+  assert.match(code, /t\.trophyGroupId \?\? 'default'/);
+});
+
+test('games already sitting with gaps get a names-only pass of their own', () => {
+  /**
+   * The fix above only helps a game the scan was going to touch anyway. Once
+   * the growth fix has pulled the new trophies in, the stored count matches
+   * PSN, so the game is not grown, not stale, and not scanned -- and its
+   * nameless stacks would sit in the base game section until somebody happened
+   * to earn something in it. This pass costs one PSN call per game and no
+   * earned call at all.
+   */
+  assert.match(code, /const gaps = gameRows\.filter\(/);
+  assert.match(code, /!scanned\.has\(t\.npCommunicationId\) && unnamed\.has\(t\.npCommunicationId\)/);
+  assert.match(code, /await backfillNames\(psn, t, stats\)/);
+  assert.match(code, /if \(nameBudget <= 0\) break/, 'and it stays inside the same budget');
+});

@@ -506,7 +506,21 @@ async function scanMember(psn, member, updateNo) {
     const cached = await db.query(
       `SELECT g.np_comm_id, g.refreshed_at, g.estimated, g.trophy_count,
               EXISTS (SELECT 1 FROM trophies t
-                       WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL) AS has_names
+                       WHERE t.np_comm_id = g.np_comm_id AND t.name IS NOT NULL) AS has_names,
+              -- ALL-OR-NOTHING AGAIN. has_names answers "has this game ever
+              -- been named", which is false only for a game nobody has ever
+              -- named -- so a game that gained eight DLC trophies after its
+              -- base game was named looked fully named and never asked PSN for
+              -- the new ones. MRTheChez, 13 September: Borderlands 4's two new
+              -- stacks "placed with 0 points in the base game section". They
+              -- had no name and no group id, and a NULL group id reads as the
+              -- base game. Same shape as the Zenless bug: a check that can only
+              -- see an empty set cannot see a set that grew.
+              -- (No backticks in here. A backtick inside a SQL comment inside a
+              -- template literal has broken this file five times.)
+              EXISTS (SELECT 1 FROM trophies t
+                       WHERE t.np_comm_id = g.np_comm_id
+                         AND (t.name IS NULL OR t.group_id IS NULL)) AS name_gaps
          FROM games g
         WHERE g.np_comm_id IN (${placeholders(slice.length)})`,
       slice.map((t) => t.npCommunicationId),
@@ -515,7 +529,7 @@ async function scanMember(psn, member, updateNo) {
       freshness.set(r.np_comm_id, r.refreshed_at);
       known.set(r.np_comm_id, Number(r.trophy_count) || 0);
       if (r.estimated) estimated.add(r.np_comm_id);
-      if (!r.has_names) unnamed.add(r.np_comm_id);
+      if (!r.has_names || r.name_gaps) unnamed.add(r.np_comm_id);
     }
   }
 
@@ -662,15 +676,57 @@ async function scanMember(psn, member, updateNo) {
       !freshness.has(t.npCommunicationId) || stale.has(t.npCommunicationId);
     // A game needs names if it has none stored, or if we have never seen it at
     // all. Only ever true once per game across the whole server.
+    /**
+     * A GROWN GAME JUMPS THE NAME QUEUE, for the same reason it jumps the
+     * rarity queue. The budget exists so a backlog of never-named games drains
+     * gently across updates; a game that gained trophies THIS session is
+     * holding rows with no name and no group right now, and one of them is
+     * probably what the member just earned. There are never many -- it is once
+     * per game after Sony ships a DLC.
+     */
+    const grownNow = grown.has(t.npCommunicationId);
     const needsNames =
-      nameBudget > 0 &&
-      (unnamed.has(t.npCommunicationId) || !freshness.has(t.npCommunicationId));
-    if (needsNames) nameBudget -= 1;
+      grownNow ||
+      (nameBudget > 0 &&
+        (unnamed.has(t.npCommunicationId) || !freshness.has(t.npCommunicationId)));
+    if (needsNames && !grownNow) nameBudget -= 1;
     const entry = await scanGame(
       psn, accountId, t, prior.get(t.npCommunicationId), needsRarityWrite, stats, needsNames,
     );
     if (entry) changelog.push(entry);
     if (++done % 50 === 0) console.log(`  ${done}/${toScan.length} games`);
+  }
+
+  /**
+   * THE GAMES THAT ARE ALREADY BROKEN, which the fix above does not reach.
+   *
+   * Once the growth fix has pulled a DLC's trophies in, the stored count
+   * matches PSN again -- so the game is no longer "grown", is not stale, and
+   * has no reason to be scanned at all. Borderlands 4 would have sat there with
+   * two nameless stacks in the base game section for as long as nobody earned
+   * anything in it.
+   *
+   * So the gaps get their own pass: no earned call, no rarity write, just the
+   * one names call that fills in the name and the pack. Capped by whatever is
+   * left of the same budget, so a member with a hundred half-named games pays
+   * for a few of them per update and the rest drain over the next few.
+   */
+  const scanned = new Set(toScan.map((t) => t.npCommunicationId));
+  const gaps = gameRows.filter(
+    (t) => !scanned.has(t.npCommunicationId) && unnamed.has(t.npCommunicationId),
+  );
+  let filled = 0;
+  for (const t of gaps) {
+    if (nameBudget <= 0) break;
+    nameBudget -= 1;
+    filled += 1;
+    await backfillNames(psn, t, stats);
+  }
+  if (gaps.length) {
+    console.log(
+      `  ${filled} game(s) with missing names or packs filled in` +
+        (gaps.length > filled ? `, ${gaps.length - filled} left for next time` : ''),
+    );
   }
 
   if (stats.named) {

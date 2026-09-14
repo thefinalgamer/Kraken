@@ -244,7 +244,23 @@ function card({ metal, name, game, points, rate, climb, demo }) {
   </div>`;
 }
 
-export async function onRequestGet({ env, request, params, waitUntil }) {
+/**
+ * SAME SEATBELT AS THE BAR, and for the same reason: a Pages Function that
+ * throws hands a browser source Cloudflare's error page, which has no refresh
+ * on it and therefore stays on the stream until somebody notices. An empty pop
+ * is this page's normal state -- it is empty almost all of the time -- so a
+ * failure simply looks like a quiet minute. See the bar's wrapper.
+ */
+export async function onRequestGet(context) {
+  try {
+    return await render(context);
+  } catch (err) {
+    console.error('pop failed, showing nothing:', err?.message ?? err);
+    return nothing();
+  }
+}
+
+async function render({ env, request, params, waitUntil }) {
   const url = mendQuery(new URL(request.url));
   const name = decodeURIComponent(params.name ?? '');
 

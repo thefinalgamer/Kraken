@@ -77,3 +77,20 @@ test('both passes are resumable by construction', () => {
     assert.match(query(name), /NOT EXISTS/, `${name} would re-do finished work`);
   }
 });
+
+test('the backfill can also repair a game that is only PARTLY named', async () => {
+  /**
+   * Every other query in this job asks an all-or-nothing question: a game with
+   * NO named trophy, a game with NO group ids. A game named in August that
+   * gained eight DLC trophies in September has both, so nothing here could see
+   * the eight rows that had neither -- and a NULL group id draws as the base
+   * game. MRTheChez found it as Borderlands 4's two stacks sitting in the base
+   * game section, worth nothing.
+   */
+  assert.match(SRC, /const NEXT_PARTIAL = /);
+  assert.match(SRC, /t\.name IS NULL OR t\.group_id IS NULL/);
+  assert.match(SRC, /g\.local_started > 0[\s\S]{0,200}t\.name IS NULL OR t\.group_id IS NULL/,
+    'owned games only, same as the group pass');
+  assert.match(SRC, /stuck\.add\(game\.np_comm_id\)/,
+    'a game PSN publishes no names for is skipped rather than asked forever');
+});

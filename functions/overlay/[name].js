@@ -728,7 +728,45 @@ const doc = (body, scale = 1, fit = '') => `<!doctype html>
 <style>:root{--s:${scale}}${fit}</style>
 </head><body>${body}</body></html>`;
 
-export async function onRequestGet({ env, request, params, waitUntil }) {
+/**
+ * NOTHING GETS OUT OF HERE BUT AN OVERLAY.
+ *
+ * 13 September, on Leon's stream: the bar was replaced by a white Cloudflare
+ * error page, full width, across the top of Sea of Thieves, and chat asked him
+ * what was going on. Martin: *"a very embarrsing one ... i have zero clue"*.
+ *
+ * WHATEVER THREW IS NOT THE POINT. A Pages Function that throws hands the
+ * browser source Cloudflare's own error page, and that page has no meta
+ * refresh on it, so ONE bad second becomes a white banner that sits there for
+ * the rest of the broadcast. The overlay cannot stop D1 having a moment; it
+ * can stop that moment turning into a permanent thing on somebody's channel.
+ *
+ * So every path out of this file is an overlay page. A failure renders the
+ * empty one -- transparent, nothing drawn -- and it carries the same sixty
+ * second refresh as a good render, so the next tick repairs it by itself and
+ * the streamer never touches OBS.
+ *
+ * NOT 500, EITHER. The status goes out as 200: some browser sources and
+ * caches treat an error status as a reason to show their own message, which
+ * is the thing this exists to prevent.
+ */
+export async function onRequestGet(context) {
+  try {
+    return await render(context);
+  } catch (err) {
+    console.error('overlay failed, showing nothing:', err?.message ?? err);
+    return new Response(doc(''), {
+      headers: {
+        'content-type': 'text/html;charset=utf-8',
+        'cache-control': 'no-store',
+        'referrer-policy': 'no-referrer',
+        'x-content-type-options': 'nosniff',
+      },
+    });
+  }
+}
+
+async function render({ env, request, params, waitUntil }) {
   const url = mendQuery(new URL(request.url));
   const name = decodeURIComponent(params.name ?? '');
 
@@ -757,7 +795,7 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
   const asked = raw == null || raw.trim() === '' ? NaN : Number(raw);
   const scale = Number.isFinite(asked) ? Math.min(200, Math.max(70, asked)) / 100 : 1;
 
-  const member = await env.DB.prepare(MEMBER).bind(name).first();
+  const member = await env.DB.prepare(MEMBER).bind(name).first().catch(() => null);
   if (!member) {
     /**
      * 404 WITH AN EMPTY BODY, not an error card.
@@ -824,8 +862,8 @@ export async function onRequestGet({ env, request, params, waitUntil }) {
   const [playing, totals] = await Promise.all([
     live
       ? env.DB.prepare(ONE_GAME).bind(member.psn_account_id, live.id).first().catch(() => null)
-      : env.DB.prepare(PLAYING).bind(member.psn_account_id).first(),
-    env.DB.prepare(TOTAL).first(),
+      : env.DB.prepare(PLAYING).bind(member.psn_account_id).first().catch(() => null),
+    env.DB.prepare(TOTAL).first().catch(() => null),
   ]);
 
   /**

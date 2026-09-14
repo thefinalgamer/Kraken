@@ -426,20 +426,55 @@ test('two groups gets arrows and NOT dots', async () => {
    */
   const body = bodyOf((await render({ live: manyLive(5) })).out);
   assert.match(body, /class="lvgo back" href="#lv0"/, 'back to the first card');
-  assert.match(body, /class="lvgo fwd" href="#lv3"/, 'forward to the second group');
+  assert.match(body, /class="lvgo fwd" href="#lv4"/, 'forward to the END of the second group');
   assert.ok(!body.includes('class="lvdots"'), 'and no dots to duplicate them');
+});
+
+test('forward reaches the last person, not just the next card', async () => {
+  /**
+   * MARTIN, 14 SEPTEMBER, five people live: *"i can go right once but then cant
+   * go right again to see pelzio"*.
+   *
+   * An anchor does not pull its target to the edge of a scrolling box, it
+   * scrolls the least it can to bring the target into view. Aiming forward at
+   * the FIRST card of the next group therefore moved the shelf by one card and
+   * left the fifth streamer still cut off. Aiming at the last card of that
+   * group scrolls far enough to show the whole of it.
+   */
+  const body = bodyOf((await render({ live: manyLive(5) })).out);
+  assert.match(body, /class="lvgo fwd" href="#lv4"/, 'the fifth card, which is the last one');
+
+  // And the last group's pair offers no forward at all — there is nowhere left.
+  const last = body.slice(body.indexOf('class="lvnav n1"'));
+  assert.ok(!last.includes('lvgo fwd'), 'nothing past the end');
+});
+
+test('each group has its own pair of arrows, and only one pair is drawn', async () => {
+  /**
+   * This is what makes forward keep working. :target says which card was last
+   * jumped to and :has lets the wrapper read it, so clicking forward three
+   * times moves forward three groups without a byte of JavaScript.
+   */
+  const { out } = await render({ live: manyLive(9) });
+  const body = bodyOf(out);
+  for (const p of [0, 1, 2]) assert.ok(body.includes(`class="lvnav n${p}"`), `pair ${p}`);
+
+  // The pair for the group you are in, keyed on either end of that group,
+  // because forward lands on the last card and back and the dots on the first.
+  assert.match(out, /\.lvwrap:has\(#lv3:target\) \.lvnav\.n1\{display:contents\}/);
+  assert.match(out, /\.lvwrap:has\(#lv5:target\) \.lvnav\.n1\{display:contents\}/);
+  assert.match(out, /\.lvwrap:has\(#lv6:target\) \.lvnav\.n0\{display:none\}/);
 });
 
 test('three groups keeps the dots, because the arrows cannot reach the middle', async () => {
   /**
-   * The arrows are ANCHORS, not buttons. With no JavaScript there is no "one
-   * page forward from wherever you are" — an anchor goes to a fixed card. So
-   * they go to the two places that are right whatever the shelf has been
-   * dragged to, and the dots cover the middle.
+   * The arrows step group by group now, but the dots stay past two groups:
+   * they are absolute destinations, so they are right whatever the shelf has
+   * been dragged to, which the arrows cannot promise after a long drag.
    */
   const body = bodyOf((await render({ live: manyLive(9) })).out);
-  assert.match(body, /class="lvgo fwd" href="#lv6"/, 'forward lands on the LAST group');
-  assert.match(body, /class="lvdots"/, 'and the middle is still reachable');
+  assert.match(body, /class="lvgo fwd" href="#lv5"/, 'the first pair steps to the middle group');
+  assert.match(body, /class="lvdots"/, 'and every group is still one click away');
   assert.match(body, /href="#lv3"/, 'by its own dot');
 });
 
@@ -511,4 +546,30 @@ test('the odometer is one label to a screen reader, not ten digits ten times', a
   const one = body.slice(body.indexOf('<span class="odo"'));
   assert.match(one.slice(0, 200), /role="img" aria-label="/, 'labelled as one thing');
   assert.match(one.slice(0, 400), /class="od" aria-hidden="true"/, 'and the strips are hidden');
+});
+
+test('the pair rules cover every card the live query can return', async () => {
+  /**
+   * The rules live in the one stylesheet the site ships rather than in a
+   * <style> block on the page, which means they are written out by hand for
+   * card ids lv0..lv11. Three numbers have to agree for that to be true: how
+   * many cards fit a group, how many the query returns, and how far the rules
+   * go. This fails the build if any of them moves without the others.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const index = await readFile(new URL('../functions/index.js', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../functions/_lib/page.js', import.meta.url), 'utf8');
+
+  const perView = Number(index.match(/const LIVE_PER_VIEW = (\d+)/)[1]);
+  const limit = Number(index.match(/live_since IS NOT NULL[\s\S]*?LIMIT (\d+)/)[1]);
+  assert.equal(perView, 3);
+  assert.equal(limit, 12);
+
+  for (let id = perView; id < limit; id += 1) {
+    const group = Math.floor(id / perView);
+    assert.ok(
+      css.includes(`.lvwrap:has(#lv${id}:target) .lvnav.n${group}{display:contents}`),
+      `no rule for card ${id}, which belongs to group ${group}`,
+    );
+  }
 });

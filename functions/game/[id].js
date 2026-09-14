@@ -536,6 +536,9 @@ export async function onRequestGet({ params, env, request }) {
    * and the trophy list is loaded either way.
    */
   const vsName = as ? String(url.searchParams.get('vs') || '').trim().slice(0, 40) : '';
+  // Hide what this hunter already has. Meaningless without one, so it is only
+  // read when there is an `as` to filter against.
+  const todo = Boolean(as) && url.searchParams.has('todo');
 
   const g =
     (await env.DB.prepare(GAME).bind(id).first()) ||
@@ -686,6 +689,9 @@ export async function onRequestGet({ params, env, request }) {
     // with nobody to challenge is half a comparison.
     const other = extra.vs === null ? '' : (extra.vs ?? vsName);
     if (who && other) q.set('vs', other);
+    // The filter rides along with the sort tabs, or picking a sort would
+    // silently hand back the 286 trophies it was just asked to hide.
+    if (extra.todo ?? todo) q.set('todo', '1');
     const s = q.toString();
     return `/game/${encodeURIComponent(g.np_comm_id)}${s ? `?${s}` : ''}`;
   };
@@ -714,11 +720,25 @@ export async function onRequestGet({ params, env, request }) {
    * label beside it and nothing else: the blur would never lift, and every test
    * that asserted on the CSS would still pass.
    */
+  /**
+   * The filter is NOT a fourth sort, so it does not look like one: it sits
+   * after a gap with the count of what it would leave, and it says what it does
+   * rather than what it is called. "Left to earn" with nothing left would be a
+   * button that empties the page, so it disappears at 100%.
+   */
+  const undone = earned ? trophies.filter((t) => !earned.has(Number(t.trophy_id))).length : 0;
+  const filterChip =
+    earned && !comparing && (undone > 0 || todo)
+      ? `<a class="tab filter${todo ? ' on' : ''}" href="${esc(href({ todo: !todo }))}">${
+          todo ? 'Show all' : `Left to earn &middot; ${n(undone)}`
+        }</a>`
+      : '';
+
   const toolRow = secrets
     ? `<input type="checkbox" id="spoilers" class="spoilbox">
-       <div class="tabs">${tabs}<label for="spoilers" class="spoillabel"
+       <div class="tabs">${tabs}${filterChip}<label for="spoilers" class="spoillabel"
          >Reveal ${n(secrets)} secret ${secrets === 1 ? 'trophy' : 'trophies'}</label></div>`
-    : `<div class="tabs">${tabs}</div>`;
+    : `<div class="tabs">${tabs}${filterChip}</div>`;
 
   /**
    * A header, because the table had one and the cards do not. "28 / 30" with
@@ -730,8 +750,27 @@ export async function onRequestGet({ params, env, request }) {
     '<div class="tlhead"><span class="h-rare">PSN</span>' +
     '<span class="h-local">Hunters</span><span class="h-pts">Points</span></div>';
 
+  /**
+   * WHAT IS LEFT, which is the whole reason somebody opens this page from a
+   * profile. JFL_Leon: *"can we have a unearned filter so i dont need to scroll
+   * through all the stuff i earned already?"* -- Sea of Thieves is 294 trophies
+   * and he has 281 of them, so the thirteen he came to read were a very long
+   * way down.
+   *
+   * A LINK, NOT A CHECKBOX. The reveal above is CSS because hiding a secret is
+   * cosmetic and must survive being toggled back; this changes what the page is
+   * about, so it belongs in the URL where it can be shared, bookmarked and
+   * backed out of. It also means the packs can be counted and dropped
+   * server-side rather than left as empty folders.
+   *
+   * ONLY WITH A HUNTER. Without `?as=` there is no "earned" to filter on --
+   * the bare catalogue is not about anybody. Same rule as the purple.
+   */
+  const leftToEarn = (rows) =>
+    todo && earned ? rows.filter((t) => !earned.has(Number(t.trophy_id))) : rows;
+
   const list = (rows) =>
-    `<ol class="tlist${earned ? ' viewing' : ''}${comparing ? ' vslist' : ''}">${rows
+    `<ol class="tlist${earned ? ' viewing' : ''}${comparing ? ' vslist' : ''}">${leftToEarn(rows)
       .map((t) =>
         trophyCard(t, {
           localTotal: here,
@@ -750,9 +789,16 @@ export async function onRequestGet({ params, env, request }) {
          No trophy list for this game yet. It arrives the next time somebody
          who owns it runs a deep scan.
        </p></div>`
+    : todo && !undone
+      ? `<div class="tablewrap"><p class="empty">
+           ${esc(viewer?.psn_online_id ?? 'They')} has every trophy in this game.
+           <a href="${esc(href({ todo: false }))}">Show all ${n(trophies.length)}</a>.
+         </p></div>`
     : hasPacks
       ? HEAD +
         [...byGroup.entries()]
+          // A pack with nothing left in it is a folder that opens on nothing.
+          .filter(([, rows]) => leftToEarn(rows).length > 0)
           .map(([key, rows]) => {
             const meta = groupName.get(key);
             const base = key === 'default';
@@ -782,12 +828,14 @@ export async function onRequestGet({ params, env, request }) {
             const meta2 = earned
               ? `<b>${n(done)}</b> of ${n(rows.length)}${
                   complete ? ' &middot; <span class="tick">&#10003;</span> done' : ''
-                }`
+                }${todo ? ` &middot; ${n(rows.length - done)} to go` : ''}`
               : `${n(rows.length)} ${rows.length === 1 ? 'trophy' : 'trophies'} &middot; <b>${n(
                   worth,
                 )}</b> points`;
 
-            return `<details class="pack${complete ? ' done' : ''}"${base ? ' open' : ''}>
+            // Filtering, every pack opens: the point of the click was to see
+            // what is left, and a row of shut folders is the scroll again.
+            return `<details class="pack${complete ? ' done' : ''}"${base || todo ? ' open' : ''}>
               <summary class="tgroup">
                 <span class="caret" aria-hidden="true">&#9654;</span>${
                   meta?.icon_url

@@ -305,6 +305,37 @@ const VS_THEIRS = `
    ORDER BY g.max_points DESC, g.title ASC
    LIMIT ?`;
 
+/**
+ * Games in the index this hunter has never played, matching what was searched.
+ *
+ * Martin: *"if i type in call of duty showing call of duty game i havent played
+ * that are in our system? like you may like these or add these to the
+ * collection"*. The library search answers "what have I got"; this answers the
+ * question people were actually typing into it, which is "what is missing".
+ *
+ * ONLY ON SUBMIT, and only with a search term. It is a LIKE over the whole
+ * games table -- the same class of scan the library search already pays for,
+ * on the same click, and never on a page nobody asked for.
+ *
+ * `max_points > 0` for the reason VS_THEIRS gives: a game nothing in which is
+ * hard for anybody is not a suggestion, it is noise, and a five row list cannot
+ * afford one.
+ */
+const MISSING = `
+  SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
+         g.trophy_count, g.local_started
+    FROM games g
+   WHERE g.title LIKE ? ESCAPE '\\'
+     AND g.max_points > 0
+     AND NOT EXISTS (SELECT 1 FROM member_games mg
+                      WHERE mg.psn_account_id = ?
+                        AND mg.np_comm_id = g.np_comm_id)
+   ORDER BY g.max_points DESC, g.title ASC
+   LIMIT ?`;
+
+/** How many of those to show. Enough to be worth reading, short enough to skim. */
+const MISSING_ROWS = 5;
+
 const gamesSql = (order, search) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
@@ -858,6 +889,43 @@ function vsRow(g, meName, themName, myCompletion) {
 }
 
 /**
+ * One game the hunter has not got, under a search of their library.
+ *
+ * SAME ROW AS THE COMPARE PANEL uses, deliberately: it is the same sentence --
+ * "here is a game that is not yours yet" -- and giving it its own look would
+ * be a second vocabulary for one idea. No progress bars, because there is no
+ * progress: nobody has played it.
+ *
+ * WHAT IT PAYS IS THE POINT, and it is the game's full price rather than
+ * anything multiplied. A game they do not own has no completion of theirs to
+ * apply, and the page header already prints the same figure in the same
+ * currency for every game on the site.
+ *
+ * NO `?as=` ON THE LINK. The game page would take it as "show me their
+ * trophies in this" and have to answer that they do not own it. This row is
+ * about the GAME, so it opens the game's own page.
+ */
+function missingRow(g) {
+  const owners = Number(g.local_started) || 0;
+  return `<li class="vsrow">
+    ${
+      g.icon_url
+        ? `<img class="ico" src="${esc(secureUrl(g.icon_url))}" alt="" loading="lazy" width="46" height="46">`
+        : '<span class="ico"></span>'
+    }
+    <div class="vsg">
+      ${g.platform ? `<span class="plat-chip">${esc(g.platform)}</span>` : ''}<a
+        class="tname" href="${esc(gameHref(g.np_comm_id))}">${esc(g.title)}</a>
+      <span class="vsmeta">${n(g.trophy_count)} ${
+        Number(g.trophy_count) === 1 ? 'trophy' : 'trophies'
+      } &middot; <b>${n(g.max_points)}</b> points for a full completion &middot; ${
+        owners ? `${n(owners)} of us own it` : 'nobody here owns it'
+      }</span>
+    </div>
+  </li>`;
+}
+
+/**
  * The compare panel.
  *
  * POINTS ARE NOT COMPARED PER GAME AND THAT IS SAID OUT LOUD. Two people
@@ -1025,6 +1093,20 @@ export async function onRequestGet({ params, env, request }) {
 
   const hasNext = fetched.length > PER_PAGE;
   const games = fetched.slice(0, PER_PAGE);
+
+  /**
+   * ...and what the search found that is NOT theirs. Only while searching, and
+   * wrapped: a suggestion list is the last thing on the page that should be
+   * able to take the page down with it.
+   */
+  const { results: missingRows = [] } = q
+    ? await env.DB.prepare(MISSING)
+        .bind(likeTerm(q), m.psn_account_id, MISSING_ROWS + 1)
+        .all()
+        .catch(() => ({ results: [] }))
+    : { results: [] };
+  const missing = missingRows.slice(0, MISSING_ROWS);
+  const missingMore = missingRows.length > MISSING_ROWS;
 
   /**
    * Wrapped, because `on_stream` arrives in migration 024. One un-run migration
@@ -1578,6 +1660,30 @@ export async function onRequestGet({ params, env, request }) {
         : `<div class="tablewrap"><p class="empty">${
             q ? `No games matching <b>${esc(q)}</b>.` : 'No games on this page.'
           }</p></div>`
+    }
+
+    ${
+      /**
+       * WHAT THE SEARCH FOUND THAT IS NOT THEIRS.
+       *
+       * Under the results rather than mixed into them, because the table above
+       * is their library and every row in it is a fact about them. These are
+       * not: they are games the board knows about that they have never touched,
+       * which is a different sentence and gets a different box.
+       */
+      missing.length
+        ? `<section class="panel missing">
+             <h2>Not in this library</h2>
+             <p class="vsnote">Games we know about matching <b>${esc(q)}</b> that
+               ${esc(m.psn_online_id)} has never played, biggest payout first.</p>
+             <ul class="vslist">${missing.map((g) => missingRow(g)).join('')}</ul>
+             ${
+               missingMore
+                 ? `<p class="vsnote foot">There are more. Narrow the search to see them.</p>`
+                 : ''
+             }
+           </section>`
+        : ''
     }
 
     <footer>

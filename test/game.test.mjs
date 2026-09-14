@@ -884,3 +884,81 @@ test('the split costs one row per hunter, not a walk through the trophy log', as
   await versus();
   assert.ok(!lastTrophySql.includes('member_trophies'), 'the log is not involved');
 });
+
+/* ---- left to earn ---- */
+
+const NAMES_OF = (out) =>
+  [...bodyOf(out).matchAll(/class="tname">([^<]*)</g)].map((m) => m[1]);
+
+test('a hunter can hide what they already have', async () => {
+  /**
+   * JFL_Leon: *"can we have a unearned filter so i dont need to scroll through
+   * all the stuff i earned already?"* -- Sea of Thieves is 294 trophies and he
+   * holds 281, so the thirteen he opened the page for were four screens down.
+   */
+  const viewer = { ...VIEWER, completion: 87.8 }; // holds trophies 1 and 3
+  const { out } = await render({ viewer }, '?as=JFL__Leon&todo=1');
+  const names = NAMES_OF(out);
+
+  assert.ok(names.includes('Bloodborne'), 'what is left is still there');
+  assert.ok(names.some((t) => t.startsWith('Childhood')), 'secret or not');
+  assert.ok(!names.includes('Blood Rapture'), 'and what he has is gone');
+  assert.ok(!names.includes('Ill-Omened Nightmare'));
+});
+
+test('the chip counts what is left, and turns into a way back', async () => {
+  const off = await render({ viewer: VIEWER }, '?as=JFL__Leon');
+  assert.match(bodyOf(off.out), /class="tab filter"[^>]*>Left to earn &middot; 2</);
+  assert.match(off.out, /href="[^"]*todo=1/, 'and the link switches it on');
+
+  const on = await render({ viewer: VIEWER }, '?as=JFL__Leon&todo=1');
+  assert.match(bodyOf(on.out), /class="tab filter on"[^>]*>Show all</);
+  assert.ok(!/href="[^"]*todo=1/.test(on.out.slice(on.out.indexOf('class="tab filter'))),
+    'and the way back drops it');
+});
+
+test('the filter rides along with the sort tabs', async () => {
+  // Picking a sort while filtering must not hand back the 281 it just hid.
+  const { out } = await render({ viewer: VIEWER }, '?as=JFL__Leon&todo=1');
+  const tabs = [...bodyOf(out).matchAll(/class="tab(?: on)?" href="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(tabs.length >= 3);
+  assert.ok(tabs.every((h) => h.includes('todo=1')), 'every sort keeps it on');
+});
+
+test('there is no filter on the bare catalogue, and todo alone does nothing', async () => {
+  const { out } = await render({});
+  assert.ok(!bodyOf(out).includes('Left to earn'), 'nobody to filter against');
+
+  // ?todo= without ?as= is somebody editing the URL. The page must not decide
+  // to hide half of itself on the strength of it.
+  const loose = await render({}, '?todo=1');
+  assert.equal(NAMES_OF(loose.out).length, 4, 'all four still listed');
+});
+
+test('a pack with nothing left in it disappears while filtering', async () => {
+  const viewer = { ...VIEWER, earned_ids: '[2]' }; // the whole of DLC 1
+  const { out } = await render(
+    { trophies: PACKED, groups: [{ group_id: '001', name: 'Expansion Pack 1', icon_url: null }], viewer },
+    '?as=JFL__Leon&todo=1',
+  );
+  const body = bodyOf(out);
+  assert.ok(!body.includes('Expansion Pack 1'), 'an empty folder is not a folder');
+  assert.ok(body.includes('Base game'), 'the ones with work left stay');
+  assert.match(body, /<details class="pack" open>/, 'and they open, or it is the scroll again');
+});
+
+test('a hunter with the lot is told so rather than shown an empty page', async () => {
+  const viewer = { ...VIEWER, earned_ids: '[0,1,2,3]' };
+  const { out } = await render({ viewer }, '?as=JFL__Leon&todo=1');
+  const body = bodyOf(out);
+  assert.match(body, /JFL__Leon has every trophy in this game/);
+  assert.match(body, /Show all 4/, 'with the way back');
+  assert.ok(!body.includes('Left to earn'), 'and no chip offering to hide nothing');
+});
+
+test('no filter while comparing two hunters', async () => {
+  // Two people, two sets of earned trophies: "left to earn" would have to ask
+  // whose, and the row already answers it for both.
+  const { out } = await versus();
+  assert.ok(!bodyOf(out).includes('Left to earn'));
+});

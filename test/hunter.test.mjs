@@ -102,7 +102,7 @@ let vsQueries = 0;
 
 const fakeEnv = ({
   onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [],
-  wishes = [],
+  wishes = [], missing = [],
   vsMember = null, vsAhead = [], vsTheirs = [],
   names = [{ psn_online_id: 'JFL__Leon' }, { psn_online_id: 'MRTheChez' },
     { psn_online_id: 'th3finalgamer--' }] } = {}) => ({
@@ -125,7 +125,10 @@ const fakeEnv = ({
           // nobody had asked to compare anything on.
           !sql.includes('ORDER BY rank ASC')) ||
         sql.includes('them.progress > mine.progress') ||
-        sql.includes('NOT EXISTS')
+        // The search's "not in this library" list is also a NOT EXISTS, and it
+        // is not a compare query -- it runs on a page nobody asked to compare
+        // anything on.
+        (sql.includes('NOT EXISTS') && !sql.includes('FROM games g'))
       ) {
         vsQueries += 1;
       }
@@ -159,6 +162,9 @@ const fakeEnv = ({
         }
         if (sql.includes('them.progress > mine.progress')) {
           return { all: async () => ({ results: vsAhead }) };
+        }
+        if (sql.includes('FROM games g')) {
+          return { all: async () => ({ results: missing }) };
         }
         if (sql.includes('NOT EXISTS')) {
           return { all: async () => ({ results: vsTheirs }) };
@@ -1282,4 +1288,47 @@ test('no names means a plain box, not a broken page', async () => {
   assert.equal(res.status, 200);
   assert.ok(!out.includes('<datalist'), 'no empty list element');
   assert.match(bodyOf(out), /name="vs"/, 'and the box still works by typing');
+});
+
+/* ---- what the search found that is NOT theirs ---- */
+
+const MISSING_ROWS = [
+  { np_comm_id: 'NPWRX1', title: 'Call of Duty®: Black Ops 4', platform: 'PS4',
+    icon_url: null, max_points: 13974, trophy_count: 103, local_started: 6 },
+  { np_comm_id: 'NPWRX2', title: 'Call of Duty®: WWII', platform: 'PS4',
+    icon_url: null, max_points: 7000, trophy_count: 91, local_started: 0 },
+];
+
+test('a search also shows games in the index this hunter has never played', async () => {
+  /**
+   * Martin: *"if i type in call of duty showing call of duty game i havent
+   * played that are in our system?"*. The table above is their library; this
+   * is the other half of the question they were already typing.
+   */
+  const { out } = await render('JFL__Leon', '?q=call+of+duty', { missing: MISSING_ROWS });
+  const body = bodyOf(out);
+
+  assert.match(body, /Not in this library/);
+  assert.match(body, /Black Ops 4/);
+  assert.match(body, /13,974<\/b> points for a full completion/, 'what it pays, undiluted');
+  assert.match(body, /6 of us own it/);
+  assert.match(body, /nobody here owns it/, 'and zero is a fact, not a blank');
+});
+
+test('those links open the game, not the game through a library that lacks it', async () => {
+  const { out } = await render('JFL__Leon', '?q=call+of+duty', { missing: MISSING_ROWS });
+  const hrefs = [...bodyOf(out).matchAll(/href="(\/game\/[^"]*)"/g)].map((m) => m[1]);
+  const theirs = hrefs.filter((h) => h.includes('NPWRX'));
+  assert.ok(theirs.length >= 1);
+  assert.ok(!theirs.some((h) => h.includes('as=')), 'no ?as= — they do not own it');
+});
+
+test('no search, no suggestions, and no query for them either', async () => {
+  const { out } = await render('JFL__Leon', '', { missing: MISSING_ROWS });
+  assert.ok(!bodyOf(out).includes('Not in this library'));
+});
+
+test('a search that finds nothing missing says nothing at all', async () => {
+  const { out } = await render('JFL__Leon', '?q=bloodborne', { missing: [] });
+  assert.ok(!bodyOf(out).includes('Not in this library'));
 });

@@ -716,6 +716,15 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
   display:inline-flex;align-items:center;gap:8px;
 }
 .tab.soon:hover{color:var(--faint);border-color:var(--edge)}
+/* THE FILTER IS NOT A SORT, and the row has to say so before it is read. The
+   three sorts rearrange the same list; this one changes which list it is. So it
+   keeps the panel background the tabs do not have — the same trick the reveal
+   label uses — and a brass edge when it is on rather than the kraken fill the
+   selected sort wears. Nothing but a sort should ever look like the sort that
+   is currently chosen. */
+.tab.filter{background:var(--panel);margin-left:4px}
+.tab.filter.on{color:var(--brass);border-color:var(--brass);background:var(--panel);font-weight:600}
+
 .tab.soon i{
   font-style:normal;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
   color:var(--brass);border:1px solid var(--edge);border-radius:99px;padding:1px 7px;

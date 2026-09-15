@@ -24,6 +24,7 @@
 
 import { esc, n, mendQuery } from '../../_lib/page.js';
 import { displayBanked, withEarnerCounted } from '../../../shared/scoring.mjs';
+import { LIVE_STALE_MS } from '../../../shared/on-stream.mjs';
 
 /**
  * TEN SECONDS, and the number is doing two jobs.
@@ -41,6 +42,34 @@ import { displayBanked, withEarnerCounted } from '../../../shared/scoring.mjs';
 const REFRESH = 10;
 
 /**
+ * AND SIXTY WHEN WE KNOW THEY ARE NOT ON AIR.
+ *
+ * Martin, 16 September, reading the D1 bill: *"i wounder if we can detect
+ * people being live, if it comes back False can we not force close or stop
+ * respoening to the overlay till its picked up for live only"*. He is right,
+ * and the numbers are stark: OBS keeps a browser source running whether or not
+ * the scene is on air, so somebody who leaves it open all day was ringing this
+ * page 8,640 times a day and the Worker another 8,640, for nothing.
+ *
+ * WE ONLY SLOW DOWN WHEN WE ACTUALLY KNOW. A member with a linked channel that
+ * Twitch says is dark is a fact. A member with no channel linked is not: the
+ * overlay has always worked for anybody with an account, and guessing "not
+ * live" at them would leave their pop frozen with no way to find out why. They
+ * keep the ten seconds.
+ *
+ * SIXTY, NOT FIVE MINUTES, and the reason is the data rather than the bill:
+ * the Twitch check only runs every five minutes, so a page refreshing faster
+ * than that is asking a question whose answer cannot have changed yet. A
+ * minute means a stream is picked up within a minute of us finding out.
+ */
+const IDLE_REFRESH = 60;
+
+/** Twitch says dark, and Twitch was asked recently enough to be believed. */
+const knownOffAir = (member, now = Date.now()) =>
+  Boolean(String(member?.twitch_login ?? '').trim()) &&
+  !(Number(member?.live_since) > 0 && Number(member?.live_checked_at) > now - LIVE_STALE_MS);
+
+/**
  * Nothing older than half an hour is worth announcing.
  *
  * Somebody plays offline all evening, syncs at midnight, and forty trophies
@@ -53,7 +82,7 @@ const FRESH_MS = 30 * 60 * 1000;
 
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, completion, rank, prev_rank, overlay_seen_at,
-         last_update_at
+         last_update_at, twitch_login, live_since, live_checked_at
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -189,8 +218,8 @@ ${refresh ? `<meta http-equiv="refresh" content="${refresh}">` : ''}
 </head><body>${body}</body></html>`;
 
 /** Empty, and never cached, so the next refresh asks again. */
-const nothing = () =>
-  new Response(doc('', REFRESH), {
+const nothing = (refresh = REFRESH) =>
+  new Response(doc('', refresh), {
     headers: {
       'content-type': 'text/html;charset=utf-8',
       'cache-control': 'no-store',
@@ -322,6 +351,14 @@ async function render({ env, request, params, waitUntil }) {
    * becoming another thing to set in another dashboard. The override still
    * works for anybody running a copy of this somewhere else.
    */
+  /**
+   * OFF AIR, SO STOP ASKING. No doorbell -- the Worker's poll refuses anything
+   * that is not live, so that request could only ever be answered "no" -- no
+   * trophy read, no marker write, and the next refresh is a minute away rather
+   * than ten seconds. One query, then nothing.
+   */
+  if (knownOffAir(member)) return nothing(IDLE_REFRESH);
+
   const worker = env.WORKER_BASE_URL || 'https://platinum-intel.martinleewilkinson1992.workers.dev';
   if (worker && typeof waitUntil === 'function') {
     waitUntil(

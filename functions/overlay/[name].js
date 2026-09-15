@@ -45,10 +45,32 @@ import { localMultiplier } from '../../shared/scoring.mjs';
  */
 const REFRESH = 60;
 
+/**
+ * FIVE MINUTES WHEN TWITCH SAYS THEY ARE DARK.
+ *
+ * The bar is not empty off air -- it still shows rank, cabinet and the last
+ * game, which is what somebody dragging it into a scene needs to see -- so it
+ * keeps rendering rather than going blank. It just stops asking every minute.
+ *
+ * Five rather than the pop's one, because the pop has to be quick off the mark
+ * the moment a trophy lands and this does not: everything on the bar changes
+ * when a scan runs, not when a second passes. Twitch is only checked every five
+ * minutes anyway, so this matches the rate the underlying answer can move.
+ *
+ * ONLY WHEN WE KNOW. No linked channel means no evidence, and the overlay has
+ * always worked for anybody with an account. Those keep the minute.
+ */
+const IDLE_REFRESH = 300;
+
+/** Twitch says dark, and Twitch was asked recently enough to be believed. */
+const knownOffAir = (member, now = Date.now()) =>
+  Boolean(String(member?.twitch_login ?? '').trim()) &&
+  !(Number(member?.live_since) > 0 && Number(member?.live_checked_at) > now - LIVE_PLAY_MS);
+
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, rank, points, raw_points, completion,
          platinum, gold, silver, bronze, projects, completed, live_play,
-         live_since, live_checked_at
+         live_since, live_checked_at, twitch_login
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -719,10 +741,10 @@ function responsive(scale, { title, mid, chase, warn, live }) {
 }
 
 /** A bare document. No shared page chrome, because this is not a page. */
-const doc = (body, scale = 1, fit = '') => `<!doctype html>
+const doc = (body, scale = 1, fit = '', refresh = REFRESH) => `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="${REFRESH}">
+<meta http-equiv="refresh" content="${refresh}">
 <title>overlay</title>
 <style>${STYLES}</style>
 <style>:root{--s:${scale}}${fit}</style>
@@ -831,8 +853,15 @@ async function render({ env, request, params, waitUntil }) {
    * cost a second PSN call; it only means the poll happens when EITHER source
    * is on screen rather than one particular one.
    */
+  /**
+   * THE DOORBELL IS FOR PEOPLE WHO ARE ON AIR. The Worker's poll refuses
+   * anybody Twitch says is dark, so ringing it for them is a request that can
+   * only be answered "not live" -- and OBS keeps this page refreshing whether
+   * or not the scene is live, all day, for everybody who ever added the bar.
+   */
+  const offAir = knownOffAir(member);
   const worker = env.WORKER_BASE_URL || 'https://platinum-intel.martinleewilkinson1992.workers.dev';
-  if (worker && typeof waitUntil === 'function') {
+  if (!offAir && worker && typeof waitUntil === 'function') {
     waitUntil(
       fetch(`${worker}/poll/${encodeURIComponent(member.psn_online_id)}`, {
         headers: { 'user-agent': 'kraken-overlay' },
@@ -982,15 +1011,20 @@ async function render({ env, request, params, waitUntil }) {
   </div>`;
 
   return new Response(
-    doc(body, scale, responsive(scale, {
-      title: shown?.title,
-      mid: showMid,
-      chase: !!ahead,
-      // Both of these are only sometimes on the bar and both are wide enough to
-      // cost a segment if they are not counted.
-      warn: Number(shown?.unobtainable) === 1,
-      live: onStream > 0,
-    })),
+    doc(
+      body,
+      scale,
+      responsive(scale, {
+        title: shown?.title,
+        mid: showMid,
+        chase: !!ahead,
+        // Both of these are only sometimes on the bar and both are wide enough
+        // to cost a segment if they are not counted.
+        warn: Number(shown?.unobtainable) === 1,
+        live: onStream > 0,
+      }),
+      offAir ? IDLE_REFRESH : REFRESH,
+    ),
     {
     headers: {
       'content-type': 'text/html;charset=utf-8',

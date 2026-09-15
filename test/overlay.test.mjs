@@ -849,3 +849,59 @@ test('a query that fails mid-render still draws the rest of the bar', async () =
   assert.equal(res.status, 200);
   assert.match(await res.text(), /class="bar/, 'the bar still renders');
 });
+
+/* ---- 16 September: the bar stops asking when nobody is watching ---- */
+
+test('off air, the bar still draws but backs off to five minutes', async () => {
+  /**
+   * The saving Martin asked for, without the thing that would have gone wrong:
+   * an empty bar. Somebody dragging the source into a scene at four in the
+   * afternoon still needs to see it, so it renders as normal and simply stops
+   * asking every minute. Twitch is only checked every five minutes anyway, so
+   * a faster refresh is asking a question whose answer cannot have moved.
+   */
+  const { out } = await render({
+    member: { ...MEMBER, twitch_login: 'pelzio', live_since: null, live_checked_at: Date.now() - 60000 },
+  });
+  assert.match(out, /http-equiv="refresh" content="300"/);
+  assert.match(out, /class="bar/, 'and it is still a bar');
+});
+
+test('off air, the bar does not ring the Worker', async () => {
+  /**
+   * The poll refuses anybody Twitch says is dark, so the doorbell could only
+   * ever be answered "not live" — and it was being rung once a minute, per
+   * person, all day, by OBS sources sitting in scenes nobody was on.
+   */
+  const calls = [];
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (url) => { calls.push(String(url)); return new Response(''); };
+
+  // waitUntil is what carries the doorbell, so the fake has to provide one.
+  const ring = async (member) => {
+    const res = await mod.onRequestGet({
+      env: fakeEnv({ member }),
+      request: new Request('https://platinumintel.co.uk/overlay/Pelzio'),
+      params: { name: 'Pelzio' },
+      waitUntil: (p) => p,
+    });
+    await res.text();
+  };
+
+  try {
+    await ring({ ...MEMBER, twitch_login: 'pelzio', live_since: null,
+      live_checked_at: Date.now() - 60000 });
+    assert.deepEqual(calls.filter((u) => u.includes('/poll/')), [], 'no doorbell');
+
+    await ring({ ...MEMBER, twitch_login: 'pelzio', live_since: Date.now() - 600000,
+      live_checked_at: Date.now() - 30000 });
+    assert.equal(calls.filter((u) => u.includes('/poll/')).length, 1, 'but it rings when they are live');
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test('no channel linked means no assumption: the bar keeps its minute', async () => {
+  const { out } = await render({ member: { ...MEMBER, twitch_login: null } });
+  assert.match(out, /http-equiv="refresh" content="60"/);
+});

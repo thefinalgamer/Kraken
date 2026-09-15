@@ -331,3 +331,53 @@ test('a database with no local counts is left exactly as it was', async () => {
   });
   assert.match(bodyOf(out), new RegExp(`\\+${displayBanked(695, 87.8)}`));
 });
+
+/* ---- 16 September: not paying for browser sources nobody is watching ---- */
+
+const OFF_AIR = {
+  ...MEMBER, twitch_login: 'pelzio', live_since: null, live_checked_at: NOW - 60000,
+};
+
+test('a channel Twitch says is dark gets one query and a slow refresh', async () => {
+  /**
+   * OBS keeps a browser source running whether or not the scene is on air, so
+   * somebody who leaves it open all day was asking this page 8,640 times and
+   * ringing the Worker another 8,640, for nothing. D1 metrics, 15 September:
+   * two billion rows read in a day.
+   */
+  const { out, writes } = await render({ member: OFF_AIR });
+
+  assert.match(out, /http-equiv="refresh" content="60"/, 'a minute, not ten seconds');
+  assert.ok(isEmpty(out), 'and nothing is drawn');
+  assert.deepEqual(writes, [], 'no marker write either');
+});
+
+test('a member with no channel linked keeps the fast refresh', async () => {
+  /**
+   * NO CHANNEL IS NOT EVIDENCE OF BEING OFF AIR. The overlay has always worked
+   * for anybody with an account, and somebody streaming on YouTube would
+   * otherwise get a pop that fires a minute late for no reason they could ever
+   * work out.
+   */
+  const { out } = await render({ member: { ...MEMBER, twitch_login: null } });
+  assert.match(out, /http-equiv="refresh" content="10"/);
+});
+
+test('a stale live check is treated as off air, not as live forever', async () => {
+  // live_since set but nobody has asked Twitch in half an hour: that is a
+  // check that stopped running, not a stream that never ends.
+  const { out } = await render({
+    member: { ...MEMBER, twitch_login: 'pelzio', live_since: NOW - 3 * 60 * MIN,
+      live_checked_at: NOW - 40 * MIN },
+  });
+  assert.match(out, /content="60"/);
+});
+
+test('live means live: the pop still fires in ten seconds', async () => {
+  const { out } = await render({
+    member: { ...MEMBER, twitch_login: 'pelzio', live_since: NOW - 30 * MIN,
+      live_checked_at: NOW - MIN },
+  });
+  assert.match(out, /content="10"/);
+  assert.match(bodyOf(out), /Grail Diary Complete/, 'and still shows the trophy');
+});

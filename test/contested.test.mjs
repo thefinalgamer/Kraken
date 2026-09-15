@@ -157,3 +157,36 @@ test('an empty week still renders a card that reads like English', () => {
   );
   assert.match(out, /exactly where you left it/);
 });
+
+test('the platinum join stays in the shape the index can serve', async () => {
+  /**
+   * 15 SEPTEMBER, D1 METRICS: two billion rows read in a day, 1.77 billion of
+   * them this one query -- 737,000 rows per render for six rows of output. The
+   * primary key is (np_comm_id, trophy_id), so "the platinum of this game"
+   * meant reading every trophy of every game and discarding the rest.
+   *
+   * Migration 033 adds a PARTIAL index on trophies(np_comm_id, local_earned)
+   * WHERE type = 'platinum'. SQLite only uses a partial index when the query
+   * carries the same literal predicate, so the day somebody rewrites this as
+   * `t.type IN ('platinum')` or binds the type as a parameter, the index stops
+   * applying and nothing fails -- the bill just goes back up. Hence this test.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const sources = [
+    '../shared/contested.mjs',
+    '../functions/contested.js',
+    '../functions/index.js',
+    '../functions/overlay/[name].js',
+  ];
+
+  for (const file of sources) {
+    const src = await readFile(new URL(file, import.meta.url), 'utf8');
+    if (!/type\s*=\s*'platinum'/.test(src)) continue;
+    assert.match(src, /t\.type\s*=\s*'platinum'/, `${file}: the literal the index needs`);
+  }
+
+  const mig = await readFile(new URL('../migrations/033-contested-index.sql', import.meta.url), 'utf8');
+  assert.match(mig, /CREATE INDEX IF NOT EXISTS idx_trophies_plat/);
+  assert.match(mig, /WHERE type = 'platinum'/);
+  assert.match(mig, /local_earned/, 'covering, so the table is never opened');
+});

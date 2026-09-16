@@ -1269,12 +1269,50 @@ async function scanGame(
   // has written the final numbers. The trophies are the fact; the price is
   // whatever it is by the time everything has run.
   const before = new Set(safeJson(was?.earned_ids, []));
+  const newIds = earnedIds.filter((id) => !before.has(id));
+
+  /**
+   * NEW TO US IS NOT THE SAME AS NEW TO THEM, and telling #completed otherwise
+   * cost a channel a small flood.
+   *
+   * 16 September: six members were announced as finishing Minecraft's
+   * Expansion Pack 22 and Sea of Thieves' Season 16 within a day of each
+   * other. Martin: *"all these finished this game ages ago but still coming up
+   * with finished today"*. Nothing had been earned. The DLC fixes the day
+   * before had finally taught the board about trophies those members had held
+   * for months -- no definitions, so no rows, so `before` did not contain them
+   * -- and the moment they arrived, every one of them looked like tonight's
+   * work.
+   *
+   * PSN dates every earned trophy, and we already read it. So a trophy is NEWS
+   * only if it was earned since we last looked at this game for this member;
+   * anything older is the board catching up with itself, which is a database
+   * event and not an achievement.
+   *
+   * `new_trophy_ids` is untouched, because it is the right answer to a
+   * different question: those trophies genuinely are new to the score, and
+   * they should be priced and paid. Only the ANNOUNCEMENTS read the fresh set.
+   *
+   * A row with no `scanned_at` is from before that column existed. Fourteen
+   * days is the fallback: long enough not to swallow a real session, short
+   * enough not to reopen this.
+   */
+  const lastLooked = Number(was?.scanned_at) || Date.now() - 14 * 24 * 60 * 60 * 1000;
+  const earnedAt = new Map(mine.map((t) => [t.id, Number(t.earnedAt)]));
+  const freshIds = newIds.filter((id) => {
+    const at = earnedAt.get(id);
+    // No date from PSN at all: treat it as news rather than silently swallowing
+    // somebody's actual trophy. PS3 titles occasionally arrive this way.
+    return !Number.isFinite(at) || at >= lastLooked;
+  });
+
   return {
     np_comm_id: title.npCommunicationId,
     title: cleanTitle(title.trophyTitleName),
     kind: !was ? 'new' : progress === 100 && was.progress !== 100 ? 'completed' : 'progress',
     trophies_gained: gained,
-    new_trophy_ids: earnedIds.filter((id) => !before.has(id)),
+    new_trophy_ids: newIds,
+    fresh_trophy_ids: freshIds,
     points_gained: 0, // priced later, see priceTheChangelog()
     progress_from: was?.progress ?? 0,
     progress_to: progress,
@@ -1372,6 +1410,9 @@ async function findCompletedGroups(accountId, changelog) {
 
     // Before = what they hold now, minus what they earned this session.
     const gained = new Set(entry.new_trophy_ids.map(Number));
+    // Earned since we last looked, rather than merely new to our records. See
+    // the note on fresh_trophy_ids in changelogEntry().
+    const justEarned = new Set((entry.fresh_trophy_ids ?? entry.new_trophy_ids).map(Number));
     const complete = (ids_, without) =>
       ids_.size > 0 && [...ids_].every((id) => after.has(id) && !(without && gained.has(id)));
 
@@ -1382,6 +1423,8 @@ async function findCompletedGroups(accountId, changelog) {
     for (const [groupId, trophyIds] of packs) {
       if (!complete(trophyIds, false)) continue;   // not finished now
       if (complete(trophyIds, true)) continue;     // was already finished before
+      // Finished MONTHS ago and only just written down. Not news.
+      if (![...trophyIds].some((id) => justEarned.has(id))) continue;
       finished.push({
         np_comm_id: npCommId, group_id: groupId, size: trophyIds.size, remaining,
       });

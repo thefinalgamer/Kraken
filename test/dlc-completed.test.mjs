@@ -216,3 +216,40 @@ test('a first scan announces nothing', async () => {
   assert.match(fn, /if \(first \|\| !channel/, 'silent on a first scan, and off without a channel');
   assert.match(fn, /DISCORD_COMPLETED_CHANNEL_ID/, 'and it goes to #completed');
 });
+
+/* ---- 16 September: the board catching up is not an achievement ---- */
+
+test('a pack whose trophies were earned months ago is not announced', () => {
+  /**
+   * SIX MEMBERS IN ONE DAY. Minecraft's Expansion Pack 22 and Sea of Thieves'
+   * Season 16 went out to #completed for people who had held those trophies for
+   * months. Martin: *"all these finished this game ages ago but still coming up
+   * with finished today"*.
+   *
+   * Nothing was earned. The DLC fixes had just taught the board about trophies
+   * it had no definitions for, so they arrived in `new_trophy_ids` -- new to the
+   * database -- and every one looked like tonight's work. PSN dates every
+   * trophy and the scan already reads it, so the announcement now asks whether
+   * anything was earned since we last looked at that game.
+   */
+  assert.match(code, /const justEarned = new Set\(\(entry\.fresh_trophy_ids \?\? entry\.new_trophy_ids\)/);
+  assert.match(code, /if \(!\[\.\.\.trophyIds\]\.some\(\(id\) => justEarned\.has\(id\)\)\) continue/);
+});
+
+test('fresh means earned since the last scan of that game, not new to the table', () => {
+  assert.match(code, /const lastLooked = Number\(was\?\.scanned_at\) \|\|/, 'the previous look');
+  assert.match(code, /const freshIds = newIds\.filter/);
+  assert.match(code, /!Number\.isFinite\(at\) \|\| at >= lastLooked/,
+    'an undated trophy still counts, rather than being swallowed');
+  assert.match(code, /new_trophy_ids: newIds/, 'and the scoring set is untouched');
+});
+
+test('the 100% card asks the same question', async () => {
+  const { PROJECT_FILTER } = await import('../jobs/lib/discord.mjs');
+  const done = { kind: 'completed', progress_to: 100 };
+
+  assert.equal(PROJECT_FILTER.completed({ ...done, fresh_trophy_ids: [7] }), true, 'earned today');
+  assert.equal(PROJECT_FILTER.completed({ ...done, fresh_trophy_ids: [] }), false,
+    'crossed 100% only because the board caught up');
+  assert.equal(PROJECT_FILTER.completed(done), true, 'an older entry keeps the old behaviour');
+});

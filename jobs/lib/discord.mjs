@@ -774,9 +774,24 @@ export async function publishContested(rows, store) {
  * it" are each true and each happened, so it appears in both channels rather
  * than one picking a winner.
  */
+/**
+ * A GAME FINISHED MONTHS AGO IS NOT FINISHED TODAY.
+ *
+ * Same trap as the DLC cards on 16 September: when the board finally learns
+ * about trophies a member has held for months, every one of them is new to the
+ * DATABASE, so a game can cross into 100% on a session where nothing was
+ * earned. `fresh_trophy_ids` is the scan's answer to "was any of this actually
+ * earned since we last looked" -- see changelogEntry() in scan.mjs.
+ *
+ * Absent rather than empty means the entry came from an older build, and the
+ * old behaviour is the safer guess there: announce it.
+ */
+const isNews = (c) => !c.fresh_trophy_ids || c.fresh_trophy_ids.length > 0;
+
 export const PROJECT_FILTER = {
   new: (c) => c.kind === 'new',
-  completed: (c) => c.kind === 'completed' || (c.kind === 'new' && c.progress_to === 100),
+  completed: (c) =>
+    isNews(c) && (c.kind === 'completed' || (c.kind === 'new' && c.progress_to === 100)),
 };
 
 /**

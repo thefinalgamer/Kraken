@@ -236,3 +236,25 @@ test('a scan never overwrites the blended game total', async () => {
     assert.match(src, /UPDATE games SET max_points =/, `${name} re-totals it`);
   }
 });
+
+test('the audit checks every invariant we have been bitten by', async () => {
+  /**
+   * The audit is SQL rather than code, so nothing else can test it. What this
+   * guards is that a fix we made does not quietly lose its check: each of these
+   * lines corresponds to a bug that reached a member.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const audit = await readFile(new URL('../tools/audit.sql', import.meta.url), 'utf8');
+
+  for (const [what, needle] of [
+    ['FFXV, two currencies', /max_points <> \(SELECT COALESCE\(SUM\(t\.points\), 0\)/],
+    ['Zenless, a game that grew', /trophy_count <> \(SELECT COUNT\(\*\)/],
+    ['Borderlands, missing names', /t\.name IS NULL/],
+    ['Borderlands, missing groups', /t\.group_id IS NULL/],
+    ['DLC 5, packs with no name', /FROM trophy_groups tg/],
+    ['PrimalxFear, 102%', /progress > 100 OR progress < 0/],
+    ['scores that do not add up', /raw_points <> \(SELECT COALESCE\(SUM\(mg\.points\), 0\)/],
+  ]) {
+    assert.match(audit, needle, `the audit lost its check for: ${what}`);
+  }
+});

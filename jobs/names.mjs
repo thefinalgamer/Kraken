@@ -433,33 +433,67 @@ if (regrouped) console.log(`\nFilled in trophy groups for ${regrouped} games.`);
  * Inside the group pass's budget reserve for the same reason it has one: the
  * pack names below are what stop a DLC heading reading "Pack 1".
  *
- * IT IS NOT RESUMABLE BY CONSTRUCTION THE WAY THE OTHERS ARE. A game PSN
- * publishes no names for keeps its NULLs, so it would be selected again on
- * every page and pin the pass to a loop. The ones that come back empty are
- * remembered for the run and skipped.
+ * IT IS NOT RESUMABLE BY CONSTRUCTION THE WAY THE OTHERS ARE, so every game
+ * gets ONE ATTEMPT PER RUN and is not looked at again until the next one.
+ *
+ * The first version only remembered the games PSN returned NOTHING for, and
+ * that is not the only way an attempt can achieve nothing. Warhawk holds 94
+ * trophy rows and PSN publishes names for 57 of them. The fetch came back with
+ * 57 names, counted as a repair, and left the other 37 exactly as NULL as it
+ * found them. The query then selected the same game again, and again, for the
+ * whole eighty-eight minute reserve: a pass that ran every night, made one PSN
+ * call after another, and fixed nothing. It also starved the pack-name pass
+ * below it, which is why DLC headings stopped catching up.
+ *
+ * So the question is no longer "did PSN answer" but "is this game any better
+ * off than it was". A game that is not gets named in the log instead of
+ * retried, because whatever is wrong with it, another identical fetch is not
+ * the cure.
  */
+const GAPS_LEFT = `
+  SELECT COUNT(*) AS c FROM trophies
+   WHERE np_comm_id = ? AND (name IS NULL OR group_id IS NULL)`;
+
 let repaired = 0;
-const stuck = new Set();
+let unfillable = 0;
+const seen = new Set();
 while (Date.now() - started <= GROUP_BUDGET_MS) {
   const games = await db.query(NEXT_PARTIAL, [PAGE]);
-  const batch = games.filter((g) => !stuck.has(g.np_comm_id));
+  const batch = games.filter((g) => !seen.has(g.np_comm_id));
   if (!batch.length) break;
 
   for (const game of batch) {
     if (Date.now() - started > GROUP_BUDGET_MS) break;
+
+    // Marked BEFORE the attempt, so one-attempt-each holds even if it throws.
+    seen.add(game.np_comm_id);
+
+    const before = Number((await db.one(GAPS_LEFT, [game.np_comm_id]))?.c ?? 0);
     try {
       const n = await nameGame(psn, game);
-      if (n === 0) stuck.add(game.np_comm_id);
-      else repaired += 1;
+      const after = Number((await db.one(GAPS_LEFT, [game.np_comm_id]))?.c ?? 0);
+      if (after < before) repaired += 1;
+      if (after > 0) {
+        unfillable += 1;
+        console.log(
+          `  ! ${game.title}: PSN published ${n} names, ` +
+            `${after} row${after === 1 ? '' : 's'} here still have none.`,
+        );
+      }
     } catch (err) {
       failed++;
-      stuck.add(game.np_comm_id);
       console.error(`  x gaps for ${game.title}: ${err.message}`);
     }
   }
 }
 if (repaired) {
   console.log(`\nFilled in missing names or packs for ${repaired} games that had gaps.`);
+}
+if (unfillable) {
+  console.log(
+    `${unfillable} game(s) above still have rows PSN would not name. ` +
+      'They are not retried this run.',
+  );
 }
 
 /**

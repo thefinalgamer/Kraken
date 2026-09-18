@@ -91,8 +91,8 @@ test('the backfill can also repair a game that is only PARTLY named', async () =
   assert.match(SRC, /t\.name IS NULL OR t\.group_id IS NULL/);
   assert.match(SRC, /g\.local_started > 0[\s\S]{0,200}t\.name IS NULL OR t\.group_id IS NULL/,
     'owned games only, same as the group pass');
-  assert.match(SRC, /stuck\.add\(game\.np_comm_id\)/,
-    'a game PSN publishes no names for is skipped rather than asked forever');
+  assert.match(SRC, /seen\.add\(game\.np_comm_id\)/,
+    'a game gets one attempt per run rather than being asked forever');
 });
 
 test('pack names are chased per PACK, not per game', () => {
@@ -106,4 +106,69 @@ test('pack names are chased per PACK, not per game', () => {
   assert.match(q, /tg\.np_comm_id = t\.np_comm_id\s*\n?\s*AND tg\.group_id = t\.group_id/,
     'the pack has to match, not just the game');
   assert.match(q, /t\.group_id <> 'default'/, 'and the base game is not a pack');
+});
+
+/** The gaps pass on its own, so the assertions below cannot match code elsewhere. */
+const gapsPass = () => {
+  const from = SRC.indexOf('const GAPS_LEFT');
+  assert.ok(from > 0, 'the gaps pass is missing from the job');
+  const to = SRC.indexOf('if (unfillable)', from);
+  assert.ok(to > from, 'the gaps pass no longer reports what it could not fill');
+  return SRC.slice(from, to);
+};
+
+test('the gaps pass gives each game ONE attempt per run', () => {
+  /**
+   * The bug this replaces: the pass remembered only the games PSN returned
+   * NOTHING for. Warhawk holds 94 trophy rows and PSN publishes names for 57,
+   * so every attempt came back with 57 names, counted as a repair, and left
+   * the other 37 as NULL as it found them. NEXT_PARTIAL then selected the same
+   * game again, and again, for the entire eighty-eight minute reserve.
+   *
+   * A whole pass, running nightly, spending PSN calls, fixing nothing - and
+   * starving the pack-name pass below it, which is why DLC headings stalled.
+   */
+  const pass = gapsPass();
+
+  assert.ok(!/stuck/.test(pass), 'the old did-PSN-answer guard is gone');
+  assert.match(pass, /const seen = new Set\(\)/);
+
+  // Marked before the fetch, so one-attempt-each survives a throw too.
+  const mark = pass.indexOf('seen.add(game.np_comm_id)');
+  const fetch = pass.indexOf('await nameGame(psn, game)');
+  assert.ok(mark > 0 && fetch > 0, 'the pass still attempts each game once');
+  assert.ok(mark < fetch, 'the game is marked seen BEFORE the attempt, not after');
+
+  // And the batch is filtered by it, or marking would achieve nothing.
+  assert.match(pass, /filter\(\(g\) => !seen\.has\(g\.np_comm_id\)\)/);
+});
+
+test('the gaps pass counts progress, not whether PSN replied', () => {
+  // "It answered" and "it helped" are different questions. Only the second one
+  // can tell a repair from a game that will never be repairable.
+  const pass = gapsPass();
+  assert.match(pass, /const before = /, 'it measures the gap before');
+  assert.match(pass, /const after = /, 'and after');
+  assert.match(pass, /if \(after < before\) repaired/,
+    'a repair is a gap that actually shrank');
+});
+
+test('a game the gaps pass cannot fill is named in the log', () => {
+  /**
+   * Warhawk sat broken for weeks because nothing said so. The pass reported
+   * "filled in missing names for 1 game" every single run while leaving all 37
+   * rows untouched, so the log agreed with itself and nobody looked.
+   */
+  const pass = gapsPass();
+  assert.match(pass, /if \(after > 0\)/, 'it notices rows it did not fill');
+  assert.match(pass, /unfillable/, 'and counts them');
+  assert.match(pass, /console\.log\([\s\S]{0,200}game\.title/,
+    'and names the game rather than reporting a bare total');
+});
+
+test('GAPS_LEFT asks about one game, using the columns the pass fills', () => {
+  const q = query('GAPS_LEFT');
+  assert.match(q, /np_comm_id = \?/, 'one game at a time, not a table scan');
+  assert.match(q, /name IS NULL OR group_id IS NULL/,
+    'the same gap NEXT_PARTIAL selects on, or the two could disagree forever');
 });

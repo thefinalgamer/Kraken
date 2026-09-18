@@ -905,3 +905,69 @@ test('no channel linked means no assumption: the bar keeps its minute', async ()
   const { out } = await render({ member: { ...MEMBER, twitch_login: null } });
   assert.match(out, /http-equiv="refresh" content="60"/);
 });
+
+/* ---- 18 September: /setgame, and nine minutes of nothing ---- */
+
+const DARK = { twitch_login: 'pelzio', live_since: null, live_checked_at: Date.now() - 60000 };
+
+test('a pin typed seconds ago refreshes in ten, not in five minutes', async () => {
+  /**
+   * JFL__Leon, in #general:
+   *
+   *   "also the overlay takes longer then 10 seconds to update with set game"
+   *   "i did /set game prestream nothing, then did it about 4 or 5 mins in again"
+   *   "well im 9 minutes in and still nothing"
+   *   "starting to see why esto gave up on this shit lol"
+   *
+   * The off-air backoff was mine, added to stop twenty thousand requests a day
+   * from sources sitting in scenes nobody was watching. Its comment claimed the
+   * bar only changes when a scan runs. /setgame changes it the moment somebody
+   * types it, and typing it BEFORE going live is the normal way to use it, so
+   * the backoff caught the exact case it should have exempted.
+   */
+  const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 5000 } });
+  assert.match(out, /http-equiv="refresh" content="10"/, 'ten seconds, which is what he expected');
+});
+
+test('a pin a few minutes old keeps the minute rather than the five', async () => {
+  // Past the fast window, still inside the grace: they are between typing it
+  // and going live, which is the whole point of typing it early.
+  const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 5 * 60000 } });
+  assert.match(out, /http-equiv="refresh" content="60"/);
+});
+
+test('an old pin lets the backoff come back', async () => {
+  // Otherwise one /setgame would hold the source at a minute forever, and the
+  // saving this was all built around would leak away a streamer at a time.
+  const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 60 * 60000 } });
+  assert.match(out, /http-equiv="refresh" content="300"/);
+});
+
+test('no pin at all still backs off', async () => {
+  const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: null } });
+  assert.match(out, /http-equiv="refresh" content="300"/);
+});
+
+test('a fresh pin rings the doorbell even though Twitch last said dark', async () => {
+  /**
+   * This is the half that actually ends Leon's nine minutes. Refreshing faster
+   * only helps if something notices he has gone live, and the doorbell is what
+   * does that. Skipping it off air meant the page could not find out.
+   */
+  const calls = [];
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (url) => { calls.push(String(url)); return new Response(''); };
+  try {
+    const res = await mod.onRequestGet({
+      env: fakeEnv({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 5000 } }),
+      request: new Request('https://platinumintel.co.uk/overlay/Pelzio'),
+      params: { name: 'Pelzio' },
+      waitUntil: (p) => p,
+    });
+    await res.text();
+    assert.equal(calls.filter((u) => u.includes('/poll/')).length, 1,
+      'a pin means they are about to go live, so ask');
+  } finally {
+    globalThis.fetch = saved;
+  }
+});

@@ -62,6 +62,38 @@ const REFRESH = 60;
  */
 const IDLE_REFRESH = 300;
 
+/**
+ * A PIN IS A PERSON ACTING, AND A PERSON WILL NOT WAIT FIVE MINUTES.
+ *
+ * The comment above says "everything on the bar changes when a scan runs, not
+ * when a second passes". That is wrong, and Leon found it the hard way:
+ *
+ *   "i did /set game prestream nothing, then did it about 4 or 5 mins in again"
+ *   "well im 9 minutes in and still nothing"
+ *
+ * /setgame changes the bar the moment somebody types it, and typing it BEFORE
+ * going live is the normal way to use it. Which means the one moment a streamer
+ * most wants this page to react is precisely the moment the off-air backoff had
+ * put it on a five minute timer. Two cycles of that is Leon's nine minutes.
+ *
+ * So a fresh pin does two things. For two minutes the page refreshes every ten
+ * seconds, because ten seconds is what Leon expected and he was right to. For
+ * fifteen minutes after that it is not treated as off air at all, so it keeps
+ * the normal minute AND keeps ringing the doorbell, which is what notices they
+ * have gone live.
+ *
+ * The cost is bounded by the pin: about a dozen extra requests each time
+ * somebody runs /setgame, against the twenty thousand a day the backoff saved.
+ * live_pin_at has been sitting in migration 027 unread since it was added, for
+ * exactly this.
+ */
+const PIN_REFRESH = 10;
+const PIN_FAST_MS = 2 * 60 * 1000;
+const PIN_GRACE_MS = 15 * 60 * 1000;
+
+const pinnedWithin = (member, ms, now = Date.now()) =>
+  Number(member?.live_pin_at) > 0 && Number(member.live_pin_at) > now - ms;
+
 /** Twitch says dark, and Twitch was asked recently enough to be believed. */
 const knownOffAir = (member, now = Date.now()) =>
   Boolean(String(member?.twitch_login ?? '').trim()) &&
@@ -70,7 +102,7 @@ const knownOffAir = (member, now = Date.now()) =>
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, rank, points, raw_points, completion,
          platinum, gold, silver, bronze, projects, completed, live_play,
-         live_since, live_checked_at, twitch_login
+         live_since, live_checked_at, twitch_login, live_pin_at
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -859,7 +891,9 @@ async function render({ env, request, params, waitUntil }) {
    * only be answered "not live" -- and OBS keeps this page refreshing whether
    * or not the scene is live, all day, for everybody who ever added the bar.
    */
-  const offAir = knownOffAir(member);
+  // A pin inside the grace window overrides the backoff entirely. They are
+  // about to go live, and the doorbell is what finds that out.
+  const offAir = knownOffAir(member) && !pinnedWithin(member, PIN_GRACE_MS);
   const worker = env.WORKER_BASE_URL || 'https://platinum-intel.martinleewilkinson1992.workers.dev';
   if (!offAir && worker && typeof waitUntil === 'function') {
     waitUntil(
@@ -1023,7 +1057,11 @@ async function render({ env, request, params, waitUntil }) {
         warn: Number(shown?.unobtainable) === 1,
         live: onStream > 0,
       }),
-      offAir ? IDLE_REFRESH : REFRESH,
+      pinnedWithin(member, PIN_FAST_MS)
+        ? PIN_REFRESH
+        : offAir
+          ? IDLE_REFRESH
+          : REFRESH,
     ),
     {
     headers: {

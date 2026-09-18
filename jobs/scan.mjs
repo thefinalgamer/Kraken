@@ -1073,7 +1073,26 @@ async function scanGame(
          icon_url = excluded.icon_url,
          trophy_count = excluded.trophy_count,
          has_platinum = excluded.has_platinum,
-         max_points = excluded.max_points,
+         /*
+          * max_points IS NOT WRITTEN HERE, for exactly the reason points is not
+          * written on the trophies upsert a few lines down. A scan prices with
+          * local rarity switched OFF, because one member's scan cannot see what
+          * the whole server has earned. The blended figure is the rescore's and
+          * the settle's to write.
+          *
+          * WHAT IT COST. Shinlight, 18 September, on FINAL FANTASY XV: the page
+          * header said 3,778 points for a full completion while the DLC folders
+          * underneath added up to 9,633. Both numbers were ours. The trophies
+          * carried the blend; this column carried whatever the last person to
+          * refresh that game's rarity happened to compute without it, so the
+          * header flipped between two currencies depending on who scanned last.
+          *
+          * A game that has just gained trophies gets its total back within the
+          * day: settleLocalRarity() re-totals every game the session touched,
+          * and the nightly rescore re-totals anything else that moved. On a
+          * first INSERT the scan's figure is still used, which is right -- a
+          * game nobody here owns has no local evidence to blend in yet.
+          */
          estimated = excluded.estimated,
          completion_weight = excluded.completion_weight,
          refreshed_at = excluded.refreshed_at`,

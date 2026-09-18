@@ -197,3 +197,42 @@ test('no multi-row INSERT builds an unbounded parameter list', async () => {
     }
   }
 });
+
+/* ---- 18 September: one game, two totals ---- */
+
+test('a scan never overwrites the blended game total', async () => {
+  /**
+   * SHINLIGHT, FINAL FANTASY XV: the page header said 3,778 points for a full
+   * completion while the DLC folders underneath it added up to 9,633. Both
+   * figures were ours.
+   *
+   * The trophies carry the blend, written by the rescore and the settle. This
+   * column was being overwritten by every scan that refreshed a game's rarity,
+   * and a scan prices with local rarity OFF -- one member cannot see what the
+   * whole server has earned. So the header showed whichever currency the last
+   * refresher happened to use.
+   *
+   * Same rule, same reason, as `points` on the trophies upsert directly below
+   * it: a scan may INSERT a price for a game nobody here owns, and may never
+   * re-price one the board has evidence about.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const scan = await readFile(new URL('../jobs/scan.mjs', import.meta.url), 'utf8');
+  const conflict = scan.slice(
+    scan.indexOf('ON CONFLICT(np_comm_id) DO UPDATE SET'),
+    scan.indexOf('refreshed_at = excluded.refreshed_at'),
+  );
+  const code = conflict.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  assert.ok(!/max_points\s*=\s*excluded/.test(code), 'the scan must not re-price the game');
+  assert.match(code, /trophy_count = excluded\.trophy_count/, 'the size still updates');
+  assert.match(code, /completion_weight = excluded\.completion_weight/,
+    'and so does the completion weight, which has no rarity in it');
+
+  // The two jobs that own it both recompute from the trophies table.
+  const rescore = await readFile(new URL('../jobs/rescore.mjs', import.meta.url), 'utf8');
+  const settle = await readFile(new URL('../jobs/lib/settle.mjs', import.meta.url), 'utf8');
+  for (const [name, src] of [['rescore', rescore], ['settle', settle]]) {
+    assert.match(src, /UPDATE games SET max_points =/, `${name} re-totals it`);
+  }
+});

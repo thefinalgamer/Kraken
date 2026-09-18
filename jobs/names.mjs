@@ -153,15 +153,18 @@ const NEXT_PARTIAL = `
    ORDER BY g.local_started DESC, g.trophy_count DESC, g.np_comm_id ASC
    LIMIT ?`;
 
-/** One game's names, written straight in. Mirrors backfillNames() in scan.mjs. */
-async function nameGame(psn, game) {
-  const defs = await psn.titleTrophies(game.np_comm_id, game.platform);
+/** One game's definitions, written straight in. Shared by both fetch paths. */
+async function writeNames(game, defs, groupId) {
   const named = defs.filter((t) => t.trophyName);
   if (!named.length) return 0;
 
   // group_id rides along on the SAME call. It was being thrown away, which is
   // why Minecraft arrived as 136 trophies in one heap while the console shows a
   // base game and eight expansion packs. See migrations/012.
+  //
+  // groupId is the fallback for a definition that carries none, and it matters:
+  // when the pack was asked for BY ID, that id is the only place the answer
+  // says which pack these trophies belong to.
   const cols = ['np_comm_id', 'trophy_id', 'name', 'detail', 'icon_url', 'group_id'];
   const perChunk = D1.chunkSize(cols.length);
   for (let i = 0; i < named.length; i += perChunk) {
@@ -180,11 +183,49 @@ async function nameGame(psn, game) {
         t.trophyName ?? null,
         t.trophyDetail ?? null,
         t.trophyIconUrl ?? null,
-        t.trophyGroupId ?? 'default',
+        t.trophyGroupId ?? groupId ?? 'default',
       ]),
     );
   }
   return named.length;
+}
+
+/** One game's names, written straight in. Mirrors backfillNames() in scan.mjs. */
+async function nameGame(psn, game) {
+  const defs = await psn.titleTrophies(game.np_comm_id, game.platform);
+  return writeNames(game, defs, 'default');
+}
+
+/**
+ * PSN'S "all" IS NOT ALWAYS ALL.
+ *
+ * getTitleTrophies takes a trophy group id, and this job has always asked for
+ * "all". That is correct for every PS4 and PS5 title here. Warhawk is a PS3
+ * game from 2007 whose servers closed years ago: we hold 94 trophy rows for it,
+ * gathered from members own trophy lists, and "all" returns definitions for 57
+ * of them. The missing 37 are its operation packs.
+ *
+ * So this is a SECOND attempt, made only for a game the first attempt left with
+ * gaps. One call to learn the pack ids, one per pack after that, for the
+ * handful of games in that state, once each per run.
+ *
+ * It reports what PSN said even when it fixes nothing, because "PSN lists one
+ * group" and "PSN lists four groups and will not name them" are different
+ * problems with different fixes, and the log is the only place that difference
+ * is ever visible.
+ */
+async function nameByPack(psn, game) {
+  const groups = await psn.titleTrophyGroups(game.np_comm_id, game.platform);
+  const ids = groups.map((g) => g?.trophyGroupId).filter(Boolean);
+
+  let named = 0;
+  for (const id of ids) {
+    // The base game is what the first attempt already asked for.
+    if (id === 'default') continue;
+    const defs = await psn.titleTrophies(game.np_comm_id, game.platform, id);
+    named += await writeNames(game, defs, id);
+  }
+  return { packs: ids.length, named };
 }
 
 // ------------------------------------------------------------------ run ----
@@ -468,16 +509,27 @@ while (Date.now() - started <= GROUP_BUDGET_MS) {
     // Marked BEFORE the attempt, so one-attempt-each holds even if it throws.
     seen.add(game.np_comm_id);
 
-    const before = Number((await db.one(GAPS_LEFT, [game.np_comm_id]))?.c ?? 0);
+    const gaps = async () => Number((await db.one(GAPS_LEFT, [game.np_comm_id]))?.c ?? 0);
+    const before = await gaps();
     try {
       const n = await nameGame(psn, game);
-      const after = Number((await db.one(GAPS_LEFT, [game.np_comm_id]))?.c ?? 0);
+      const afterAll = await gaps();
+
+      // Only a game the whole-game list could not finish is worth a second,
+      // more expensive look. Most runs never reach this at all.
+      const packs = afterAll > 0 ? await nameByPack(psn, game) : null;
+      const after = packs ? await gaps() : afterAll;
+
       if (after < before) repaired += 1;
-      if (after > 0) {
-        unfillable += 1;
+      if (after > 0) unfillable += 1;
+
+      // One line, both outcomes, every number needed to tell them apart.
+      if (packs) {
         console.log(
-          `  ! ${game.title}: PSN published ${n} names, ` +
-            `${after} row${after === 1 ? '' : 's'} here still have none.`,
+          `  ${after > 0 ? '!' : '+'} ${game.title}: the whole-game list named ` +
+            `${n} and left ${afterAll}. PSN lists ${packs.packs} trophy group(s), ` +
+            `and asking each pack by id named ${packs.named} more. ` +
+            `${after} row${after === 1 ? '' : 's'} here still have no name or pack.`,
         );
       }
     } catch (err) {

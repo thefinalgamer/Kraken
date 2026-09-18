@@ -1071,7 +1071,29 @@ async function scanGame(
          title = CASE WHEN games.title_locked = 1 THEN games.title ELSE excluded.title END,
          platform = excluded.platform,
          icon_url = excluded.icon_url,
-         trophy_count = excluded.trophy_count,
+         /*
+          * trophy_count IS NOT WRITTEN HERE EITHER, for the same reason as
+          * max_points directly below it.
+          *
+          * This column is the size of the whole game. The value a scan holds is
+          * rated.length: the length of ONE member's trophy list. So whichever
+          * member refreshed most recently decided how big the game was for
+          * everybody who looks at it.
+          *
+          * WHAT IT COST. Diablo IV, 18 September: six owners and 46 trophy rows
+          * across a base game and two packs, every row named, priced, and being
+          * earned. The header said 36, which is the base game plus the first
+          * pack exactly. Somebody whose list stopped at 36 scanned after
+          * somebody whose list reached 46, and the page spent weeks telling six
+          * people the game had ten fewer trophies than it was scoring them out
+          * of.
+          *
+          * The rows we hold ARE the game: they are what the page draws and what
+          * completion_weight is summed from. So the count is derived from them,
+          * by the two jobs that can see every member at once. On a first INSERT
+          * the scan's figure is still used, which is right, because a game
+          * nobody here owns has no rows to count but its own.
+          */
          has_platinum = excluded.has_platinum,
          /*
           * max_points IS NOT WRITTEN HERE, for exactly the reason points is not

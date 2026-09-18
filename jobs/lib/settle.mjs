@@ -204,7 +204,9 @@ export async function settleLocalRarity(db, gameIds, { skipAccountId = null } = 
   for (const chunk of chunks) {
     await db.run(
       `UPDATE games SET max_points =
-         (SELECT COALESCE(SUM(t.points), 0) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)
+         (SELECT COALESCE(SUM(t.points), 0) FROM trophies t WHERE t.np_comm_id = games.np_comm_id),
+         trophy_count =
+         (SELECT COUNT(*) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)
         WHERE np_comm_id IN (${chunk.map(() => '?').join(',')})`,
       chunk,
     );

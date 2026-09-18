@@ -327,6 +327,17 @@ async function rescoreGames() {
                 ELSE 0 END), 0)
          FROM trophies t WHERE t.np_comm_id = games.np_comm_id)`,
   );
+  // The size of the game, counted from the rows we hold rather than taken from
+  // whichever member scanned last. See the comment where jobs/scan.mjs stopped
+  // writing this column. Guarded like the two above: a game whose trophy list
+  // has not changed is not rewritten.
+  await db.run(
+    `UPDATE games SET trophy_count =
+       (SELECT COUNT(*) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)
+     WHERE trophy_count IS NOT
+       (SELECT COUNT(*) FROM trophies t WHERE t.np_comm_id = games.np_comm_id)`,
+  );
+
   const worthless = await db.one('SELECT COUNT(*) AS c FROM games WHERE max_points = 0');
   const total = await db.one('SELECT COUNT(*) AS c FROM games');
   console.log(`  ${worthless.c} of ${total.c} games still score nothing (all-easy shovelware)`);

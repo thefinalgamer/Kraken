@@ -49,6 +49,7 @@ test('every nightly write is guarded by the value it is about to set', () => {
     ['estimated', /WHERE estimated IS NOT/],
     ['max_points', /WHERE max_points IS NOT/],
     ['completion_weight', /WHERE completion_weight IS NOT/],
+    ['trophy_count', /WHERE trophy_count IS NOT/],
   ];
   for (const [col, re] of guards) {
     assert.match(SRC, re, `${col} is rewritten every night whether it moved or not`);
@@ -225,15 +226,35 @@ test('a scan never overwrites the blended game total', async () => {
   const code = conflict.replace(/\/\*[\s\S]*?\*\//g, '');
 
   assert.ok(!/max_points\s*=\s*excluded/.test(code), 'the scan must not re-price the game');
-  assert.match(code, /trophy_count = excluded\.trophy_count/, 'the size still updates');
   assert.match(code, /completion_weight = excluded\.completion_weight/,
-    'and so does the completion weight, which has no rarity in it');
+    'the completion weight still updates, because it has no rarity in it');
 
-  // The two jobs that own it both recompute from the trophies table.
+  /*
+   * AND trophy_count IS NOW THE SAME RULE, for the same reason.
+   *
+   * DIABLO IV, 18 September. Six owners. 46 trophy rows across a base game and
+   * two packs, every one named, priced and being earned. The header said 36,
+   * which is the base game plus the first pack exactly.
+   *
+   * The scan wrote this column from rated.length, the length of ONE member's
+   * trophy list, so whichever member refreshed last decided how big the game
+   * was for everybody. Someone whose list stopped at 36 scanned after someone
+   * whose list reached 46, and the page told six people the game had ten fewer
+   * trophies than it was scoring them out of.
+   *
+   * This test used to assert the opposite, with the comment "the size still
+   * updates". It was guarding the bug.
+   */
+  assert.ok(!/trophy_count\s*=\s*excluded/.test(code),
+    'the scan must not resize the game from one member\'s list');
+
+  // The two jobs that own these both recompute from the trophies table.
   const rescore = await readFile(new URL('../jobs/rescore.mjs', import.meta.url), 'utf8');
   const settle = await readFile(new URL('../jobs/lib/settle.mjs', import.meta.url), 'utf8');
   for (const [name, src] of [['rescore', rescore], ['settle', settle]]) {
-    assert.match(src, /UPDATE games SET max_points =/, `${name} re-totals it`);
+    assert.match(src, /UPDATE games SET max_points =/, `${name} re-totals the price`);
+    assert.match(src, /trophy_count =\s*\n?\s*\(SELECT COUNT\(\*\) FROM trophies t/,
+      `${name} re-counts the size`);
   }
 });
 
@@ -244,17 +265,34 @@ test('the audit checks every invariant we have been bitten by', async () => {
    * lines corresponds to a bug that reached a member.
    */
   const { readFile } = await import('node:fs/promises');
-  const audit = await readFile(new URL('../tools/audit.sql', import.meta.url), 'utf8');
+
+  /*
+   * COMPARED WITH THE WHITESPACE TAKEN OUT OF BOTH SIDES.
+   *
+   * These were spaced regexes, matched against the audit as written. Then the
+   * audit had to be reformatted -- the D1 console truncates a paste at around
+   * 2,100 characters, so the SQL was compacted and split into three statements
+   * -- and four of these checks silently stopped matching. The checks were all
+   * still there. The spaces were not.
+   *
+   * What this test is actually for is "the audit still asks this question", and
+   * that question does not depend on how the SQL is laid out. So neither should
+   * the test.
+   */
+  const squash = (s) => s.replace(/\s+/g, '');
+  const audit = squash(await readFile(new URL('../tools/audit.sql', import.meta.url), 'utf8'));
 
   for (const [what, needle] of [
-    ['FFXV, two currencies', /max_points <> \(SELECT COALESCE\(SUM\(t\.points\), 0\)/],
-    ['Zenless, a game that grew', /trophy_count <> \(SELECT COUNT\(\*\)/],
-    ['Borderlands, missing names', /t\.name IS NULL/],
-    ['Borderlands, missing groups', /t\.group_id IS NULL/],
-    ['DLC 5, packs with no name', /FROM trophy_groups tg/],
-    ['PrimalxFear, 102%', /progress > 100 OR progress < 0/],
-    ['scores that do not add up', /raw_points <> \(SELECT COALESCE\(SUM\(mg\.points\), 0\)/],
+    ['FFXV, two currencies', 'max_points <> (SELECT COALESCE(SUM(t.points), 0)'],
+    ['Zenless, a game that grew', 'trophy_count <> (SELECT COUNT(*)'],
+    ['Borderlands, missing names', 't.name IS NULL'],
+    ['Borderlands, missing groups', 't.group_id IS NULL'],
+    ['DLC 5, packs with no name', 'FROM trophy_groups tg'],
+    ['PrimalxFear, 102%', 'progress > 100 OR progress < 0'],
+    ['scores that do not add up', 'raw_points <> (SELECT COALESCE(SUM(mg.points), 0)'],
+    ['Warhawk, rows for trophies that no longer exist',
+      'name IS NULL AND group_id IS NULL'],
   ]) {
-    assert.match(audit, needle, `the audit lost its check for: ${what}`);
+    assert.ok(audit.includes(squash(needle)), `the audit lost its check for: ${what}`);
   }
 });

@@ -536,7 +536,24 @@ export async function syncTierRoles(ranked, only = null) {
 
   const total = ranked.length;
   let changed = 0;
-  let skipped = 0;
+
+  /*
+   * TWO COUNTERS, BECAUSE THERE ARE TWO FAULTS AND THEY HAVE NOTHING TO DO
+   * WITH EACH OTHER.
+   *
+   * "missing" is a member Discord will not even look up: they left the server.
+   * The board still has them, Discord does not, and there is nothing to fix.
+   * "refused" is Discord rejecting the role change itself, which IS a
+   * permissions problem and has the explainer below.
+   *
+   * They used to share one counter, and the explainer fired on the total. So
+   * three members who had left the server printed a confident warning about
+   * MANAGE ROLES and role order at somebody whose bot has had both, correctly
+   * set, for over a month. A diagnostic that names the wrong cause is worse
+   * than no diagnostic: it sends people to go and break something that works.
+   */
+  let missing = 0;
+  let refused = 0;
 
   for (const m of ranked) {
     if (only && !only.has(m.discord_id)) continue;
@@ -553,7 +570,11 @@ export async function syncTierRoles(ranked, only = null) {
         method: 'GET',
       });
     } catch (err) {
-      skipped += 1; // left the server, or Discord hiccuped
+      // Left the server, a stale discord_id, or Discord hiccuping. Logged
+      // either way: silence here is what made three routine departures look
+      // like a broken bot.
+      missing += 1;
+      console.warn(`  could not look up ${m.discord_id}: ${err.message}`);
       continue;
     }
 
@@ -576,7 +597,7 @@ export async function syncTierRoles(ranked, only = null) {
       }
       changed += 1;
     } catch (err) {
-      skipped += 1;
+      refused += 1;
       console.warn(`  could not set roles for ${m.discord_id}: ${err.message}`);
     }
   }
@@ -584,10 +605,17 @@ export async function syncTierRoles(ranked, only = null) {
   // Always logged, even when it is zero. "0 updated" means everybody already
   // had the right role; silence means it never ran.
   console.log(
-    `  tier roles: ${changed} updated, ${skipped} skipped, ` +
-      `${only ? only.size : ranked.length} checked`,
+    `  tier roles: ${changed} updated, ${missing} not in the server, ` +
+      `${refused} refused by Discord, ${only ? only.size : ranked.length} checked`,
   );
-  if (skipped && !changed) {
+  if (missing && !refused) {
+    console.log(
+      `  ${missing} member${missing === 1 ? '' : 's'} could not be looked up, and no role ` +
+        'change was refused. That is what leaving the server looks like from here: ' +
+        'the board still has them, Discord does not. Bot permissions are not involved.',
+    );
+  }
+  if (refused && !changed) {
     // Two different faults, two different fixes, and Discord's codes tell them
     // apart — so read the code rather than guessing. Getting this wrong cost a
     // round trip: the first version blamed role order for a 50001, which is the
@@ -602,7 +630,7 @@ export async function syncTierRoles(ranked, only = null) {
         '  Both are required; having one is not enough.',
     );
   }
-  return { changed, skipped };
+  return { changed, skipped: missing + refused, missing, refused };
 }
 
 // -------------------------------------------------------------- home page ---

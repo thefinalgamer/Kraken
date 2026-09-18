@@ -1,14 +1,20 @@
--- Board audit: every invariant the code believes, asked of the live database.
---
--- Paste the whole thing into the D1 console. One row per check, and a zero in
--- the "wrong" column is the answer you want. Anything else, run the drill-down
--- for that check (tools/audit-drilldown.sql) to see which rows.
---
--- RUN IT AFTER A NIGHTLY RESCORE. The rescore is what re-totals prices, so a
--- run before it reports work that was already scheduled to happen.
---
--- It reads a lot of rows by design. One run costs roughly what a busy hour of
--- the site does; it is not something to leave on a schedule.
+/*
+   Board audit: every invariant the code believes, asked of the live database.
+
+   Paste the whole thing into the D1 console. One row per check, and a zero in
+   the "wrong" column is the answer you want. Anything else, run the drill-down
+   for that check (tools/audit-drilldown.sql) to see which rows.
+
+   RUN IT AFTER A NIGHTLY RESCORE. The rescore is what re-totals prices, so a
+   run before it reports work that was already scheduled to happen.
+
+   It reads a lot of rows by design. One run costs roughly what a busy hour of
+   the site does, so it is not something to leave on a schedule.
+
+   Block comments, not double-dash ones, and no semicolons inside them. A paste
+   into the D1 console can arrive as a single line, and a double-dash comment
+   then swallows the entire query. That has happened once already.
+*/
 
 SELECT 'games priced in two currencies' AS check_name,
        COUNT(*) AS wrong,

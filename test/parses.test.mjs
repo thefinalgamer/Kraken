@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { join, relative } from 'node:path';
@@ -55,6 +55,79 @@ test('every .js and .mjs in the repo parses', () => {
         .split('\n')
         .find((l) => /SyntaxError/.test(l)) ?? 'did not parse';
       broken.push(`${relative(ROOT, file)}: ${why.trim()}`);
+    }
+  }
+
+  assert.deepEqual(broken, [], `\n${broken.join('\n')}\n`);
+});
+
+/**
+ * EVERY .sql IN tools/ SURVIVES BEING PASTED.
+ *
+ * These files are not run by anything. They are opened in a text editor,
+ * copied, and pasted into the Cloudflare D1 console by hand - and a paste can
+ * arrive there as ONE LINE, with every newline gone.
+ *
+ * A double-dash comment that starts such a line therefore comments out the
+ * ENTIRE query, and the console answers "Requests without any query are not
+ * supported". That is exactly what happened to tools/audit.sql, whose eleven
+ * lines of helpful preamble ate the audit underneath them.
+ *
+ * So: block comments only, and no semicolon inside one either, because a
+ * console that splits a paste on semicolons will cut the comment in half and
+ * hand the remainder to the parser as if it were SQL.
+ *
+ * The console also has a size limit it does not advertise. A four thousand
+ * character audit arrived there cut off at about two thousand one hundred, and
+ * came back "incomplete input". So each statement stays short enough to paste
+ * whole, and a file with more to ask splits itself into several.
+ */
+const PASTE_LIMIT = 1500;
+const sqlFiles = () => {
+  const dir = join(ROOT, 'tools');
+  return readdirSync(dir)
+    .filter((n) => n.endsWith('.sql'))
+    .map((n) => join(dir, n));
+};
+
+test('every .sql in tools/ survives being pasted as a single line', () => {
+  const files = sqlFiles();
+  assert.ok(files.length > 0, 'found no .sql files in tools/');
+
+  const broken = [];
+  for (const file of files) {
+    const name = relative(ROOT, file);
+    const text = readFileSync(file, 'utf8');
+
+    if (text.includes('--')) {
+      broken.push(`${name}: uses a double-dash comment, which eats the query when the paste arrives as one line`);
+    }
+    for (const comment of text.match(/\/\*[\s\S]*?\*\//g) ?? []) {
+      if (comment.includes(';')) {
+        broken.push(`${name}: a block comment contains a semicolon, which splits it in half`);
+      }
+    }
+
+    // What the console sees in the worst case: every newline collapsed.
+    const flat = text.replace(/\s*\n\s*/g, ' ');
+    const statements = flat
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!statements.length) {
+      broken.push(`${name}: nothing left to run once flattened`);
+    }
+    for (const s of statements) {
+      if (!/^(SELECT|WITH|UPDATE|INSERT|CREATE|PRAGMA|EXPLAIN)\b/i.test(s)) {
+        broken.push(`${name}: a flattened statement starts with "${s.slice(0, 40)}"`);
+      }
+      if (s.length > PASTE_LIMIT) {
+        broken.push(
+          `${name}: a statement is ${s.length} characters, over the ${PASTE_LIMIT} ` +
+            `the console will take - split it into several`,
+        );
+      }
     }
   }
 

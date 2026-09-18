@@ -172,3 +172,48 @@ test('GAPS_LEFT asks about one game, using the columns the pass fills', () => {
   assert.match(q, /name IS NULL OR group_id IS NULL/,
     'the same gap NEXT_PARTIAL selects on, or the two could disagree forever');
 });
+
+const PSN = readFileSync(
+  fileURLToPath(new URL('../jobs/lib/psn.mjs', import.meta.url)),
+  'utf8',
+);
+
+test('titleTrophies can ask for ONE pack, and still defaults to all', () => {
+  /**
+   * The call always hardcoded "all" as the trophy group id. For Warhawk, a PS3
+   * title from 2007, "all" returns 57 of the 94 trophies we hold and omits its
+   * operation packs entirely. Naming the pack is the only way to reach them.
+   */
+  assert.match(PSN, /async titleTrophies\(npCommunicationId, platform, groupId = 'all'\)/,
+    'the group id is a parameter with the old behaviour as its default');
+  assert.match(PSN, /getTitleTrophies,\s*\n\s*npCommunicationId,\s*\n\s*groupId,/,
+    'and it is the id that gets passed, not the literal "all"');
+  assert.ok(!/getTitleTrophies,\s*\n\s*npCommunicationId,\s*\n\s*'all',/.test(PSN),
+    'the hardcoded "all" is gone');
+});
+
+test('the second attempt asks for each pack by id', () => {
+  assert.match(SRC, /async function nameByPack\(psn, game\)/);
+  assert.match(SRC, /titleTrophyGroups\(game\.np_comm_id, game\.platform\)/,
+    'it learns the pack ids from PSN rather than guessing them');
+  assert.match(SRC, /if \(id === 'default'\) continue/,
+    'the base game is what the first attempt already fetched');
+  assert.match(SRC, /titleTrophies\(game\.np_comm_id, game\.platform, id\)/,
+    'and each pack is fetched by its own id');
+});
+
+test('the pack fetch records which pack a trophy came from', () => {
+  // Asked for BY ID, the id is the only thing that says which pack these
+  // trophies belong to. Defaulting them to "default" would file a game's DLC
+  // under its base game, which is the bug group ids exist to prevent.
+  assert.match(SRC, /async function writeNames\(game, defs, groupId\)/);
+  assert.match(SRC, /t\.trophyGroupId \?\? groupId \?\? 'default'/);
+});
+
+test('the second attempt runs ONLY for a game the first one could not finish', () => {
+  // It costs one call per pack on top of the first. Every game on the board
+  // would be several thousand calls a run to learn nothing.
+  const pass = gapsPass();
+  assert.match(pass, /afterAll > 0 \? await nameByPack\(psn, game\) : null/,
+    'gated on the first attempt having left something behind');
+});

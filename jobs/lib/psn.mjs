@@ -239,12 +239,18 @@ export class PsnClient {
    * A game's trophy definitions plus WORLDWIDE earn rates.
    * Identical for every member, so this is cached globally and fetched once
    * per game rather than once per member per game.
+   *
+   * groupId defaults to "all", which is what every caller wants and what this
+   * method always hardcoded. It is a parameter now because "all" turns out not
+   * to mean all: Warhawk is a PS3 title whose three operation packs do not come
+   * back that way, and the only way to see them is to name the pack. See
+   * nameByPack() in jobs/names.mjs.
    */
-  async titleTrophies(npCommunicationId, platform) {
+  async titleTrophies(npCommunicationId, platform, groupId = 'all') {
     const res = await this.#call(
       getTitleTrophies,
       npCommunicationId,
-      'all',
+      groupId,
       { npServiceName: serviceNameFor(platform) },
     );
     return res?.trophies ?? [];

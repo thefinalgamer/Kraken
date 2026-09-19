@@ -1,0 +1,44 @@
+-- The index behind "what are they playing", for the way the query ACTUALLY asks.
+--
+-- Migration 017 added idx_member_games_recent on (psn_account_id,
+-- last_played_at DESC) and it has never once been used for the sort. Every
+-- caller orders by
+--
+--   COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC
+--
+-- and SQLite cannot use an index on a COLUMN to satisfy an order by an
+-- EXPRESSION over that column. It uses 017 to find the member's rows, then
+-- reads all of them and sorts them in a temp b-tree. EXPLAIN QUERY PLAN says
+-- so in as many words:
+--
+--   SEARCH mg USING INDEX idx_member_games_recent (psn_account_id=?)
+--   USE TEMP B-TREE FOR ORDER BY          <-- the whole library, every time
+--
+-- WHAT IT COSTS. 184 MILLION rows read a day, the largest single item left on
+-- the D1 bill after the contested index took 2B down to 91M. The overlay asks
+-- this once a minute for as long as somebody is live, and the cost is the size
+-- of their library: RobThanatos owns 15,472 games and LucasDiasC 16,211, so one
+-- eight-hour stream by either of them is roughly seven million rows read to
+-- print one game title.
+--
+-- 017's comment reasoned about a 1,512-game library and was right at the time.
+-- The libraries grew by a factor of ten and the query grew a COALESCE, and
+-- nothing re-read the index against it.
+--
+-- FOUR CALLERS, ONE INDEX, the same trade the contested index made:
+--   functions/overlay/[name].js      the OBS bar
+--   functions/hunter/[name].js       the hunter page's game list
+--   functions/api/hunter/[name].js   the Twitch panel's endpoint
+--   worker/src/db.mjs                the live poll
+--
+-- 017's index is KEPT. Two queries in worker/src/db.mjs still sort on the bare
+-- column (ASC for the oldest, DESC for a recent list) and those do use it.
+--
+-- The expression here has to stay character-identical to the one in those four
+-- queries or SQLite quietly goes back to the temp b-tree with no error and no
+-- sign. test/overlay.test.mjs fails the build if they ever drift apart.
+--
+-- Safe to run twice.
+
+CREATE INDEX IF NOT EXISTS idx_member_games_seen
+  ON member_games(psn_account_id, COALESCE(last_played_at, last_earned_at, 0) DESC);

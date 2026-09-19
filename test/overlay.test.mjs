@@ -971,3 +971,46 @@ test('a fresh pin rings the doorbell even though Twitch last said dark', async (
     globalThis.fetch = saved;
   }
 });
+
+/* ---- 18 September: the index that was never used for the sort ---- */
+
+test('every "what are they playing" query sorts by exactly what 035 indexes', async () => {
+  /**
+   * Migration 017 indexed (psn_account_id, last_played_at DESC). Every caller
+   * sorts by COALESCE(last_played_at, last_earned_at, 0) DESC, and SQLite
+   * cannot use an index on a COLUMN to order by an EXPRESSION over it. So it
+   * found the member's rows with 017 and then read and sorted their whole
+   * library, once a minute, for as long as they streamed: 184 million rows a
+   * day, the largest thing left on the D1 bill.
+   *
+   * 035 indexes the expression. The catch is that it only works while the two
+   * are character-identical -- SQLite does not warn, it just goes back to the
+   * temp b-tree. So this pins them together across all four callers.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const squash = (s) => s.replace(/\s+/g, ' ');
+
+  const mig = squash(await readFile(new URL('../migrations/035-recent-play-index.sql', import.meta.url), 'utf8'));
+  const indexed = 'COALESCE(last_played_at, last_earned_at, 0) DESC';
+  assert.ok(mig.includes(`ON member_games(psn_account_id, ${indexed})`),
+    'the migration no longer indexes the expression the queries use');
+
+  for (const file of [
+    '../functions/overlay/[name].js',
+    '../functions/hunter/[name].js',
+    '../functions/api/hunter/[name].js',
+    '../worker/src/db.mjs',
+  ]) {
+    const src = squash(await readFile(new URL(file, import.meta.url), 'utf8'));
+    assert.ok(src.includes(`COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC`),
+      `${file} no longer sorts the way 035 indexes, so it is back to a full scan`);
+  }
+
+  // 017 is still load-bearing for the two queries that sort on the bare column,
+  // so it must not be dropped on the grounds that 035 replaces it.
+  const old = await readFile(new URL('../migrations/017-overlay-recent.sql', import.meta.url), 'utf8');
+  assert.match(old, /idx_member_games_recent/);
+  const worker = await readFile(new URL('../worker/src/db.mjs', import.meta.url), 'utf8');
+  assert.match(worker, /ORDER BY mg\.last_played_at (ASC|DESC)/,
+    'nothing sorts on the bare column any more, so 017 could go');
+});

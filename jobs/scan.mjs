@@ -451,6 +451,59 @@ async function scanMember(psn, member, updateNo) {
   );
   const prior = new Map(priorRows.map((r) => [r.np_comm_id, r]));
 
+  /**
+   * GAMES THE MEMBER HAS DELETED FROM THEIR OWN PSN PROFILE.
+   *
+   * PSN lets you remove a trophy list you have earned nothing in. Shinlight did
+   * that with Hawken on 19 September and it stayed on his Kraken profile,
+   * because the scan only ever upserts what PSN RETURNS and has no concept of a
+   * game going away. Third time this month the same blind spot has bitten:
+   * Warhawk was trophy rows PSN dropped, unlinkMember was a whole library, and
+   * this is one game.
+   *
+   * TWO GUARDS, AND BOTH ARE LOAD-BEARING.
+   *
+   * `earned_total = 0` is the one that makes this safe. A row with nothing
+   * earned holds no trophy, no point and no completion, so removing it cannot
+   * cost anybody anything -- and if PSN lists the game again tomorrow, the next
+   * scan simply re-adds it. Pruning on "PSN did not mention it" alone would be
+   * dangerous: one short response and somebody loses real progress.
+   *
+   * The empty-list check is the second. `titles` coming back empty is a broken
+   * request, not an empty library -- there is a louder check for that case a
+   * few lines above -- and pruning off it would delete every 0% row the member
+   * has. Cheap insurance against the one failure that would be unrecoverable.
+   *
+   * It costs one query per scan against rows already in memory, and on almost
+   * every scan it finds nothing and writes nothing.
+   */
+  if (titles.length) {
+    const stillThere = new Set(titles.map((t) => t.npCommunicationId));
+    const deleted = priorRows
+      .filter((r) => Number(r.earned_total || 0) === 0 && !stillThere.has(r.np_comm_id))
+      .map((r) => r.np_comm_id);
+
+    if (deleted.length) {
+      // One id per row, plus the account id, so the page is one under the cap.
+      const perChunk = D1.chunkSize(1) - 1;
+      for (let i = 0; i < deleted.length; i += perChunk) {
+        const slice = deleted.slice(i, i + perChunk);
+        await db.run(
+          `DELETE FROM member_games
+            WHERE psn_account_id = ?
+              AND COALESCE(earned_total, 0) = 0
+              AND np_comm_id IN (${slice.map(() => '?').join(',')})`,
+          [accountId, ...slice],
+        );
+      }
+      console.log(
+        `  ${deleted.length} game${deleted.length === 1 ? '' : 's'} removed: ` +
+          'nothing was earned in them and PSN no longer lists them.',
+      );
+      for (const id of deleted) prior.delete(id);
+    }
+  }
+
   // Which games need work, and why.
   const needsEarnedScan = [];
   const gameRows = [];

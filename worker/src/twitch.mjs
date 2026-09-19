@@ -228,7 +228,7 @@ export async function lookupChannels(env, { logins = [], ids = [] } = {}) {
  * value actually moves, so a quiet Tuesday costs no writes at all beyond the
  * timestamps.
  */
-export async function checkLive(env, { onStreamEnd = null } = {}) {
+export async function checkLive(env, { onStreamEnd = null, onStreamStart = null } = {}) {
   if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) {
     return 'twitch: no credentials, skipped';
   }
@@ -264,6 +264,8 @@ export async function checkLive(env, { onStreamEnd = null } = {}) {
   const writes = [];
   // Whoever went off air on this tick. Used after the batch to drop game pins.
   const ended = [];
+  // And whoever came ON air, which nothing used to watch. See below.
+  const started = [];
   /** The same streams as objects, for the scan dispatch below. */
   const finished = [];
 
@@ -290,6 +292,8 @@ export async function checkLive(env, { onStreamEnd = null } = {}) {
      *
      * So the window is kept, and swept for a while afterwards.
      */
+    if (!wasOn && on) started.push(r.psn_account_id);
+
     const justEnded = wasOn && !on;
     if (justEnded) {
       ended.push(r.psn_account_id);
@@ -379,6 +383,60 @@ export async function checkLive(env, { onStreamEnd = null } = {}) {
       .bind(...ended)
       .run()
       .catch(() => {});
+  }
+
+  /**
+   * GOING LIVE IS A TRANSITION NOTHING WAS WATCHING.
+   *
+   * Stream END has had a hook since 9 September and it fires an auto-scan.
+   * Stream START had none, and that is the whole of the /setgame complaint.
+   *
+   * A pin is applied by pollMember, which refuses anybody isLive() says is
+   * dark. So somebody who runs /setgame BEFORE going live writes a pin that
+   * nothing can act on, and it then sits there until an overlay refresh
+   * happens to land after the live check has noticed them. Leon waited nine
+   * minutes and gave up; UncleUrbi waited forty-five and re-ran the command,
+   * which worked, because by then he WAS live.
+   *
+   * The check already computes this transition to record stream windows. It
+   * just never did anything with it. Now the moment a pin CAN be applied is
+   * the moment it is.
+   *
+   * ONLY FOR MEMBERS WITH A PIN WAITING. A streamer with no pin gains nothing
+   * from being polled here: PSN's ordering is exactly the stale answer that
+   * /setgame exists to override. So this costs one PSN call per stream that
+   * had a pin set beforehand, not one per streamer per tick.
+   */
+  if (onStreamStart && started.length) {
+    /*
+     * SEPARATE AND GUARDED, for the same reason the pin clear above is:
+     * live_pin arrives in migration 027, and a database that has not run it
+     * must lose this rather than the entire live check.
+     *
+     * Re-read AFTER the batch, because `rows` holds the PRE-check state where
+     * live_since is still null. pollMember would refuse those rows as dark and
+     * the fix would do nothing at all, silently.
+     */
+    const { results: waiting = [] } = await env.DB.prepare(
+      `SELECT psn_account_id, psn_online_id, live_pin, live_since, live_checked_at,
+              psn_polled_at
+         FROM members
+        WHERE live_pin IS NOT NULL AND TRIM(live_pin) <> ''
+          AND psn_account_id IN (${started.map(() => '?').join(',')})`,
+    )
+      .bind(...started)
+      .all()
+      .catch(() => ({ results: [] }));
+
+    for (const m of waiting) {
+      try {
+        await onStreamStart(env, m);
+      } catch (err) {
+        // Never take the live check down for a pin. The overlay's doorbell is
+        // still there and will get to it on its next refresh.
+        console.error('go-live pin poll failed:', err?.message ?? err);
+      }
+    }
   }
 
   /**

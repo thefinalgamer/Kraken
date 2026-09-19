@@ -57,7 +57,7 @@ export default {
      * API, exactly as /update does, and the scan itself runs on a runner.
      */
     ctx.waitUntil(
-      checkLive(env, { onStreamEnd: dispatchScan })
+      checkLive(env, { onStreamEnd: dispatchScan, onStreamStart: pollMember })
         .then((summary) => console.log(summary))
         .catch((err) => console.error('twitch check failed:', err?.message ?? err)),
     );

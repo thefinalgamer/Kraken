@@ -31,6 +31,9 @@ function harness({
   tokenStatus = 200,
   streamStatus = 200,
   windows = [],
+  // Rows the go-live pin query finds. Defaults to none, so every test written
+  // before that hook existed behaves exactly as it did.
+  pinned = [],
 } = {}) {
   const writes = [];
   const calls = [];
@@ -50,6 +53,7 @@ function harness({
           },
           async all() {
             if (sql.includes('FROM stream_windows')) return { results: windows };
+            if (sql.includes("live_pin IS NOT NULL")) return { results: pinned };
             return { results: members };
           },
           async run() { writes.push({ sql, args: stmt.args }); return { success: true }; },
@@ -845,4 +849,86 @@ test('a stream ending records its own row, outside the batch', async () => {
   const src = readFileSync(new URL('../worker/src/twitch.mjs', import.meta.url), 'utf8');
   const after = src.slice(src.indexOf('await env.DB.batch(writes)'));
   assert.match(after, /RECORD_WINDOW_SQL/, 'written after the batch, so a missing table costs one row');
+});
+
+
+/* ---- 19 September: /setgame before going live did nothing ---- */
+
+/**
+ * STREAM END HAS HAD A HOOK SINCE 9 SEPTEMBER. STREAM START HAD NONE.
+ *
+ * pollMember is what applies a pin, and it refuses anybody isLive() says is
+ * dark. So /setgame run BEFORE going live wrote a pin nothing could act on, and
+ * it sat there until an overlay refresh happened to land after the live check
+ * had noticed them.
+ *
+ * Leon waited nine minutes and gave up. UncleUrbi waited forty-five and re-ran
+ * the command, which worked -- because by then he was live. Same bug, and both
+ * reports read as "/setgame is broken" rather than "/setgame is early".
+ */
+const PINNED = {
+  psn_account_id: 'a1',
+  psn_online_id: 'Pelziowo',
+  live_pin: 'NPWR12345_00',
+  live_since: 1_700_000_000_000,
+  live_checked_at: 1_700_000_000_000,
+};
+
+test('going live polls somebody who set a pin before the stream', async () => {
+  const polled = [];
+  const { env } = harness({ streams: [live('pelzio')], pinned: [PINNED] });
+  await checkLive(env, { onStreamStart: async (_e, m) => polled.push(m.psn_account_id) });
+  assert.deepEqual(polled, ['a1'], 'the pin has to be applied the moment it can be');
+});
+
+test('the rows it polls carry the live_since just written, not the old null', async () => {
+  /**
+   * The rows the check loops over hold the PRE-check state, where live_since is
+   * still null. Handing those to pollMember would have it refuse every one of
+   * them as dark and the whole fix would do nothing, silently. So the pin query
+   * is re-read after the batch.
+   */
+  const seen = [];
+  const { env } = harness({ streams: [live('pelzio')], pinned: [PINNED] });
+  await checkLive(env, { onStreamStart: async (_e, m) => seen.push(m) });
+  assert.equal(seen.length, 1);
+  assert.ok(Number(seen[0].live_since) > 0, 'polled with live_since still unset');
+  assert.equal(seen[0].live_pin, 'NPWR12345_00', 'and it has to carry the pin itself');
+});
+
+test('going live with no pin waiting costs nothing', async () => {
+  // PSN's ordering is exactly the stale answer /setgame exists to override, so
+  // polling a pinless streamer here would spend a PSN call to learn nothing.
+  const polled = [];
+  const { env } = harness({ streams: [live('pelzio')], pinned: [] });
+  await checkLive(env, { onStreamStart: async (_e, m) => polled.push(m.psn_account_id) });
+  assert.deepEqual(polled, [], 'polled somebody with no pin');
+});
+
+test('somebody already live is not polled again every tick', async () => {
+  // a2 is already live in the fixture. This fires on the TRANSITION, which is
+  // what keeps it one call per stream rather than one per streamer per tick.
+  const polled = [];
+  const { env } = harness({
+    streams: [live('jfl__leon')],
+    pinned: [{ ...PINNED, psn_account_id: 'a2' }],
+  });
+  await checkLive(env, { onStreamStart: async (_e, m) => polled.push(m.psn_account_id) });
+  assert.deepEqual(polled, [], 'a2 was already on air before this tick');
+});
+
+test('a failing poll never takes the live check down with it', async () => {
+  // Same rule as the stream-end dispatch: the overlay doorbell is still there.
+  const { env } = harness({ streams: [live('pelzio')], pinned: [PINNED] });
+  const summary = await checkLive(env, {
+    onStreamStart: async () => { throw new Error('PSN said no'); },
+  });
+  assert.match(summary, /twitch: \d+ live of \d+ watched/);
+});
+
+test('the tick actually passes the hook in', async () => {
+  // The hook existing and nothing calling it is the failure mode this catches.
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../worker/src/index.mjs', import.meta.url), 'utf8');
+  assert.match(src, /onStreamStart:\s*pollMember/, 'the scheduled tick does not wire it up');
 });

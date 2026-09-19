@@ -150,11 +150,51 @@ export async function reissueVerifyCode(env, discordId, currentOnlineId, request
     .run();
 }
 
-/** Mod tooling. Frees both the Discord user and the PSN name for reuse. */
+/**
+ * Mod tooling. Frees both the Discord user and the PSN name for reuse.
+ *
+ * IT HAS TO TAKE THE WHOLE MEMBER, NOT JUST THEIR ROW.
+ *
+ * This was one statement, DELETE FROM members, for the life of the project, and
+ * nothing anywhere deleted the five tables that hang off a member. So every
+ * person a mod has ever unlinked left their entire library behind.
+ *
+ * WHAT IT COST, and it is not cosmetic. games.local_started counts rows in
+ * member_games, and that count is the denominator of the local rarity
+ * multiplier. Orphaned rows are ghost owners: they make a game look more widely
+ * owned than it is, which changes what its trophies pay EVERYBODY. One member
+ * unlinked on 24 August left 207 games and 4 updates behind, and it skewed the
+ * board until 19 September, when an orphan check went looking for something
+ * else entirely.
+ *
+ * ONE BATCH, so a failure halfway cannot leave exactly the mess this is fixing.
+ * D1 runs a batch in a transaction; seven separate awaits would not.
+ *
+ * The order still matters inside it: update_changelog is keyed to updates.id,
+ * so it goes first or its rows are orphaned by the statement below it. Every
+ * other statement binds psn_account_id directly rather than looking it up
+ * through members, which is what lets the members row go last safely.
+ *
+ * THE BOARD IS STALE UNTIL THE NEXT RESCORE. Removing a member changes the
+ * ownership counts every price is built on, and this cannot re-price 26,000
+ * games inside a Discord interaction. The reply in index.mjs says so.
+ */
 export async function unlinkMember(env, discordId) {
   const member = await memberByDiscordId(env, discordId);
   if (!member) return null;
-  await env.DB.prepare('DELETE FROM members WHERE discord_id = ?').bind(discordId).run();
+
+  const account = member.psn_account_id;
+  await env.DB.batch([
+    env.DB.prepare(
+      'DELETE FROM update_changelog WHERE update_id IN (SELECT id FROM updates WHERE psn_account_id = ?)',
+    ).bind(account),
+    env.DB.prepare('DELETE FROM updates WHERE psn_account_id = ?').bind(account),
+    env.DB.prepare('DELETE FROM member_trophies WHERE psn_account_id = ?').bind(account),
+    env.DB.prepare('DELETE FROM member_games WHERE psn_account_id = ?').bind(account),
+    env.DB.prepare('DELETE FROM wishlist WHERE psn_account_id = ?').bind(account),
+    env.DB.prepare('DELETE FROM stream_windows WHERE psn_account_id = ?').bind(account),
+    env.DB.prepare('DELETE FROM members WHERE discord_id = ?').bind(discordId),
+  ]);
   return member;
 }
 

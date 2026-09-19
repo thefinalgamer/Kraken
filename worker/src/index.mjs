@@ -384,7 +384,8 @@ async function unlink(interaction, env, targetId) {
         [
           text(
             `Unlinked <@${targetId}> from **${md(removed.psn_online_id)}**.\n\n` +
-              `-# The name is free again and they can re-register. Their scan history stays put.`,
+              `-# The name is free again and they can re-register. Their library and scan\n` +
+              `history went with them, so the board re-prices on the next rescore.`,
           ),
         ],
         COLOR.orange,

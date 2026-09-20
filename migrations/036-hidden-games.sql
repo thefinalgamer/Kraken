@@ -1,0 +1,27 @@
+-- When a game with trophies in it stopped being returned by PSN.
+--
+-- PSN lets a member HIDE a trophy list. A hidden list is not returned by the
+-- API, so from our side it looks exactly like a game that vanished -- and
+-- somebody sitting on a 40% game they would rather nobody saw can hide it and
+-- watch their PlayStation completion percentage rise.
+--
+-- IT ALREADY GAINS THEM NOTHING HERE, and that is worth saying first. The scan
+-- only ever removes a row with `earned_total = 0`, so a hidden game keeps its
+-- row, keeps its earned trophies, and keeps counting in both halves of their
+-- completion. Their PSN profile moves; their Kraken score does not. This column
+-- is not plugging a hole. It is so Martin can SEE it.
+--
+-- NOT RETURNED IS NOT THE SAME AS HIDDEN, which is why this stores a date
+-- rather than a flag called `cheating`. A list can stop coming back because
+-- Sony delisted it (Warhawk lost its three operation packs that way), because a
+-- regional stack was restructured, or because one PSN response was short. The
+-- honest question is not "is it missing" but "how LONG has it been missing" --
+-- sixteen days is a decision, one day is probably Sony.
+--
+-- So: set when a game with earned trophies is absent from PSN's list, left
+-- alone on later scans so the original date survives, and cleared the moment it
+-- comes back. tools/hiding.sql is the query that reads it.
+--
+-- Nothing member-facing reads this column. No badge, no card, no mention.
+
+ALTER TABLE member_games ADD COLUMN hidden_at INTEGER;

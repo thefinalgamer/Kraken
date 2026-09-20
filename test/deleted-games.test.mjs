@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 
 /**
  * A GAME CAN LEAVE A LIBRARY, AND NOTHING HERE EVER BELIEVED THAT.
@@ -101,4 +102,87 @@ test('the stale rows leave the prior map too', () => {
   // row that is no longer there.
   const block = prune();
   assert.match(block, /for \(const id of deleted\) prior\.delete\(id\)/);
+});
+
+/* ---- the other half of the same set: games that were HIDDEN ---- */
+
+/**
+ * PSN lets a member hide a trophy list, and a hidden list is not returned by
+ * the API -- so from our side it looks exactly like a deleted one. Somebody
+ * sitting on a 40% game they would rather nobody saw can hide it and watch
+ * their PlayStation completion rise.
+ *
+ * IT GAINS THEM NOTHING HERE, and that is the point worth protecting. The
+ * prune above refuses to touch a row with anything earned in it, so a hidden
+ * game keeps its row and keeps counting in both halves of their completion.
+ * This half does not close a hole. It makes one visible.
+ */
+const hiddenBlock = () => {
+  const from = scan.indexOf('GAMES THAT WENT MISSING BUT HAVE TROPHIES IN THEM');
+  assert.ok(from > 0, 'the scan no longer records hidden games');
+  const to = scan.indexOf('// Which games need work, and why.', from);
+  assert.ok(to > from, 'the hidden block has moved and this test cannot find its end');
+  return scan.slice(from, to);
+};
+
+test('the hidden half looks at games WITH trophies, the exact opposite of the prune', () => {
+  const block = hiddenBlock();
+  assert.match(block, /Number\(r\.earned_total \|\| 0\) > 0/,
+    'it must select the games the prune refuses to touch');
+  assert.match(block, /!stillThere\.has\(r\.np_comm_id\)/);
+});
+
+test('it records WHEN a game went missing, and never moves that date', () => {
+  /**
+   * How long it has been gone is the only part that means anything. Sony
+   * delisted Warhawk's operation packs outright and a short PSN response drops
+   * things too, so one day is probably Sony and a fortnight is a decision.
+   * Rewriting the date on every scan would erase exactly that signal.
+   */
+  const block = hiddenBlock();
+  assert.match(block, /hidden_at = COALESCE\(hidden_at, \?\)/,
+    'the original date has to survive later scans');
+});
+
+test('a game that comes back stops being missing', () => {
+  // Otherwise the first blip would mark somebody forever.
+  const block = hiddenBlock();
+  assert.match(block, /hidden_at = NULL/, 'nothing ever clears the flag');
+  assert.match(block, /\.filter\(\(id\) => stillThere\.has\(id\)\)/,
+    'it has to clear exactly the ones PSN returned again');
+});
+
+test('it never deletes anything', () => {
+  // A hidden game keeps its row and keeps counting. That is the whole reason
+  // hiding gains nobody anything, and it must not quietly become a prune.
+  const block = hiddenBlock();
+  assert.ok(!/DELETE FROM/.test(block), 'the hidden half must only ever mark, never remove');
+});
+
+test('it cannot take the scan down on a database without migration 036', () => {
+  // Same seatbelt every column added since 019 carries: a missing column loses
+  // the feature, never the scan.
+  const block = hiddenBlock();
+  assert.match(block, /try \{/);
+  assert.match(block, /hidden_at\|no such column/i, 'the catch has to let a missing column through');
+  assert.match(block, /throw err/, 'and rethrow anything that is not that');
+});
+
+test('migration 036 adds the column the scan writes', () => {
+  const mig = readFileSync(
+    new URL('../migrations/036-hidden-games.sql', import.meta.url), 'utf8',
+  );
+  assert.match(mig, /ALTER TABLE member_games ADD COLUMN hidden_at/);
+});
+
+test('tools/hiding.sql reads what the scan writes', () => {
+  /**
+   * The query and the column are written in different files and nothing else
+   * connects them. If either is renamed, Martin gets an error in the D1 console
+   * rather than an empty table, which is a much worse way to find out.
+   */
+  const sql = readFileSync(new URL('../tools/hiding.sql', import.meta.url), 'utf8');
+  assert.match(sql, /mg\.hidden_at IS NOT NULL/, 'it must select on the flag');
+  assert.match(sql, /AS days/, 'and surface how long it has been gone, which is the signal');
+  assert.ok(!/earned_total\s*=\s*0/.test(sql), 'hidden games are the ones WITH trophies');
 });

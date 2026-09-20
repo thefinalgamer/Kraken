@@ -502,6 +502,80 @@ async function scanMember(psn, member, updateNo) {
       );
       for (const id of deleted) prior.delete(id);
     }
+    /**
+     * GAMES THAT WENT MISSING BUT HAVE TROPHIES IN THEM.
+     *
+     * The other half of the same set. PSN lets a member HIDE a trophy list, and
+     * a hidden list is not returned by the API -- so from here it looks exactly
+     * like the deleted ones above. Somebody sitting on a 40% game they would
+     * rather nobody saw can hide it and watch their PSN percentage rise.
+     *
+     * IT GAINS THEM NOTHING HERE. The prune above refuses to touch a row with
+     * anything earned in it, so a hidden game keeps its row and keeps counting
+     * in both halves of their completion. This does not close a hole; it makes
+     * one visible.
+     *
+     * AND "NOT RETURNED" IS NOT "HIDDEN". Sony delisted Warhawk's operation
+     * packs outright, regional stacks get restructured, and a short response
+     * drops things too. So this records WHEN it went missing and leaves the
+     * date alone on later scans: how long it has been gone is the part that
+     * means anything, and one day is probably Sony while a fortnight is not.
+     *
+     * SEPARATE AND GUARDED, like every column added since migration 019.
+     * `hidden_at` arrives in 036, and a database that has not run it must lose
+     * this quietly rather than take the whole scan down.
+     */
+    try {
+      const hidden = priorRows
+        .filter((r) => Number(r.earned_total || 0) > 0 && !stillThere.has(r.np_comm_id))
+        .map((r) => r.np_comm_id);
+
+      const markChunk = D1.chunkSize(2) - 1;
+      for (let i = 0; i < hidden.length; i += markChunk) {
+        const slice = hidden.slice(i, i + markChunk);
+        // COALESCE, so a game missing for a fortnight keeps the date it went.
+        await db.run(
+          `UPDATE member_games SET hidden_at = COALESCE(hidden_at, ?)
+            WHERE psn_account_id = ?
+              AND np_comm_id IN (${slice.map(() => '?').join(',')})`,
+          [Date.now(), accountId, ...slice],
+        );
+      }
+
+      // Anything that came back stops being missing. Small query, indexed by
+      // member, and almost always returns nothing at all.
+      const flagged = await db.query(
+        'SELECT np_comm_id FROM member_games WHERE psn_account_id = ? AND hidden_at IS NOT NULL',
+        [accountId],
+      );
+      const returned = flagged
+        .map((r) => r.np_comm_id)
+        .filter((id) => stillThere.has(id));
+
+      const clearChunk = D1.chunkSize(1) - 1;
+      for (let i = 0; i < returned.length; i += clearChunk) {
+        const slice = returned.slice(i, i + clearChunk);
+        await db.run(
+          `UPDATE member_games SET hidden_at = NULL
+            WHERE psn_account_id = ?
+              AND np_comm_id IN (${slice.map(() => '?').join(',')})`,
+          [accountId, ...slice],
+        );
+      }
+
+      if (hidden.length) {
+        console.log(
+          `  ${hidden.length} game${hidden.length === 1 ? '' : 's'} not returned by PSN ` +
+            'but holding earned trophies. See tools/hiding.sql.',
+        );
+      }
+      if (returned.length) {
+        console.log(`  ${returned.length} previously missing game(s) are back.`);
+      }
+    } catch (err) {
+      // Migration 036 has not run. The scan does not care.
+      if (!/hidden_at|no such column/i.test(String(err?.message ?? ''))) throw err;
+    }
   }
 
   // Which games need work, and why.

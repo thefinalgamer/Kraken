@@ -121,17 +121,59 @@ const PLAYING = `
  * Ordered by trophies remaining, so "two away" beats "two hundred away" even
  * if the two hundred is worth more. A milestone is about proximity.
  */
+/**
+ * How far off a game can be IN TOTAL before it is even looked at. A cheap
+ * first cut so the exact count below runs over a handful of games rather than
+ * a whole library. Generous, because DLC inflates the total: a game 3 trophies
+ * from its platinum can still be 40 short of 100%.
+ */
+const MILESTONE_SCAN = 60;
+
+/**
+ * The nearest platinum they have NOT got, and exactly how many trophies stand
+ * between them and it.
+ *
+ * TWO BUGS THIS USED TO HAVE, both from counting the whole game. Martin, 22
+ * September, on Pig_Gamer_145's panel: "2 trophies to go - Remnant: From the
+ * Ashes - for their 186th platinum", when Pig had the base game done and the
+ * platinum already in the cabinet. The 2 were DLC trophies.
+ *
+ *   - it never asked whether the platinum was already earned, so any game with
+ *     the plat in and some DLC left over read as a platinum countdown
+ *   - it counted every trophy left, DLC included, when the platinum only ever
+ *     needs the BASE game's trophies
+ *
+ * So: platinum not earned, and the count is base-game trophies (group
+ * 'default', or no group recorded) other than the platinum itself, that are not
+ * in their earned_ids. The same json_each test the scan's rarest-trophy query
+ * uses.
+ */
 const MILESTONE = `
-  SELECT g.title, g.icon_url, g.trophy_count, mg.earned_total,
-         (g.trophy_count - mg.earned_total) AS need
-    FROM member_games mg
-    JOIN games g ON g.np_comm_id = mg.np_comm_id
-   WHERE mg.psn_account_id = ?
-     AND g.has_platinum = 1
-     AND mg.progress < 100
-     AND g.trophy_count > 0
-     AND (g.trophy_count - mg.earned_total) BETWEEN 1 AND ?
-   ORDER BY need ASC, g.max_points DESC
+  WITH near AS (
+    SELECT mg.np_comm_id, mg.earned_ids, g.title, g.icon_url, g.max_points
+      FROM member_games mg
+      JOIN games g ON g.np_comm_id = mg.np_comm_id
+     WHERE mg.psn_account_id = ?
+       AND g.has_platinum = 1
+       AND COALESCE(mg.earned_platinum, 0) = 0
+       AND mg.progress < 100
+       AND g.trophy_count > 0
+       AND (g.trophy_count - mg.earned_total) BETWEEN 1 AND ?
+  )
+  SELECT title, icon_url, need FROM (
+    SELECT n.title, n.icon_url, n.max_points,
+           (SELECT COUNT(*) FROM trophies t
+             WHERE t.np_comm_id = n.np_comm_id
+               AND COALESCE(t.group_id, 'default') = 'default'
+               AND t.type <> 'platinum'
+               AND NOT EXISTS (
+                     SELECT 1 FROM json_each(COALESCE(n.earned_ids, '[]')) je
+                      WHERE je.value = t.trophy_id
+                   )) AS need
+      FROM near n
+  )
+   WHERE need BETWEEN 1 AND ?
+   ORDER BY need ASC, max_points DESC
    LIMIT 1`;
 
 /**
@@ -282,7 +324,7 @@ export async function onRequestGet({ params, env }) {
     play
       ? env.DB.prepare(ONE_GAME).bind(m.psn_account_id, play.id).first().catch(() => null)
       : env.DB.prepare(PLAYING).bind(m.psn_account_id).first().catch(() => null),
-    env.DB.prepare(MILESTONE).bind(m.psn_account_id, MILESTONE_WITHIN)
+    env.DB.prepare(MILESTONE).bind(m.psn_account_id, MILESTONE_SCAN, MILESTONE_WITHIN)
       .first().catch(() => null),
     env.DB.prepare(CLOSING).bind(m.psn_account_id, now, CLOSING_LIMIT)
       .all().catch(() => ({ results: [] })),

@@ -31,6 +31,7 @@ import {
   COLOR,
 } from '../../shared/ui.mjs';
 import { announceable } from '../../shared/on-stream.mjs';
+import { goalTitle, amount as goalAmount } from '../../shared/goals.mjs';
 
 const API = 'https://discord.com/api/v10';
 const env = process.env;
@@ -945,4 +946,34 @@ async function enrichGames(db, member, entries) {
 function daysBetween(from, to) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
   return Math.floor((to - from) / 86400000);
+}
+
+/**
+ * Goals somebody just hit. /goal
+ *
+ * #updates unless DISCORD_GOALS_CHANNEL_ID says otherwise, the same arrangement
+ * as the weekly digest. Only ever REACHED goals: a missed one is frozen quietly,
+ * because nobody wants their miss announced to the server.
+ *
+ * The name is bold rather than an @mention. A congratulation should not buzz
+ * somebody's phone at three in the morning when the rescore runs.
+ */
+export async function postGoalsReached(goals) {
+  const channel = env.DISCORD_GOALS_CHANNEL_ID || env.DISCORD_UPDATES_CHANNEL_ID;
+  if (!channel || !goals?.length) return;
+  const DAY = 86_400_000;
+  const spare = (g) =>
+    g.deadline_at ? Math.max(0, Math.floor((Number(g.deadline_at) - Number(g.reached_at)) / DAY)) : null;
+  const lines = goals.map((g) => {
+    const days = Math.max(1, Math.round((Number(g.reached_at) - Number(g.created_at)) / DAY));
+    return (
+      `🎯 **${md(g.psn_online_id)}** hit their goal: **${md(goalTitle(g))}**\n` +
+      `-# From ${goalAmount(g.kind, g.start_value)} to ${goalAmount(g.kind, g.final_value)} ` +
+      `in ${n(days)} day${days === 1 ? '' : 's'}` +
+      (spare(g) !== null ? `, with ${n(spare(g))} day${spare(g) === 1 ? '' : 's'} to spare` : '')
+    );
+  });
+  await rest(`/channels/${channel}/messages`, {
+    body: message([container([text(lines.join('\n\n'))], COLOR.green)]),
+  });
 }

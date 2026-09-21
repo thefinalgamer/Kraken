@@ -30,6 +30,10 @@ import {
   parseClosingDate, closingLabel, closingState, isUrgent, CLOSING,
 } from '../../shared/closing.mjs';
 import { rankContested } from '../../shared/contested.mjs';
+import {
+  GOAL_KINDS, MAX_ACTIVE_GOALS, goalTitle, goalStatus, goalProblem,
+  parseDeadline, currentValue, amount as goalAmount, rateAmount as goalRateAmount,
+} from '../../shared/goals.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
 const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 8 };
@@ -188,6 +192,9 @@ async function handleCommand(interaction, env, ctx) {
     });
     case 'setgame':    return setGame(env, userId, opt('game'));
     case 'wishlist':   return wishlist(env, userId, opt('add'), opt('remove'));
+    case 'goal':       return goal(env, userId, {
+      kind: opt('for'), target: opt('target'), by: opt('by'), remove: opt('remove'),
+    });
     default:           return errorReply(`Unknown command \`/${name}\`.`);
   }
 }
@@ -609,6 +616,175 @@ async function wishlist(env, userId, add, remove) {
             `## Your list\n-# ${rows.length} of ${WISHLIST_MAX} games\n\n` +
               lines.join('\n') +
               '\n\n-# `/wishlist remove:` takes one off.',
+          ),
+        ],
+        COLOR.blurple,
+      ),
+    ],
+    { ephemeral: true },
+  );
+}
+
+/**
+ * Personal goals. /goal
+ *
+ * Asked for by PrimalxFear: "im close to 200k, and set that as a goal for end
+ * of month... or set completion rate goal till end of year".
+ *
+ * SELF ONLY, like /wishlist. Everybody can SEE everybody's goals on the hunter
+ * page, which is the point, but nobody sets one for somebody else.
+ *
+ * Three shapes, the same as /wishlist:
+ *   /goal for: target: [by:]   sets one
+ *   /goal remove:              takes one off
+ *   /goal                      shows them
+ *
+ * The starting number is read off the members row at the moment it is set, so
+ * "how far have I come" is measured from today and not from zero.
+ */
+async function goal(env, userId, { kind, target, by, remove }) {
+  const me = await db.memberByDiscordId(env, userId);
+  if (!me?.psn_account_id || !me.last_update_at) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  const missing = () =>
+    errorReply('The goals table is not in the database yet. Run migration `037-goals.sql`.');
+  const isMissing = (err) => /no such table|goals/i.test(String(err?.message ?? ''));
+
+  let rows;
+  try {
+    rows = await db.goals(env, me.psn_account_id);
+  } catch (err) {
+    if (isMissing(err)) return missing();
+    throw err;
+  }
+
+  const setting = kind !== undefined || target !== undefined || by !== undefined;
+  const dropping = String(remove ?? '').trim();
+
+  if (setting && dropping) {
+    return errorReply('One at a time. Set a goal or take one off, not both in the same command.');
+  }
+
+  // ------------------------------------------------------------ setting ---
+  if (setting) {
+    if (!GOAL_KINDS[kind] || target === undefined) {
+      return errorReply(
+        'A goal needs both `for:` (what it is) and `target:` (the number). ' +
+          'For example `/goal for: Points target: 200000 by: 30/09/2026`.',
+      );
+    }
+
+    const active = rows.filter((g) => goalStatus(g, me).state === 'active');
+    if (active.length >= MAX_ACTIVE_GOALS) {
+      return errorReply(
+        `You have ${MAX_ACTIVE_GOALS} goals running, which is the most at once. ` +
+          'Finish one or take one off with `/goal remove:` first.',
+      );
+    }
+
+    const typed = String(by ?? '').trim();
+    const deadline = typed ? parseDeadline(typed) : null;
+    if (typed && deadline === null) {
+      return errorReply('That date did not make sense. Write it like `31/12/2026`.');
+    }
+    const problem = goalProblem({ kind, target: Number(target), deadline, member: me });
+    if (problem) return errorReply(problem);
+
+    const startValue = currentValue(kind, me);
+    try {
+      await db.addGoal(env, me.psn_account_id, {
+        kind, target: Number(target), startValue, deadline,
+      });
+    } catch (err) {
+      if (isMissing(err)) return missing();
+      throw err;
+    }
+
+    const gap = Number(target) - startValue;
+    const days = deadline ? Math.max(1, Math.ceil((deadline - Date.now()) / 86_400_000)) : null;
+    return reply(
+      [
+        container(
+          [
+            text(
+              `### Goal set: ${goalTitle({ kind, target: Number(target) })}\n` +
+                `You are on **${goalAmount(kind, startValue)}**, so that is ` +
+                `**${goalAmount(kind, gap)}** to go` +
+                (days
+                  ? ` in **${n(days)}** day${days === 1 ? '' : 's'}, about ` +
+                    `**${goalRateAmount(kind, gap / days)}** a day.`
+                  : ', with no deadline.') +
+                '\n\n-# It shows on your hunter page for everyone to see, and the bot ' +
+                'posts in the channel when you get there.',
+            ),
+          ],
+          COLOR.green,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  // ----------------------------------------------------------- removing ---
+  if (dropping) {
+    const row = rows.find((g) => String(g.id) === dropping);
+    if (!row) return errorReply('That goal is not one of yours. Pick one from the dropdown.');
+    try {
+      await db.removeGoal(env, me.psn_account_id, row.id);
+    } catch (err) {
+      if (isMissing(err)) return missing();
+      throw err;
+    }
+    return reply(
+      [container([text(`### Removed: ${goalTitle(row)}`)], COLOR.grey)],
+      { ephemeral: true },
+    );
+  }
+
+  // -------------------------------------------------------- showing them --
+  if (!rows.length) {
+    return reply(
+      [
+        container(
+          [
+            text(
+              '### No goals yet\n' +
+                'Set one with `/goal`, for example ' +
+                '`/goal for: Points target: 200000 by: 30/09/2026`.\n\n' +
+                '-# Points, completion, platinums, completed games or trophies. ' +
+                'The date is optional. Goals show on your hunter page for everyone to see.',
+            ),
+          ],
+          COLOR.grey,
+        ),
+      ],
+      { ephemeral: true },
+    );
+  }
+
+  const lines = rows.slice(0, 12).map((g) => {
+    const s = goalStatus(g, me);
+    const mark = s.state === 'reached' ? '✅' : s.state === 'missed' ? '⌛' : '🎯';
+    const tail =
+      s.state === 'active'
+        ? `${Math.floor(s.percent)}% of the way · ${goalAmount(g.kind, s.remaining)} to go` +
+          (s.daysLeft !== null ? ` · ${n(s.daysLeft)} days left` : '') +
+          (s.pace === 'on' ? ' · on pace' : s.pace === 'behind' ? ' · behind pace' : '')
+        : s.state === 'reached'
+          ? 'reached'
+          : `ran out of time on ${goalAmount(g.kind, s.current)}`;
+    return `${mark} **${md(s.title)}** - ${tail}`;
+  });
+
+  return reply(
+    [
+      container(
+        [
+          text(
+            `## Your goals\n\n${lines.join('\n')}\n\n` +
+              '-# `/goal remove:` takes one off. They show on your hunter page too.',
           ),
         ],
         COLOR.blurple,
@@ -2771,8 +2947,10 @@ async function handleAutocomplete(interaction, env) {
    */
   const isWishDrop = interaction.data.name === 'wishlist' && option?.name === 'remove';
   const isWishAdd = interaction.data.name === 'wishlist' && option?.name === 'add';
+  // Their own goals and nothing else, the same reasoning as the wishlist.
+  const isGoalDrop = interaction.data.name === 'goal' && option?.name === 'remove';
   if (!option
-    || !(isMember || isFlagField || isPin || isWishDrop || isWishAdd
+    || !(isMember || isFlagField || isPin || isWishDrop || isWishAdd || isGoalDrop
          || GAME_FIELDS.has(option.name))) {
     return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
   }
@@ -2879,6 +3057,29 @@ async function handleAutocomplete(interaction, env) {
             `${n(g.local_started)} here`.slice(0, 100),
           value: String(g.np_comm_id).slice(0, 100),
         })),
+      },
+    };
+  }
+
+  if (isGoalDrop) {
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+    const me = userId ? await db.memberByDiscordId(env, userId) : null;
+    if (!me?.psn_account_id) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+
+    const rows = await db.goals(env, me.psn_account_id).catch(() => []);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows
+          .map((g) => ({ g, s: goalStatus(g, me) }))
+          .filter(({ s }) => !focused || s.title.toLowerCase().includes(focused.toLowerCase()))
+          .slice(0, 25)
+          .map(({ g, s }) => ({
+            name: `${s.title} · ${
+              s.state === 'active' ? `${Math.floor(s.percent)}%` : s.state === 'reached' ? 'reached' : 'ended'
+            }`.slice(0, 100),
+            value: String(g.id),
+          })),
       },
     };
   }

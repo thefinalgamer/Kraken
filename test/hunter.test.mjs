@@ -102,7 +102,7 @@ let vsQueries = 0;
 
 const fakeEnv = ({
   onStream = [], member = MEMBER, games = GAMES, updates = UPDATES, rivals = [],
-  wishes = [], missing = [],
+  wishes = [], missing = [], goals = [],
   vsMember = null, vsAhead = [], vsTheirs = [],
   names = [{ psn_online_id: 'JFL__Leon' }, { psn_online_id: 'MRTheChez' },
     { psn_online_id: 'th3finalgamer--' }] } = {}) => ({
@@ -189,6 +189,16 @@ const fakeEnv = ({
          */
         if (sql.includes('FROM wishlist')) {
           return { all: async () => ({ results: wishes }) };
+        }
+        // Goals, routed for the same reason as the wishlist. `null` makes the
+        // query throw, which is what a database without migration 037 does.
+        if (sql.includes('FROM goals')) {
+          return {
+            all: async () => {
+              if (goals === null) throw new Error('D1_ERROR: no such table: goals');
+              return { results: goals };
+            },
+          };
         }
         lastGamesSql = sql;
         lastBind = args;

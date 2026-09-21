@@ -1346,6 +1346,34 @@ p.warn.dead.whole b{color:#ff8e86}
    the whole content of the panel rather than a note under a table. */
 .rivalnote.empty{font-size:13px;color:var(--soft);line-height:1.5;max-width:62ch;margin:4px 0 2px}
 
+/* ---- goals ----
+   Beside rivals, shaped like the goal cards PrimalxFear asked for. Opened, it
+   takes the whole row, because a grid of cards squeezed into a flex item the
+   width of its summary is two cards stacked in a column. */
+.toolrow details.goals[open]{flex:1 1 100%}
+.goalgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin:6px 0 0}
+.goalhead{margin:16px 0 0;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.goal{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:11px 13px}
+.goal.reached{border-color:rgba(78,201,138,.5);background:rgba(78,201,138,.06)}
+.goal.missed{opacity:.75}
+.goal .gh{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.goal .gic{width:22px;height:22px;border-radius:6px;flex:none;display:flex;align-items:center;
+  justify-content:center;font-size:12px;font-weight:900;color:var(--deep)}
+.goal .gnums{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-top:8px}
+.goal .gp{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.goal .gr{color:var(--faint);font-size:12px;text-align:right;line-height:1.45;font-variant-numeric:tabular-nums}
+.goal .gr b{color:var(--ink)}
+.goal .gbar{height:6px;border-radius:99px;background:var(--rule);overflow:hidden;margin:9px 0 5px}
+.goal .gbar i{display:block;height:100%;border-radius:99px}
+.goal .gbar.time{height:3px;margin-top:8px}
+.goal .gbar.time i{background:#2f8fb3}
+.goal .gline{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--faint)}
+.goal .gdays{color:var(--ink);font-size:16px}
+.goal .gline>:last-child:not(:first-child){text-align:right}
+.goal .gok,.goal .gbad{white-space:nowrap}
+.goal .gok{color:var(--up)}
+.goal .gbad{color:var(--down)}
+
 /* ---- head to head ----
    The compare panel, opened with ?vs= from a hunter page.
 

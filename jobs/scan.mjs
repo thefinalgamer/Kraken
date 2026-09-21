@@ -37,12 +37,14 @@ import {
   streamWindows, MEMBER_WINDOWS_SQL, SWEEP_WINDOW_MS,
 } from '../shared/on-stream.mjs';
 import { settleLocalRarity } from './lib/settle.mjs';
+import { settleGoals } from './lib/goals.mjs';
 import {
   postUpdateResult,
   postProjects,
   postGroupCompletions,
   postUpdateFailure,
   postMovements,
+  postGoalsReached,
   publishLeaderboard,
   warnTokenExpiry,
   syncTierRoles,
@@ -312,6 +314,16 @@ async function main() {
       postGroupCompletions(db, member, result, { first: isFirstScan }),
     );
     if (movements.length) await announce('the rank movements', () => postMovements(movements));
+
+    /**
+     * Goals this scan pushed over the line. Settled here, after the ranks, so
+     * the numbers it reads are the ones just written. Wrapped like everything
+     * announced: a goal is a decoration and must never mark a good scan red.
+     */
+    await announce('the goals', async () => {
+      const reached = await settleGoals(db, { accountId: member.psn_account_id });
+      if (reached.length) await postGoalsReached(reached);
+    });
 
     // Rewrite the living board in #leaderboard. Everyone is on it, split across
     // as many messages as it takes, each edited in place rather than reposted.

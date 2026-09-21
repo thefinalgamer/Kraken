@@ -277,6 +277,57 @@ const commands = [
     ],
   },
   {
+    /**
+     * Personal goals, asked for by PrimalxFear. Everybody can see everybody's
+     * on the hunter page, but nobody sets one for somebody else, so there is no
+     * member option and no permission gate.
+     *
+     * Flat options rather than subcommands, the same shape as /wishlist:
+     * `for` + `target` sets one, `remove` takes one off, bare lists them.
+     */
+    name: 'goal',
+    description: 'Set a goal (points, completion, platinums...) that shows on your hunter page',
+    options: [
+      {
+        name: 'for',
+        description: 'What the goal is for',
+        type: 3,
+        required: false,
+        choices: [
+          { name: 'Points', value: 'points' },
+          { name: 'Completion %', value: 'completion' },
+          { name: 'Platinums', value: 'platinum' },
+          { name: 'Completed games (100%)', value: 'completed' },
+          { name: 'Trophies earned', value: 'trophies' },
+        ],
+      },
+      {
+        // NUMBER, not integer, because completion goals are 80.5 as often as 80.
+        name: 'target',
+        description: 'The number to reach, e.g. 200000 points or 80 for 80% completion',
+        type: 10,
+        required: false,
+        min_value: 0,
+      },
+      {
+        // Text, because Discord has no date picker. UK order: 31/12/2026.
+        name: 'by',
+        description: 'Optional deadline, like 31/12/2026',
+        type: 3,
+        required: false,
+        max_length: 10,
+      },
+      {
+        // Only their own goals. The value is the goal's id.
+        name: 'remove',
+        description: 'A goal to take off',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+    ],
+  },
+  {
     name: 'overlay',
     description: 'Your stream overlay: two browser sources for OBS',
     options: [

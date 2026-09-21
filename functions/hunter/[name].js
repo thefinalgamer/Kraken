@@ -26,8 +26,24 @@ import {
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
+import {
+  goalStatus, fmt as goalFmt, amount as goalAmount, rateAmount as goalRateAmount, MAX_FINISHED_SHOWN,
+} from '../../shared/goals.mjs';
 
 const PER_PAGE = 50;
+
+/**
+ * Their goals, set with /goal in Discord. Newest first; the page splits them
+ * into running and finished. Thirty is far more than anybody will have and
+ * stops a table nobody prunes from growing the page forever.
+ */
+const GOALS = `
+  SELECT id, kind, target, start_value, created_at, deadline_at,
+         reached_at, ended_at, final_value
+    FROM goals
+   WHERE psn_account_id = ?
+   ORDER BY created_at DESC
+   LIMIT 30`;
 
 // How far back the history goes. Somebody running /update daily for a year
 // would otherwise put 365 rows into one page. The newest 200 is more than
@@ -1021,6 +1037,125 @@ function pager(name, sort, q, pageNo, pages, hasNext) {
   return `<nav class="pager">${bits.join('')}</nav>`;
 }
 
+
+/* ------------------------------------------------------------------ goals */
+
+const GOAL_ICON = {
+  points: ['&#9670;', 'var(--brass)'],
+  completion: ['%', 'var(--kraken)'],
+  platinum: ['&#9819;', '#a9cdff'],
+  completed: ['&#10003;', 'var(--up)'],
+  trophies: ['&#9733;', '#f2c65a'],
+};
+
+const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const day = (ms) => (ms ? DATE.format(new Date(Number(ms))) : '');
+
+/**
+ * One goal card, shaped like the one PrimalxFear sent: start, current and goal
+ * on the right, how far through on the left, a progress bar, then how much
+ * time is left under a thinner time bar.
+ *
+ * TWO BARS, AND THEY MEAN DIFFERENT THINGS. The thick one is how far through
+ * the goal they are; the thin one is how far through the TIME they are. The
+ * whole card is really the gap between those two, which is why the pace word
+ * sits between them.
+ */
+function goalCard(g, m) {
+  const s = goalStatus(g, m);
+  if (!s.title) return '';
+  const [icon, colour] = GOAL_ICON[g.kind] ?? ['&#9679;', 'var(--kraken)'];
+  const pctText = `${(Math.floor(s.percent * 10) / 10).toFixed(1)}%`;
+
+  const numbers =
+    `<span class="gr">Start <b>${goalFmt(g.kind, s.start)}</b><br>` +
+    (s.state === 'reached'
+      ? `Reached <b>${goalFmt(g.kind, s.current)}</b><br>`
+      : s.state === 'missed'
+        ? `Ended on <b>${goalFmt(g.kind, s.current)}</b><br>`
+        : `Current <b>${goalFmt(g.kind, s.current)}</b><br>`) +
+    `Goal <b>${goalFmt(g.kind, s.target)}</b></span>`;
+
+  let line;
+  if (s.state === 'reached') {
+    line = `<span>Reached${s.reachedAt ? ` on ${day(s.reachedAt)}` : ''}</span><span>Started ${day(s.created)}</span>`;
+  } else if (s.state === 'missed') {
+    line = `<span>Ran out of time on ${day(s.deadline)}</span><span>Started ${day(s.created)}</span>`;
+  } else {
+    const per =
+      s.neededPerDay !== null
+        ? ` &middot; needs ${esc(goalRateAmount(g.kind, s.neededPerDay))} a day`
+        : s.actualPerDay !== null && s.actualPerDay > 0
+          ? ` &middot; ${esc(goalRateAmount(g.kind, s.actualPerDay))} a day lately`
+          : '';
+    const pace =
+      s.pace === 'on' ? '<b class="gok">On pace</b>' : s.pace === 'behind' ? '<b class="gbad">Behind</b>' : '';
+    line = `<span>${esc(goalAmount(g.kind, s.remaining))} to go${per}</span>${pace}`;
+  }
+
+  const time =
+    s.state === 'active' && s.deadline
+      ? `<div class="gbar time"><i style="width:${(s.timeRatio * 100).toFixed(1)}%"></i></div>
+         <div class="gline"><span><b class="gdays">${n(s.daysLeft)}</b> day${s.daysLeft === 1 ? '' : 's'} left</span>
+           <span>by ${day(s.deadline)}</span></div>`
+      : s.state === 'active'
+        ? `<div class="gline"><span>No deadline</span><span>Started ${day(s.created)}</span></div>`
+        : '';
+
+  return `<div class="goal ${s.state}">
+      <div class="gh"><span class="gic" style="background:${s.state === 'reached' ? 'var(--up)' : colour}">${
+        s.state === 'reached' ? '&#10003;' : icon
+      }</span>${esc(s.title)}</div>
+      <div class="gnums"><span class="gp">${s.state === 'reached' ? '100%' : pctText}</span>${numbers}</div>
+      <div class="gbar"><i style="width:${s.state === 'reached' ? 100 : s.percent.toFixed(1)}%;background:${
+        s.state === 'reached' ? 'var(--up)' : s.state === 'missed' ? 'var(--faint)' : colour
+      }"></i></div>
+      <div class="gline">${line}</div>
+      ${time}
+    </div>`;
+}
+
+/**
+ * The goals panel, beside Rivals.
+ *
+ * ALWAYS DRAWN, EVEN EMPTY, for the reason the rivals panel learnt the hard
+ * way: the empty state is where the command gets taught, and the person
+ * looking at it has just gone looking for the thing.
+ *
+ * Running goals first, then the finished ones (hit or ran out of time), newest
+ * first, capped so a long history does not bury the ones still going.
+ */
+function goalsPanel(rows, m) {
+  const withState = rows.map((g) => ({ g, state: goalStatus(g, m).state }));
+  const running = withState.filter((x) => x.state === 'active').map((x) => x.g);
+  const finished = withState
+    .filter((x) => x.state !== 'active')
+    .slice(0, MAX_FINISHED_SHOWN)
+    .map((x) => x.g);
+
+  const body = rows.length
+    ? `${running.length ? `<div class="goalgrid">${running.map((g) => goalCard(g, m)).join('')}</div>` : ''}
+       ${
+         finished.length
+           ? `<p class="goalhead">Finished</p><div class="goalgrid">${finished.map((g) => goalCard(g, m)).join('')}</div>`
+           : ''
+       }
+       <p class="rivalnote">Set with <code>/goal</code> in Discord. Progress is counted from where
+         ${esc(m.psn_online_id)} was when they set it.</p>`
+    : `<p class="rivalnote empty">Something to aim at, with a date if you want one: 200,000 points
+         by the end of the month, 80% completion by New Year, your 500th platinum. Set one with
+         <code>/goal</code> in Discord and it shows here as a card with how far you have come,
+         what is left and whether you are on pace. Everybody can see everybody's, and the bot
+         posts it when you get there.</p>`;
+
+  return `<details class="numbers rivals goals">
+      <summary>Goals<span class="soon-tag">${
+        running.length ? `${running.length} running` : rows.length ? `${rows.length} done` : 'none yet'
+      }</span></summary>
+      ${body}
+    </details>`;
+}
+
 export async function onRequestGet({ params, env, request }) {
   const name = decodeURIComponent(params.name || '');
   const url = new URL(request.url);
@@ -1145,6 +1280,21 @@ export async function onRequestGet({ params, env, request }) {
   const { results: rivals = [] } = rivalIds.length
     ? await env.DB.prepare(rivalsSql(rivalIds.length)).bind(...rivalIds).all()
     : { results: [] };
+
+  /**
+   * Goals, first page only, for the same reason as rivals. Wrapped, because the
+   * table arrives in migration 037: no table means no goals block, never no
+   * page. `null` means "not loaded" and hides the block entirely, so page 6
+   * does not claim somebody has no goals.
+   */
+  const goalRows =
+    pageNo === 1 && !q
+      ? await env.DB.prepare(GOALS)
+          .bind(m.psn_account_id)
+          .all()
+          .then((r) => r.results ?? [])
+          .catch(() => null)
+      : null;
 
   /**
    * The list of what they mean to play next, on the first page for the same
@@ -1422,6 +1572,8 @@ export async function onRequestGet({ params, env, request }) {
       }
     </details>`;
 
+  const goalsBlock = goalRows === null ? '' : goalsPanel(goalRows, m);
+
   /**
    * The dice.
    *
@@ -1567,7 +1719,7 @@ export async function onRequestGet({ params, env, request }) {
 
     ${splitBlock}
 
-    <div class="toolrow">${rivalsBlock}${wishBlock}${numbersBlock}${rollLink}</div>
+    <div class="toolrow">${rivalsBlock}${goalsBlock}${wishBlock}${numbersBlock}${rollLink}</div>
 
     ${rollBlock}
 

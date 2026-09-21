@@ -26,7 +26,10 @@
 import { D1 } from './lib/d1.mjs';
 import { scoreGameTrophies, applyCompletion } from '../shared/scoring.mjs';
 import { memberCompletion } from './lib/completion.mjs';
-import { publishLeaderboard, syncTierRoles, publishHome, publishContested } from './lib/discord.mjs';
+import {
+  publishLeaderboard, syncTierRoles, publishHome, publishContested, postGoalsReached,
+} from './lib/discord.mjs';
+import { settleGoals } from './lib/goals.mjs';
 import {
   CONTESTED_SQL,
   CONTESTED_MIN_OWNERS,
@@ -497,6 +500,27 @@ async function main() {
   for (const m of members) await rescoreMember(m);
 
   await recomputeRanks();
+
+  /**
+   * Goals, for everybody, now the numbers are final. A rescore re-prices the
+   * whole board, so anybody's points goal can tip over without them playing,
+   * and a goal with a date that passed overnight is frozen here.
+   *
+   * Settling writes the database, so it is outside the Discord try below: a
+   * Discord outage must not leave a goal unsettled. Only the post is optional.
+   */
+  let reachedGoals = [];
+  try {
+    reachedGoals = await settleGoals(db);
+    if (reachedGoals.length) console.log(`${reachedGoals.length} goal(s) reached.`);
+  } catch (err) {
+    console.error('Could not settle goals (the scores are saved regardless):', err.message);
+  }
+  if (reachedGoals.length) {
+    await postGoalsReached(reachedGoals).catch((err) =>
+      console.error('Could not post the goals reached:', err.message),
+    );
+  }
 
   // Push the new board out, best-effort. A Discord outage must not make a
   // completed rescore look like a failure — the numbers are already saved.

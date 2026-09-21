@@ -184,6 +184,21 @@ export async function unlinkMember(env, discordId) {
   if (!member) return null;
 
   const account = member.psn_account_id;
+
+  /**
+   * Goals go on their own, ahead of the batch, because the table arrives in
+   * migration 037. A D1 batch is all-or-nothing, so one missing table inside it
+   * would stop a mod unlinking anybody at all on a database that has not run
+   * it. Losing the goals of somebody being unlinked anyway is no loss if the
+   * batch below then fails; leaving them behind would be the old bug again.
+   */
+  await env.DB.prepare('DELETE FROM goals WHERE psn_account_id = ?')
+    .bind(account)
+    .run()
+    .catch((err) => {
+      if (!/no such table/i.test(String(err?.message ?? ''))) throw err;
+    });
+
   await env.DB.batch([
     env.DB.prepare(
       'DELETE FROM update_changelog WHERE update_id IN (SELECT id FROM updates WHERE psn_account_id = ?)',
@@ -1121,3 +1136,44 @@ export const aheadOfMe = (env, theirAccount, myAccount, limit = 4) =>
       LIMIT ?`,
     [myAccount, theirAccount, limit],
   );
+
+// ---------------------------------------------------------------- goals ----
+
+/**
+ * One member's goals, newest first. /goal, and its remove picker.
+ *
+ * Wrapped at every call site, because the table arrives in migration 037 and
+ * /goal has to answer with a sentence rather than a stack trace on a database
+ * that has not run it.
+ */
+export const goals = (env, accountId) =>
+  all(
+    env,
+    `SELECT id, kind, target, start_value, created_at, deadline_at,
+            reached_at, ended_at, final_value
+       FROM goals
+      WHERE psn_account_id = ?
+      ORDER BY created_at DESC`,
+    [accountId],
+  );
+
+/** Set one. The starting value is whatever the members row says right now. */
+export async function addGoal(env, accountId, { kind, target, startValue, deadline }) {
+  await env.DB.prepare(
+    `INSERT INTO goals (psn_account_id, kind, target, start_value, created_at, deadline_at)
+     VALUES (?,?,?,?,?,?)`,
+  )
+    .bind(accountId, kind, target, startValue, Date.now(), deadline ?? null)
+    .run();
+}
+
+/**
+ * Take one off. Scoped to the member as well as the id, so nobody can remove
+ * somebody else's goal by guessing a number. Returns whether a row went.
+ */
+export async function removeGoal(env, accountId, id) {
+  const res = await env.DB.prepare('DELETE FROM goals WHERE psn_account_id = ? AND id = ?')
+    .bind(accountId, id)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}

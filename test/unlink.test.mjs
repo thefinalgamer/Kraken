@@ -93,9 +93,52 @@ test('it is ONE batch, so a failure halfway cannot half-delete somebody', async 
   assert.equal(db.batches.length, 1, 'seven separate awaits are seven chances to stop halfway');
   assert.ok(batch.length > 1);
 
-  // The only loose statement should be the member lookup that runs first.
+  // The only loose statements should be the member lookup that runs first and
+  // the goals delete, which stays outside on purpose (see below).
   const loose = db.prepared.filter((s) => !batch.includes(s));
-  assert.deepEqual(loose.map((s) => s.sql), ['SELECT * FROM members WHERE discord_id = ?']);
+  assert.deepEqual(loose.map((s) => s.sql), [
+    'SELECT * FROM members WHERE discord_id = ?',
+    'DELETE FROM goals WHERE psn_account_id = ?',
+  ]);
+});
+
+/**
+ * GOALS GO TOO, but outside the batch. The goals table arrives in migration
+ * 037, and a D1 batch is all-or-nothing: one missing table inside it would stop
+ * a mod unlinking anybody at all on a database that has not run 037.
+ */
+test('their goals are deleted, bound to their account', async () => {
+  const { db } = await runUnlink();
+  const del = db.prepared.find((s) => s.sql.startsWith('DELETE FROM goals '));
+  assert.ok(del, 'nothing deletes their goals, so they would be left behind');
+  assert.deepEqual(del.args, [MEMBER.psn_account_id]);
+});
+
+test('a database without migration 037 can still unlink somebody', async () => {
+  const db = fakeDb(MEMBER);
+  const prepare = db.env.DB.prepare;
+  db.env.DB.prepare = (sql) => {
+    const s = prepare(sql);
+    if (sql.startsWith('DELETE FROM goals')) {
+      s.run = async () => { throw new Error('D1_ERROR: no such table: goals'); };
+    }
+    return s;
+  };
+  await unlinkMember(db.env, MEMBER.discord_id);
+  assert.equal(db.batches.length, 1, 'the missing table stopped the real unlink');
+});
+
+test('any other goals error still stops it, rather than being swallowed', async () => {
+  const db = fakeDb(MEMBER);
+  const prepare = db.env.DB.prepare;
+  db.env.DB.prepare = (sql) => {
+    const s = prepare(sql);
+    if (sql.startsWith('DELETE FROM goals')) {
+      s.run = async () => { throw new Error('D1_ERROR: database is locked'); };
+    }
+    return s;
+  };
+  await assert.rejects(unlinkMember(db.env, MEMBER.discord_id), /locked/);
 });
 
 test('every delete is bound to that member and nobody else', async () => {

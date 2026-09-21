@@ -217,6 +217,11 @@ export const FAQ = [
       '`/rivals add`, and they show on your page as a little board of just them and ' +
       'you: rank, points, and how far ahead or behind each one is. Everyone can see ' +
       'everybody\'s, so being chased is part of it.\n\n' +
+      '**How do goals work?**\n' +
+      '`/goal` in Discord: pick points, completion, platinums, completed games or ' +
+      'trophies, a target, and a date if you want one. It shows on your page as a card ' +
+      'counting from where you were when you set it, and says whether you are on pace. ' +
+      'Kraken posts it when you get there.\n\n' +
       '**The points on a game page look lower than the game is worth. Why?**\n' +
       'Because they are *yours*, not the game\'s. A game worth 1,400 pays you 1,400 ' +
       'at 100% completion and 980 at 70%, so the number beside your name is what it ' +

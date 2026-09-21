@@ -328,6 +328,51 @@ const commands = [
     ],
   },
   {
+    /**
+     * Chat votes on what the streamer plays next, on the Twitch panel.
+     *
+     * Flat options like /wishlist and /goal: `start` opens one, `end` closes
+     * it, `add` and `remove` manage the backlog, bare shows where things are.
+     * No permission gate: it is their own channel.
+     */
+    name: 'vote',
+    description: 'Let your Twitch chat vote on what you play next, on your panel',
+    options: [
+      {
+        name: 'start',
+        description: 'Open a vote. Where do the games come from?',
+        type: 3,
+        required: false,
+        choices: [
+          { name: 'My list (your /wishlist games)', value: 'list' },
+          { name: 'Backlog (games you added with /vote add)', value: 'backlog' },
+          { name: 'Random 5 unfinished games', value: 'random' },
+        ],
+      },
+      {
+        // No timer, on purpose: the streamer closes it when they are ready.
+        name: 'end',
+        description: 'Close the vote and post the result',
+        type: 5,
+        required: false,
+      },
+      {
+        name: 'add',
+        description: 'Add one of your games to your vote backlog',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+      {
+        name: 'remove',
+        description: 'Take a game out of your vote backlog',
+        type: 3,
+        required: false,
+        autocomplete: true,
+      },
+    ],
+  },
+  {
     name: 'overlay',
     description: 'Your stream overlay: two browser sources for OBS',
     options: [

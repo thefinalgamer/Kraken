@@ -131,3 +131,26 @@ test('rivals are documented, and documented as public', () => {
   assert.match(site, /\/rivals add/, 'says how to set them');
   assert.match(site, /Everyone can see everybody's/, 'and does not imply the list is private');
 });
+
+test('every section fits in one Discord text block', async () => {
+  /**
+   * Discord refuses a text display over 4,000 characters, and the FAQ dropdown
+   * sends each section as one. The streaming section crossed that line on
+   * 21 September when the panel and votes were added to it, which is why they
+   * became a section of their own.
+   */
+  const { FAQ } = await import('../shared/faq.mjs');
+  for (const s of FAQ) {
+    const body = typeof s.body === 'function' ? s.body({}) : s.body;
+    assert.ok(body.length <= 4000, `${s.value} is ${body.length} characters`);
+  }
+});
+
+test('goals, votes and the panel are documented', async () => {
+  const { FAQ } = await import('../shared/faq.mjs');
+  const all = FAQ.map((s) => (typeof s.body === 'function' ? s.body({}) : s.body)).join('\n');
+  assert.match(all, /How do goals work\?/);
+  assert.match(all, /How do votes work\?/);
+  assert.match(all, /Is there a Twitch panel\?/);
+  assert.match(all, /no timer/i);
+});

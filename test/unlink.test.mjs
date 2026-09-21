@@ -94,11 +94,15 @@ test('it is ONE batch, so a failure halfway cannot half-delete somebody', async 
   assert.ok(batch.length > 1);
 
   // The only loose statements should be the member lookup that runs first and
-  // the goals delete, which stays outside on purpose (see below).
+  // the goals and votes deletes, which stay outside on purpose (see below):
+  // ballots before the votes they hang off.
   const loose = db.prepared.filter((s) => !batch.includes(s));
   assert.deepEqual(loose.map((s) => s.sql), [
     'SELECT * FROM members WHERE discord_id = ?',
     'DELETE FROM goals WHERE psn_account_id = ?',
+    'DELETE FROM vote_ballots WHERE vote_id IN (SELECT id FROM votes WHERE psn_account_id = ?)',
+    'DELETE FROM votes WHERE psn_account_id = ?',
+    'DELETE FROM vote_backlog WHERE psn_account_id = ?',
   ]);
 });
 

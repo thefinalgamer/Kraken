@@ -229,6 +229,56 @@ a{color:inherit}
 .btn:focus-visible{outline:2px solid var(--kraken);outline-offset:2px}
 .fine{color:var(--faint);font-size:10px;text-align:center;line-height:1.45;margin:0}
 
+/* ------------------------------------------------------------ the vote --
+   Purple, the colour that means "happening on stream right now" and nothing
+   else. The tab only exists while there is a vote to show. */
+.tabs button.vote{color:var(--live)}
+.tabs button.vote.on{color:var(--live);border-bottom-color:var(--live);background:rgba(176,125,255,.09)}
+.vtop{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.src{
+  display:inline-block;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:800;
+  letter-spacing:.04em;border:1px solid rgba(176,125,255,.4);color:var(--live);
+  background:rgba(176,125,255,.1);text-transform:uppercase;
+}
+.vstate{font-size:11px;font-weight:800;color:var(--live)}
+.vstate.shut{color:var(--faint)}
+.vq{font-size:15px;font-weight:800;line-height:1.25;margin:0}
+.opt{
+  display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:8px;
+  border:1px solid var(--edge);background:var(--panel);position:relative;overflow:hidden;
+  width:100%;font:inherit;color:inherit;text-align:left;
+}
+button.opt{cursor:pointer}
+button.opt:hover{border-color:rgba(176,125,255,.6)}
+button.opt:focus-visible{outline:2px solid var(--live);outline-offset:1px}
+button.opt[disabled]{cursor:default;opacity:.6}
+.opt .fill{position:absolute;top:0;bottom:0;left:0;background:rgba(176,125,255,.13)}
+.opt .txt{flex:1;min-width:0;position:relative}
+.opt .t{display:block;font-weight:700;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt .m{display:block;color:var(--faint);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt .go{
+  flex:none;font-size:10.5px;font-weight:800;color:var(--live);position:relative;
+  border:1px solid rgba(176,125,255,.5);padding:3px 8px;border-radius:6px;
+}
+.opt .pc{flex:none;font-weight:800;font-variant-numeric:tabular-nums;font-size:13px;position:relative}
+.opt.mine{border-color:rgba(176,125,255,.75)}
+.opt.mine .m{color:var(--live);font-weight:700}
+.winner{
+  text-align:center;padding:12px 10px;border-radius:10px;border:1px solid rgba(242,198,90,.5);
+  background:radial-gradient(circle at 50% 0,rgba(242,198,90,.18),transparent 70%),var(--panel);
+}
+.winner .art{margin:4px auto 8px}
+.winner .t{display:block;font-size:16px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.winner .m{display:block;color:var(--soft);font-size:11.5px}
+
+/* goals, in the Hunter tab */
+.goal .gt{min-width:0;display:block;font-weight:700;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goal .gl{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--faint)}
+.goal .gl .ok{color:var(--up);font-weight:700;flex:none}
+.goal .gl .bad{color:var(--down);font-weight:700;flex:none}
+.goal .bar{margin:6px 0 4px}
+.goal .bar i{background:var(--brass)}
+
 /* The three states that are not the panel: loading, unconfigured, broken.
    None of them may look like a bug, because two of them are not. */
 .state{

@@ -34,6 +34,9 @@ import {
   GOAL_KINDS, MAX_ACTIVE_GOALS, goalTitle, goalStatus, goalProblem,
   parseDeadline, currentValue, amount as goalAmount, rateAmount as goalRateAmount,
 } from '../../shared/goals.mjs';
+import {
+  VOTE_SOURCES, MIN_OPTIONS, MAX_OPTIONS, BACKLOG_MAX, parseOptions, tally,
+} from '../../shared/votes.mjs';
 
 const TYPE = { PING: 1, COMMAND: 2, COMPONENT: 3, AUTOCOMPLETE: 4 };
 const REPLY = { PONG: 1, MESSAGE: 4, DEFER: 5, UPDATE_MESSAGE: 7, AUTOCOMPLETE: 8 };
@@ -192,6 +195,9 @@ async function handleCommand(interaction, env, ctx) {
     });
     case 'setgame':    return setGame(env, userId, opt('game'));
     case 'wishlist':   return wishlist(env, userId, opt('add'), opt('remove'));
+    case 'vote':       return vote(env, userId, {
+      start: opt('start'), end: opt('end'), add: opt('add'), remove: opt('remove'),
+    });
     case 'goal':       return goal(env, userId, {
       kind: opt('for'), target: opt('target'), by: opt('by'), remove: opt('remove'),
     });
@@ -623,6 +629,197 @@ async function wishlist(env, userId, add, remove) {
     ],
     { ephemeral: true },
   );
+}
+
+/**
+ * Chat picks what the streamer plays next. /vote
+ *
+ * The streamer opens it here, viewers vote on the Twitch panel, the streamer
+ * closes it here. Designed with Martin on 21 September; the rules are in
+ * shared/votes.mjs.
+ *
+ *   /vote start:<list|backlog|random>   open one
+ *   /vote end:True                      close it and post the result
+ *   /vote add: / remove:                manage the backlog
+ *   /vote                               where things stand
+ *
+ * SELF ONLY. It is their channel and their panel.
+ *
+ * THE RESULT IS POSTED IN THE CHANNEL, not whispered, because a vote chat took
+ * part in is news. Everything else is ephemeral.
+ *
+ * NOTHING GOES ON THE OVERLAY. People vote on the next stream as often as this
+ * one, so the streamer runs /setgame when they actually start the winner.
+ */
+async function vote(env, userId, { start, end, add, remove }) {
+  const me = await db.memberByDiscordId(env, userId);
+  if (!me?.psn_account_id || !me.last_update_at) {
+    return errorReply('You are not on the board yet. `/register` with your PSN ID first.');
+  }
+
+  const missing = () =>
+    errorReply('The votes tables are not in the database yet. Run migration `038-votes.sql`.');
+  const isMissing = (err) => /no such table/i.test(String(err?.message ?? ''));
+  const guard = async (fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isMissing(err)) return missing();
+      throw err;
+    }
+  };
+
+  const asked = [start !== undefined, end === true, add !== undefined, remove !== undefined]
+    .filter(Boolean).length;
+  if (asked > 1) {
+    return errorReply('One thing at a time: start a vote, end it, or change the backlog.');
+  }
+
+  // ----------------------------------------------------------- backlog ---
+  if (add !== undefined || remove !== undefined) {
+    return guard(async () => {
+      const rows = await db.voteBacklog(env, me.psn_account_id);
+      if (add !== undefined) {
+        if (rows.length >= BACKLOG_MAX) {
+          return errorReply(
+            `Your backlog is full at ${BACKLOG_MAX} games. Take one off with \`/vote remove:\` first.`,
+          );
+        }
+        const game = await db.gameById(env, String(add));
+        if (!game) return errorReply('Pick a game from the dropdown rather than typing it.');
+        /**
+         * NEVER A BROKEN GAME. Martin: "never put in a broken game that is
+         * flagged by our system". Chat voting somebody into a game that cannot
+         * be finished is a stream wasted.
+         */
+        if (!(await db.isFinishable(env, game.np_comm_id))) {
+          return errorReply(
+            `**${md(game.title)}** is flagged as having trophies you cannot get any more, ` +
+              'so it cannot go in a backlog vote.',
+          );
+        }
+        const added = await db.addBacklog(env, me.psn_account_id, game.np_comm_id);
+        if (!added) return errorReply(`**${md(game.title)}** is already in your backlog.`);
+        return reply(
+          [container([text(
+            `### Added ${md(game.title)} to your backlog\n` +
+              `-# ${rows.length + 1} of ${BACKLOG_MAX}. \`/vote start: Backlog\` puts them to chat.`,
+          )], COLOR.green)],
+          { ephemeral: true },
+        );
+      }
+      const row = rows.find((r) => r.np_comm_id === String(remove));
+      if (!row) return errorReply('That game is not in your backlog. Pick one from the dropdown.');
+      await db.removeBacklog(env, me.psn_account_id, row.np_comm_id);
+      return reply(
+        [container([text(`### Removed ${md(row.title)}\n-# ${rows.length - 1} left in your backlog.`)], COLOR.grey)],
+        { ephemeral: true },
+      );
+    });
+  }
+
+  return guard(async () => {
+    const latest = await db.latestVote(env, me.psn_account_id);
+    const open = latest && !latest.closed_at ? latest : null;
+
+    // ---------------------------------------------------------- starting ---
+    if (start !== undefined) {
+      if (!VOTE_SOURCES[start]) return errorReply('Pick where the games come from: list, backlog or random.');
+      if (open) {
+        return errorReply('You already have a vote open. Close it with `/vote end: True` first.');
+      }
+      /**
+       * The panel finds its streamer by Twitch channel. A vote from somebody
+       * with no channel linked would open, take votes from nobody, and look
+       * like the feature is broken.
+       */
+      if (!me.twitch_id) {
+        return errorReply(
+          'Your Twitch channel is not linked, so your panel cannot show a vote. ' +
+            'Run `/twitch` with your channel name first.',
+        );
+      }
+
+      let ids = [];
+      if (start === 'list') {
+        ids = (await db.wishlist(env, me.psn_account_id)).map((g) => g.np_comm_id);
+      } else if (start === 'backlog') {
+        ids = (await db.voteBacklog(env, me.psn_account_id))
+          .filter((g) => Number(g.finishable) === 1)
+          .map((g) => g.np_comm_id);
+      } else {
+        ids = (await db.randomUnfinished(env, me.psn_account_id)).map((g) => g.np_comm_id);
+      }
+      ids = [...new Set(ids)].slice(0, MAX_OPTIONS);
+
+      if (ids.length < MIN_OPTIONS) {
+        const how = {
+          list: 'Add games with `/wishlist add:`.',
+          backlog: 'Add games with `/vote add:`.',
+          random: 'Every game you own is finished or flagged, which is a problem most people would like to have.',
+        }[start];
+        return errorReply(`A vote needs at least ${MIN_OPTIONS} games and there ${ids.length === 1 ? 'is' : 'are'} ${ids.length}. ${how}`);
+      }
+
+      await db.openVote(env, me.psn_account_id, start, ids);
+      const titles = await db.gameTitles(env, ids);
+      return reply(
+        [container([text(
+          `### Vote open: ${VOTE_SOURCES[start].label}\n` +
+            ids.map((id) => `- ${md(titles.get(id) ?? id)}`).join('\n') +
+            '\n\n-# It is on your Twitch panel now. Viewers see the results once they have voted. ' +
+            'Close it with `/vote end: True` whenever you are ready; there is no timer.',
+        )], COLOR.blurple)],
+        { ephemeral: true },
+      );
+    }
+
+    // ------------------------------------------------------------ ending ---
+    if (end === true) {
+      if (!open) return errorReply('You have no vote open. Start one with `/vote start:`.');
+      const options = parseOptions(open.options);
+      const t = tally(options, await db.voteCounts(env, open.id));
+      await db.closeVote(env, open.id, t.winner, t.total);
+      const titles = await db.gameTitles(env, options);
+      const name = (id) => md(titles.get(id) ?? id);
+
+      const headline = !t.total
+        ? `### Nobody voted\n**${md(me.psn_online_id)}**'s vote closed with no votes in.`
+        : t.winner
+          ? `### Chat has spoken: ${name(t.winner)}\n` +
+            `**${md(me.psn_online_id)}** is playing it next.`
+          : `### It is a tie\n${t.tied.map(name).join(' and ')} finished level. ` +
+            `**${md(me.psn_online_id)}** gets the deciding vote.`;
+      const lines = t.rows
+        .map((r) => `${r.id === t.winner ? '🏆' : '▫️'} ${name(r.id)} - **${r.percent}%** (${n(r.votes)})`)
+        .join('\n');
+      return reply([
+        container([text(
+          `${headline}\n\n${lines}\n\n-# ${n(t.total)} vote${t.total === 1 ? '' : 's'} on the Twitch panel.`,
+        )], t.winner ? COLOR.green : COLOR.blurple),
+      ]);
+    }
+
+    // ------------------------------------------------------ where it is ---
+    const backlog = await db.voteBacklog(env, me.psn_account_id);
+    let status = '### No vote open\nStart one with `/vote start:` and pick where the games come from.';
+    if (open) {
+      const options = parseOptions(open.options);
+      const t = tally(options, await db.voteCounts(env, open.id));
+      const titles = await db.gameTitles(env, options);
+      status =
+        `### Vote open: ${VOTE_SOURCES[open.source]?.label ?? open.source}\n` +
+        t.rows.map((r) => `- ${md(titles.get(r.id) ?? r.id)} - ${n(r.votes)}`).join('\n') +
+        `\n\n-# ${n(t.total)} so far. \`/vote end: True\` closes it.`;
+    }
+    const bl = backlog.length
+      ? backlog.map((g) => `- ${md(g.title)}${Number(g.finishable) === 1 ? '' : ' ⚠️ flagged, will be skipped'}`).join('\n')
+      : 'Empty. Add games with `/vote add:`.';
+    return reply(
+      [container([text(`${status}\n\n**Your backlog** (${backlog.length} of ${BACKLOG_MAX})\n${bl}`)], COLOR.blurple)],
+      { ephemeral: true },
+    );
+  });
 }
 
 /**
@@ -2949,8 +3146,12 @@ async function handleAutocomplete(interaction, env) {
   const isWishAdd = interaction.data.name === 'wishlist' && option?.name === 'add';
   // Their own goals and nothing else, the same reasoning as the wishlist.
   const isGoalDrop = interaction.data.name === 'goal' && option?.name === 'remove';
+  // The backlog: add offers their own unfinished games, remove offers the backlog.
+  const isVoteAdd = interaction.data.name === 'vote' && option?.name === 'add';
+  const isVoteDrop = interaction.data.name === 'vote' && option?.name === 'remove';
   if (!option
     || !(isMember || isFlagField || isPin || isWishDrop || isWishAdd || isGoalDrop
+         || isVoteAdd || isVoteDrop
          || GAME_FIELDS.has(option.name))) {
     return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
   }
@@ -3057,6 +3258,40 @@ async function handleAutocomplete(interaction, env) {
             `${n(g.local_started)} here`.slice(0, 100),
           value: String(g.np_comm_id).slice(0, 100),
         })),
+      },
+    };
+  }
+
+  if (isVoteAdd || isVoteDrop) {
+    const userId = interaction.member?.user?.id ?? interaction.user?.id;
+    const me = userId ? await db.memberByDiscordId(env, userId) : null;
+    if (!me?.psn_account_id) return { type: REPLY.AUTOCOMPLETE, data: { choices: [] } };
+
+    if (isVoteDrop) {
+      const rows = await db.voteBacklog(env, me.psn_account_id).catch(() => []);
+      return {
+        type: REPLY.AUTOCOMPLETE,
+        data: {
+          choices: rows
+            .filter((g) => !focused || String(g.title).toLowerCase().includes(focused.toLowerCase()))
+            .slice(0, 25)
+            .map((g) => ({ name: String(g.title).slice(0, 100), value: String(g.np_comm_id).slice(0, 100) })),
+        },
+      };
+    }
+
+    // Their own library, unfinished first. The add itself refuses broken games.
+    const rows = await db.myGamesForPin(env, me.psn_account_id, focused, 40).catch(() => []);
+    return {
+      type: REPLY.AUTOCOMPLETE,
+      data: {
+        choices: rows
+          .filter((g) => (Number(g.progress) || 0) < 100)
+          .slice(0, 25)
+          .map((g) => ({
+            name: `${g.title} · ${g.platform || 'PlayStation'} · ${g.progress ?? 0}%`.slice(0, 100),
+            value: String(g.np_comm_id).slice(0, 100),
+          })),
       },
     };
   }

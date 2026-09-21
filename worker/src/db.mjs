@@ -6,6 +6,7 @@
  * leaderboard is a single indexed read rather than an aggregate over games.
  */
 
+import { FINISHABLE_SQL, RANDOM_PICKS, BACKLOG_MAX } from '../../shared/votes.mjs';
 import {
   CONTESTED_SQL,
   CONTESTED_MIN_OWNERS,
@@ -186,18 +187,26 @@ export async function unlinkMember(env, discordId) {
   const account = member.psn_account_id;
 
   /**
-   * Goals go on their own, ahead of the batch, because the table arrives in
-   * migration 037. A D1 batch is all-or-nothing, so one missing table inside it
+   * Goals (037) and votes (038) go on their own, ahead of the batch, because
+   * those tables arrive in later migrations. A D1 batch is all-or-nothing, so one missing table inside it
    * would stop a mod unlinking anybody at all on a database that has not run
    * it. Losing the goals of somebody being unlinked anyway is no loss if the
    * batch below then fails; leaving them behind would be the old bug again.
    */
-  await env.DB.prepare('DELETE FROM goals WHERE psn_account_id = ?')
-    .bind(account)
-    .run()
-    .catch((err) => {
-      if (!/no such table/i.test(String(err?.message ?? ''))) throw err;
-    });
+  const optional = (sql) =>
+    env.DB.prepare(sql)
+      .bind(account)
+      .run()
+      .catch((err) => {
+        if (!/no such table/i.test(String(err?.message ?? ''))) throw err;
+      });
+  await optional('DELETE FROM goals WHERE psn_account_id = ?');
+  // Votes (038): ballots first, while the votes they hang off still exist.
+  await optional(
+    'DELETE FROM vote_ballots WHERE vote_id IN (SELECT id FROM votes WHERE psn_account_id = ?)',
+  );
+  await optional('DELETE FROM votes WHERE psn_account_id = ?');
+  await optional('DELETE FROM vote_backlog WHERE psn_account_id = ?');
 
   await env.DB.batch([
     env.DB.prepare(
@@ -1177,3 +1186,120 @@ export async function removeGoal(env, accountId, id) {
     .run();
   return (res?.meta?.changes ?? 0) > 0;
 }
+
+// ---------------------------------------------------------------- votes ----
+
+/**
+ * This member's newest vote, open or closed. /vote and the panel both start
+ * here. Wrapped at the call sites: the tables arrive in migration 038.
+ */
+export const latestVote = (env, accountId) =>
+  first(
+    env,
+    `SELECT id, psn_account_id, source, options, opened_at, closed_at, winner, total
+       FROM votes WHERE psn_account_id = ? ORDER BY opened_at DESC LIMIT 1`,
+    [accountId],
+  );
+
+/** How many ballots each option has. */
+export const voteCounts = (env, voteId) =>
+  all(
+    env,
+    'SELECT np_comm_id, COUNT(*) AS n FROM vote_ballots WHERE vote_id = ? GROUP BY np_comm_id',
+    [voteId],
+  );
+
+export async function openVote(env, accountId, source, options) {
+  await env.DB.prepare(
+    'INSERT INTO votes (psn_account_id, source, options, opened_at) VALUES (?,?,?,?)',
+  )
+    .bind(accountId, source, JSON.stringify(options), Date.now())
+    .run();
+}
+
+/** Close it. Guarded, so closing twice cannot rewrite a result. */
+export async function closeVote(env, voteId, winner, total) {
+  const res = await env.DB.prepare(
+    'UPDATE votes SET closed_at = ?, winner = ?, total = ? WHERE id = ? AND closed_at IS NULL',
+  )
+    .bind(Date.now(), winner ?? null, total, voteId)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * Five unfinished games from their own library, at random, never a broken one.
+ *
+ * ORDER BY RANDOM() reads their whole library, which for the biggest members is
+ * thousands of rows. It runs once per /vote start, never per viewer, so that is
+ * a cost worth paying for a pick that is actually random.
+ */
+export const randomUnfinished = (env, accountId, count = RANDOM_PICKS) =>
+  all(
+    env,
+    `SELECT mg.np_comm_id
+       FROM member_games mg
+       JOIN games g ON g.np_comm_id = mg.np_comm_id
+      WHERE mg.psn_account_id = ?
+        AND COALESCE(mg.progress, 0) < 100
+        AND TRIM(COALESCE(g.title, '')) <> ''
+        AND ${FINISHABLE_SQL}
+      ORDER BY RANDOM()
+      LIMIT ?`,
+    [accountId, count],
+  );
+
+/** The backlog, newest first, with whether each game can still be finished. */
+export const voteBacklog = (env, accountId) =>
+  all(
+    env,
+    `SELECT b.np_comm_id, g.title, g.platform, g.max_points, mg.progress,
+            CASE WHEN ${FINISHABLE_SQL} THEN 1 ELSE 0 END AS finishable
+       FROM vote_backlog b
+       JOIN games g ON g.np_comm_id = b.np_comm_id
+       LEFT JOIN member_games mg
+         ON mg.np_comm_id = b.np_comm_id AND mg.psn_account_id = b.psn_account_id
+      WHERE b.psn_account_id = ?
+      ORDER BY b.added_at DESC
+      LIMIT ${BACKLOG_MAX}`,
+    [accountId],
+  );
+
+/** Whether one game can be finished. The backlog refuses the ones that cannot. */
+export async function isFinishable(env, npCommId) {
+  const row = await first(
+    env,
+    `SELECT CASE WHEN ${FINISHABLE_SQL} THEN 1 ELSE 0 END AS ok FROM games g WHERE g.np_comm_id = ?`,
+    [npCommId],
+  );
+  return Number(row?.ok) === 1;
+}
+
+export async function addBacklog(env, accountId, npCommId) {
+  const res = await env.DB.prepare(
+    'INSERT OR IGNORE INTO vote_backlog (psn_account_id, np_comm_id, added_at) VALUES (?,?,?)',
+  )
+    .bind(accountId, npCommId, Date.now())
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+export async function removeBacklog(env, accountId, npCommId) {
+  const res = await env.DB.prepare(
+    'DELETE FROM vote_backlog WHERE psn_account_id = ? AND np_comm_id = ?',
+  )
+    .bind(accountId, npCommId)
+    .run();
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** Titles for a set of ids, for the /vote replies. */
+export const gameTitles = async (env, ids) => {
+  if (!ids.length) return new Map();
+  const rows = await all(
+    env,
+    `SELECT np_comm_id, title FROM games WHERE np_comm_id IN (${ids.map(() => '?').join(',')})`,
+    ids,
+  );
+  return new Map(rows.map((r) => [r.np_comm_id, r.title]));
+};

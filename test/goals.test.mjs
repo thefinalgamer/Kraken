@@ -454,3 +454,32 @@ test('goal titles are escaped like everything else from the database', async () 
   const { body } = await render([goal({ kind: '<script>' })]);
   assert.ok(!body.includes('<script>'));
 });
+
+// ------------------------------------------------------ the Twitch panel ---
+
+test('the panel API sends running goals as ready-made sentences', async () => {
+  const api = await import('../functions/api/hunter/[name].js');
+  const m = { ...PRIMAL, rank: 5, projects: 800, raw_points: PRIMAL.points, avatar_url: null };
+  const rows = [
+    goal({ id: 1, created_at: Date.now() - 20 * DAY, deadline_at: Date.now() + 9 * DAY }),
+    // Already past its target on the live row: left off, the job just has not caught up.
+    goal({ id: 2, kind: 'platinum', target: 700, start_value: 600 }),
+  ];
+  const env = {
+    DB: {
+      prepare(sql) {
+        const answer = () => ({
+          first: async () => (sql.includes('FROM members') && sql.includes('rarest_name') ? m : null),
+          all: async () => ({ results: sql.includes('FROM goals') ? rows : [] }),
+        });
+        return { ...answer(), bind: () => answer() };
+      },
+    },
+  };
+  const res = await api.onRequestGet({ params: { name: 'PrimalxFear' }, env });
+  const body = await res.json();
+  assert.equal(body.goals.length, 1);
+  assert.equal(body.goals[0].title, '200,000 points');
+  assert.equal(body.goals[0].left, '2,240 points');
+  assert.equal(body.goals[0].daysLeft, 9);
+});

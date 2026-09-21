@@ -36,6 +36,13 @@
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>
       <span>Now</span>
     </button>
+    <!-- Only shown while there is a vote to show. panel.js unhides it. -->
+    <button type="button" data-tab="vote" class="vote" aria-label="Vote" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12.5l4.2 4.2L19 7"/></svg>
+      <span>Vote</span>
+    </button>
     <button type="button" data-tab="list" aria-label="List">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
            stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>

@@ -23,6 +23,7 @@
 
   var API = 'https://platinumintel.co.uk/api/hunter/';
   var CHANNEL = 'https://platinumintel.co.uk/api/channel/';
+  var VOTE = 'https://platinumintel.co.uk/api/vote';
   /*
    * THERE IS NO LINK OUT OF THIS PANEL, AND THAT IS A RULE RATHER THAN A CHOICE.
    *
@@ -42,7 +43,15 @@
      already replaced, and slow enough that a busy channel costs nothing. */
   var REFRESH_MS = 60000;
 
-  var state = { psn: null, data: null, tab: 'now', timer: null };
+  /* While a vote is open the Vote tab refreshes this often, so the bars move.
+     Only while it is open and only while somebody is looking at that tab:
+     every other moment the ordinary one-minute refresh covers it. */
+  var VOTE_REFRESH_MS = 15000;
+
+  var state = {
+    psn: null, data: null, tab: 'now', timer: null,
+    token: null, vote: null, voteTimer: null, seenVote: null, casting: false, voteError: null,
+  };
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -407,6 +416,38 @@
     cab.appendChild(cabRow);
     out.appendChild(cab);
 
+    /*
+     * Their goals, set in Discord. Running ones only; each one says how far
+     * through it is and what is left, worked out by the API with the same rules
+     * as the website, so this prints sentences and does no sums.
+     */
+    if (d.goals && d.goals.length) {
+      var gh = el('div', 'row');
+      label(gh, 'Goals');
+      gh.appendChild(el('span', 'lbl', n(d.goals.length) + ' running'));
+      out.appendChild(gh);
+      d.goals.slice(0, 3).forEach(function (g) {
+        var gc = card('goal');
+        var head = el('div', 'row');
+        head.appendChild(el('span', 'gt', g.title));
+        head.appendChild(el('span', 'pct', (Number(g.percent) || 0).toFixed(1) + '%'));
+        gc.appendChild(head);
+        var gb = el('div', 'bar');
+        var gi = el('i');
+        gi.style.width = Math.max(0, Math.min(100, Number(g.percent) || 0)) + '%';
+        gb.appendChild(gi);
+        gc.appendChild(gb);
+        var gl = el('div', 'gl');
+        gl.appendChild(el('span', null,
+          g.left + ' to go' + (g.daysLeft !== null && g.daysLeft !== undefined
+            ? ' · ' + n(g.daysLeft) + (g.daysLeft === 1 ? ' day' : ' days') + ' left' : '')));
+        if (g.pace === 'on') gl.appendChild(el('span', 'ok', 'On pace'));
+        else if (g.pace === 'behind') gl.appendChild(el('span', 'bad', 'Behind'));
+        gc.appendChild(gl);
+        out.appendChild(gc);
+      });
+    }
+
     if (h.rarest) {
       var rc = card();
       label(rc, 'Rarest they have ever earned');
@@ -471,9 +512,200 @@
 
   }
 
+
+  /* ------------------------------------------------------------ tab: vote - */
+
+  /*
+   * THE VOTE. Opened by the streamer in Discord, closed by them there too.
+   *
+   * RESULTS ARE HIDDEN UNTIL YOU VOTE, and not by this file: the API does not
+   * send the counts to somebody who has not voted, so there is nothing here to
+   * hide and nothing for a curious viewer to dig out.
+   *
+   * The options are BUTTONS, never anchors, for the same reason the tabs are.
+   */
+  function optMeta(g) {
+    if (!g.started) return 'Not started · ' + n(g.points) + ' pts';
+    if (g.progress >= 100) return '100%';
+    return g.progress + '% · ' + n(g.left) + (g.left === 1 ? ' trophy' : ' trophies') + ' left';
+  }
+
+  function tabVote(d, out) {
+    var v = state.vote;
+    if (!v) {
+      var none = card();
+      none.appendChild(el('p', 'muted', 'No vote running right now.'));
+      out.appendChild(none);
+      return;
+    }
+
+    var top = el('div', 'vtop');
+    top.appendChild(el('span', 'src', v.label || 'Vote'));
+    top.appendChild(el('span', 'vstate' + (v.open ? '' : ' shut'), v.open ? '● Open' : 'Closed'));
+    out.appendChild(top);
+
+    if (!v.open) {
+      voteResult(v, out);
+      return;
+    }
+
+    out.appendChild(el('p', 'vq', v.question));
+
+    var rows = v.results ? v.results.rows : null;
+    var byId = {};
+    if (rows) rows.forEach(function (r) { byId[r.id] = r; });
+
+    v.options.forEach(function (g) {
+      var r = byId[g.id];
+      var o;
+      if (v.canVote) {
+        o = el('button', 'opt');
+        o.type = 'button';
+        if (state.casting) o.disabled = true;
+        o.addEventListener('click', function () { cast(g.id); });
+      } else {
+        o = el('div', 'opt' + (v.mine === g.id ? ' mine' : ''));
+      }
+      if (r) {
+        var fill = el('span', 'fill');
+        fill.style.width = Math.max(0, Math.min(100, r.percent)) + '%';
+        o.appendChild(fill);
+      }
+      o.appendChild(art(g.icon, 'g32'));
+      var tx = el('span', 'txt');
+      tx.appendChild(el('span', 't', g.title));
+      tx.appendChild(el('span', 'm', v.mine === g.id ? '✓ Your vote' : r ? n(r.votes) + (r.votes === 1 ? ' vote' : ' votes') : optMeta(g)));
+      o.appendChild(tx);
+      if (r) o.appendChild(el('span', 'pc', r.percent + '%'));
+      else if (v.canVote) o.appendChild(el('span', 'go', 'Vote'));
+      out.appendChild(o);
+    });
+
+    var f = el('div', 'foot');
+    var note = state.voteError
+      ? state.voteError
+      : !v.loggedIn
+        ? 'Log in to Twitch to vote.'
+        : v.results
+          ? n(v.results.total) + (v.results.total === 1 ? ' vote' : ' votes') + ' so far · updates live'
+          : 'One vote each. Results show once you have voted.';
+    f.appendChild(el('p', 'fine', note));
+    out.appendChild(f);
+  }
+
+  function voteResult(v, out) {
+    var name = {};
+    v.options.forEach(function (g) { name[g.id] = g; });
+
+    if (!v.results || !v.results.total) {
+      var none = card();
+      none.appendChild(el('p', 'muted', 'The vote closed with no votes in.'));
+      out.appendChild(none);
+      return;
+    }
+
+    if (v.winner && name[v.winner]) {
+      out.appendChild(el('span', 'lbl', 'Chat has spoken'));
+      var w = el('div', 'winner');
+      var a = art(name[v.winner].icon, 'g44');
+      w.appendChild(a);
+      w.appendChild(el('span', 't', name[v.winner].title));
+      var wr = v.results.rows.filter(function (r) { return r.id === v.winner; })[0];
+      w.appendChild(el('span', 'm', (wr ? wr.percent + '% of ' : '') + n(v.results.total) + ' votes · up next'));
+      out.appendChild(w);
+    } else {
+      out.appendChild(el('span', 'lbl', 'It is a tie'));
+      var tie = card();
+      tie.appendChild(el('p', 'muted',
+        v.tied.map(function (id) { return name[id] ? name[id].title : id; }).join(' and ')
+        + ' finished level. The streamer picks.'));
+      out.appendChild(tie);
+    }
+
+    v.results.rows.forEach(function (r) {
+      if (r.id === v.winner) return;
+      var g = name[r.id];
+      if (!g) return;
+      var o = el('div', 'opt');
+      var fill = el('span', 'fill');
+      fill.style.width = r.percent + '%';
+      o.appendChild(fill);
+      o.appendChild(art(g.icon, 'g26'));
+      var tx = el('span', 'txt');
+      tx.appendChild(el('span', 't', g.title));
+      o.appendChild(tx);
+      o.appendChild(el('span', 'pc', r.percent + '%'));
+      out.appendChild(o);
+    });
+  }
+
+  function voteHeaders(extra) {
+    var h = { Authorization: 'Bearer ' + state.token };
+    if (extra) for (var k in extra) h[k] = extra[k];
+    return h;
+  }
+
+  /*
+   * Whether there is a vote, and what this viewer may see of it.
+   *
+   * A NEW VOTE OPENS ITS TAB ONCE. The first time a panel sees a vote id it
+   * switches to the Vote tab, so a viewer who already had the panel open does
+   * not miss it; after that, whatever tab they choose is left alone.
+   */
+  function loadVote() {
+    if (!state.token) return;
+    fetch(VOTE, { method: 'GET', headers: voteHeaders() })
+      .then(function (res) { return res.ok ? res.json() : { vote: null }; })
+      .then(function (body) { applyVote(body && body.vote ? body.vote : null); })
+      .catch(function () { /* A missed refresh keeps what it has. */ });
+  }
+
+  function applyVote(v) {
+    var fresh = v && v.open && state.seenVote !== v.id;
+    state.vote = v;
+    if (v) state.seenVote = v.id;
+    $('tabs').querySelector('[data-tab="vote"]').hidden = !v;
+    if (fresh) state.tab = 'vote';
+    if (!v && state.tab === 'vote') state.tab = 'now';
+    scheduleVote();
+    render();
+  }
+
+  function scheduleVote() {
+    if (state.voteTimer) clearTimeout(state.voteTimer);
+    var quick = state.vote && state.vote.open && state.tab === 'vote';
+    state.voteTimer = setTimeout(loadVote, quick ? VOTE_REFRESH_MS : REFRESH_MS);
+  }
+
+  function cast(option) {
+    var v = state.vote;
+    if (!v || !v.canVote || state.casting) return;
+    state.casting = true;
+    state.voteError = null;
+    render();
+    fetch(VOTE, {
+      method: 'POST',
+      headers: voteHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ vote: v.id, option: option }),
+    })
+      .then(function (res) {
+        return res.json().then(function (body) { return { ok: res.ok, body: body }; });
+      })
+      .then(function (r) {
+        state.casting = false;
+        if (!r.ok) state.voteError = (r.body && r.body.error) ? 'Sorry, ' + r.body.error + '.' : null;
+        applyVote(r.body && r.body.vote !== undefined ? r.body.vote : state.vote);
+      })
+      .catch(function () {
+        state.casting = false;
+        state.voteError = 'That vote did not go through. Try again.';
+        render();
+      });
+  }
+
   /* ------------------------------------------------------------- render -- */
 
-  var TABS = { now: tabNow, list: tabList, hunter: tabHunter, board: tabBoard };
+  var TABS = { now: tabNow, vote: tabVote, list: tabList, hunter: tabHunter, board: tabBoard };
 
   function render() {
     var d = state.data;
@@ -501,8 +733,9 @@
     st.className = 'sub' + (on ? ' on' : ' who');
 
     Array.prototype.forEach.call($('tabs').children, function (b) {
-      var on = b.getAttribute('data-tab') === state.tab;
-      b.className = on ? 'on' : '';
+      var tab = b.getAttribute('data-tab');
+      var on = tab === state.tab;
+      b.className = (tab === 'vote' ? 'vote' : '') + (on ? ' on' : '');
       b.setAttribute('aria-current', on ? 'true' : 'false');
     });
   }
@@ -594,6 +827,8 @@
       b.addEventListener('click', function () {
         state.tab = b.getAttribute('data-tab');
         render();
+        // Speeds the vote refresh up or slows it down to match the tab.
+        if (state.token) scheduleVote();
       });
     });
 
@@ -609,6 +844,11 @@
         showState('Cannot read this channel', 'Try reloading the page.');
         return;
       }
+      /* The signed token is what a vote is checked against. It is refreshed
+         by Twitch now and then, so it is kept up to date every time. */
+      var first = !state.token;
+      state.token = auth.token || null;
+      if (first && state.token) loadVote();
       /* onAuthorized fires again when the token is refreshed. The channel does
          not change underneath a panel, so once is enough. */
       if (state.psn || state.timer) return;

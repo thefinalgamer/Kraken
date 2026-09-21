@@ -324,6 +324,29 @@ export const FAQ = [
       'that "Shutdown source when not visible" is unticked.',
   },
   {
+    value: 'panel',
+    label: 'The Twitch panel and votes',
+    description: 'Installing the panel, and letting chat pick your next game',
+    body:
+      '## The Twitch panel and votes\n\n' +
+      '**Is there a Twitch panel?**\n' +
+      'Yes. Search for **Platinum Intel** in your Twitch creator dashboard under ' +
+      'Extensions, install it and activate it as a panel. Run `/twitch` first so it knows ' +
+      'the channel is yours. It shows what you are playing, your list, your cabinet, your ' +
+      'goals and the board, with no links anywhere on it.\n\n' +
+      '**How do votes work?**\n' +
+      'Your chat votes on what you play next, right on the panel. `/vote start` and pick ' +
+      'where the games come from: **My list** (your `/wishlist` games, which is where ' +
+      'channel-point requests go), **Backlog** (games you add with `/vote add`), or ' +
+      '**Random 5** unfinished games from your library. Backlog and Random never pick a ' +
+      'game with trophies you cannot get any more.\n\n' +
+      'There is no timer: it stays open until you run `/vote end`, and the result is ' +
+      'posted in the Discord. Viewers only see the results once they have voted, so nobody just ' +
+      'follows the crowd, and it is one vote each for anybody logged in to Twitch. The ' +
+      'winner does not go on your overlay by itself, because plenty of people vote on ' +
+      'the next stream; `/setgame` it when you start.',
+  },
+  {
     value: 'supporting',
     label: 'Supporting Kraken',
     description: 'Costs, the star, and what it does not buy',

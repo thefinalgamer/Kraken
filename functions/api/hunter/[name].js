@@ -27,6 +27,7 @@
 
 import { applyCompletion, displayBanked } from '../../../shared/scoring.mjs';
 import { secureUrl } from '../../_lib/page.js';
+import { goalStatus, amount as goalAmount, rateAmount as goalRateAmount } from '../../../shared/goals.mjs';
 
 /** How long the edge may serve a copy. See the header comment. */
 const CACHE = 30;
@@ -185,6 +186,18 @@ const WISHLIST = `
    ORDER BY w.added_at DESC
    LIMIT 12`;
 
+/**
+ * Their goals, for the Hunter tab. Running ones only, newest first: a panel
+ * 318 pixels wide has room for what they are chasing, not their history.
+ */
+const GOALS = `
+  SELECT id, kind, target, start_value, created_at, deadline_at,
+         reached_at, ended_at, final_value
+    FROM goals
+   WHERE psn_account_id = ? AND reached_at IS NULL AND ended_at IS NULL
+   ORDER BY created_at DESC
+   LIMIT 6`;
+
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
 const json = (body, status = 200) =>
@@ -261,7 +274,7 @@ export async function onRequestGet({ params, env }) {
 
   const rank = num(m.rank) ?? 1;
 
-  const [total, ahead, playing, milestone, closing, top, around, list] = await Promise.all([
+  const [total, ahead, playing, milestone, closing, top, around, list, goalRows] = await Promise.all([
     env.DB.prepare(TOTAL).first().catch(() => null),
     rank > 1
       ? env.DB.prepare(AHEAD).bind(rank - 1).first().catch(() => null)
@@ -279,6 +292,8 @@ export async function onRequestGet({ params, env }) {
     // The wishlist table arrives in a later migration. An empty list is a
     // panel with one quiet tab; a thrown query is no panel at all.
     env.DB.prepare(WISHLIST).bind(m.psn_account_id).all().catch(() => ({ results: [] })),
+    // Goals arrive in migration 037, so the same seatbelt as the wishlist.
+    env.DB.prepare(GOALS).bind(m.psn_account_id).all().catch(() => ({ results: [] })),
   ]);
 
   /**
@@ -432,5 +447,25 @@ export async function onRequestGet({ params, env }) {
     })),
 
     board: { top: rows(top), around: rows(around) },
+
+    /**
+     * Worked out here with the same rules as the website and the bot, so the
+     * panel prints sentences rather than doing arithmetic. Anything the live
+     * row has already pushed past its target is left off: the job has not
+     * caught up yet, and "100%, 0 to go" is not a goal.
+     */
+    goals: (goalRows?.results ?? [])
+      .map((g) => ({ g, s: goalStatus(g, m, now) }))
+      .filter(({ s }) => s.state === 'active' && s.title)
+      .map(({ g, s }) => ({
+        id: g.id,
+        kind: g.kind,
+        title: s.title,
+        percent: Math.floor(s.percent * 10) / 10,
+        left: goalAmount(g.kind, s.remaining),
+        perDay: s.neededPerDay !== null ? goalRateAmount(g.kind, s.neededPerDay) : null,
+        daysLeft: s.daysLeft,
+        pace: s.pace,
+      })),
   });
 }

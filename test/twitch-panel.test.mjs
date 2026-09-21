@@ -151,12 +151,15 @@ test('the panel talks to the board over https, and only the board', async () => 
   );
 });
 
-test('the four tabs exist in the markup and every one has a handler', async () => {
+test('the tabs exist in the markup and every one has a handler', async () => {
   const html = await readCode('panel.html');
   const js = await readCode('panel.js');
 
+  // Five, and five is the most that fits across 318 pixels. Vote only shows
+  // while there is a vote, so most of the time a viewer sees four.
   const tabs = [...html.matchAll(/data-tab="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ['now', 'list', 'hunter', 'board']);
+  assert.deepEqual(tabs, ['now', 'vote', 'list', 'hunter', 'board']);
+  assert.match(html, /data-tab="vote"[^>]*hidden/, 'the Vote tab starts hidden');
 
   // The handler is attached in JS, since an onclick attribute would be dropped.
   assert.match(js, /addEventListener\('click'/);

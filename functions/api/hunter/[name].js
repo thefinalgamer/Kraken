@@ -27,6 +27,7 @@
 
 import { applyCompletion, displayBanked } from '../../../shared/scoring.mjs';
 import { secureUrl } from '../../_lib/page.js';
+import { FINISHABLE_SQL } from '../../../shared/votes.mjs';
 import { goalStatus, amount as goalAmount, rateAmount as goalRateAmount } from '../../../shared/goals.mjs';
 
 /** How long the edge may serve a copy. See the header comment. */
@@ -143,6 +144,12 @@ const MILESTONE_SCAN = 60;
  *   - it counted every trophy left, DLC included, when the platinum only ever
  *     needs the BASE game's trophies
  *
+ * And a third, the same evening: it then showed GTA V, which is flagged. A
+ * countdown to a platinum nobody can get is worse than no card, so NO GAME OUR
+ * SYSTEM HAS FLAGGED is ever shown: not the game flag, and not a game with any
+ * trophy flagged. Martin: "never show a game thats been flagged". The rule is
+ * FINISHABLE_SQL, the same one the votes use, so the two can never disagree.
+ *
  * So: platinum not earned, and the count is base-game trophies (group
  * 'default', or no group recorded) other than the platinum itself, that are not
  * in their earned_ids. The same json_each test the scan's rarest-trophy query
@@ -156,6 +163,7 @@ const MILESTONE = `
      WHERE mg.psn_account_id = ?
        AND g.has_platinum = 1
        AND COALESCE(mg.earned_platinum, 0) = 0
+       AND ${FINISHABLE_SQL}
        AND mg.progress < 100
        AND g.trophy_count > 0
        AND (g.trophy_count - mg.earned_total) BETWEEN 1 AND ?

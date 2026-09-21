@@ -21,14 +21,16 @@ try {
 
 const src = await import('node:fs/promises').then((fs) =>
   fs.readFile(new URL('../functions/api/hunter/[name].js', import.meta.url), 'utf8'));
-const MILESTONE = src.match(/const MILESTONE = `([\s\S]*?)`;/)[1];
+const { FINISHABLE_SQL } = await import('../shared/votes.mjs');
+const MILESTONE = src.match(/const MILESTONE = `([\s\S]*?)`;/)[1].replace('${FINISHABLE_SQL}', FINISHABLE_SQL);
 
 function db() {
   const d = new DatabaseSync(':memory:');
   d.exec(`
     CREATE TABLE games (np_comm_id TEXT PRIMARY KEY, title TEXT, icon_url TEXT, has_platinum INTEGER,
-                        trophy_count INTEGER, max_points INTEGER);
-    CREATE TABLE trophies (np_comm_id TEXT, trophy_id INTEGER, type TEXT, group_id TEXT);
+                        trophy_count INTEGER, max_points INTEGER, unobtainable INTEGER DEFAULT 0);
+    CREATE TABLE trophies (np_comm_id TEXT, trophy_id INTEGER, type TEXT, group_id TEXT,
+                           unobtainable INTEGER DEFAULT 0);
     CREATE TABLE member_games (psn_account_id TEXT, np_comm_id TEXT, progress INTEGER,
                                earned_total INTEGER, earned_platinum INTEGER, earned_ids TEXT);
   `);
@@ -37,11 +39,11 @@ function db() {
 
 /** A game: `base` non-platinum base trophies, a platinum, and `dlc` DLC ones. */
 function game(d, id, { base, dlc = 0, maxPoints = 1000 }) {
-  d.prepare('INSERT INTO games VALUES (?,?,?,?,?,?)').run(id, id, null, 1, base + 1 + dlc, maxPoints);
+  d.prepare('INSERT INTO games VALUES (?,?,?,?,?,?,0)').run(id, id, null, 1, base + 1 + dlc, maxPoints);
   let n = 0;
-  d.prepare('INSERT INTO trophies VALUES (?,?,?,?)').run(id, n++, 'platinum', 'default');
-  for (let i = 0; i < base; i++) d.prepare('INSERT INTO trophies VALUES (?,?,?,?)').run(id, n++, 'bronze', 'default');
-  for (let i = 0; i < dlc; i++) d.prepare('INSERT INTO trophies VALUES (?,?,?,?)').run(id, n++, 'gold', '001');
+  d.prepare('INSERT INTO trophies (np_comm_id, trophy_id, type, group_id) VALUES (?,?,?,?)').run(id, n++, 'platinum', 'default');
+  for (let i = 0; i < base; i++) d.prepare('INSERT INTO trophies (np_comm_id, trophy_id, type, group_id) VALUES (?,?,?,?)').run(id, n++, 'bronze', 'default');
+  for (let i = 0; i < dlc; i++) d.prepare('INSERT INTO trophies (np_comm_id, trophy_id, type, group_id) VALUES (?,?,?,?)').run(id, n++, 'gold', '001');
 }
 
 /** A member holding the listed trophy ids. */
@@ -88,4 +90,20 @@ test('too far off is no countdown at all', { skip: !DatabaseSync }, () => {
   game(d, 'G', { base: 50 });
   holds(d, 'G', range(1, 20), 51);
   assert.equal(run(d), null);
+});
+
+test('a flagged game is never shown, and the next real one is', { skip: !DatabaseSync }, () => {
+  // GTA V, 22 September: 2 to go, and flagged. A countdown nobody can finish.
+  const d = db();
+  game(d, 'GTAV', { base: 50 });
+  holds(d, 'GTAV', range(1, 49), 51);
+  game(d, 'REAL', { base: 30 });
+  holds(d, 'REAL', range(1, 25), 31);
+
+  d.prepare('UPDATE trophies SET unobtainable = 1 WHERE np_comm_id = ? AND trophy_id = 50').run('GTAV');
+  assert.equal(run(d).title, 'REAL', 'one flagged trophy is enough to rule the game out');
+
+  d.prepare('UPDATE trophies SET unobtainable = 0').run();
+  d.prepare('UPDATE games SET unobtainable = 1 WHERE np_comm_id = ?').run('GTAV');
+  assert.equal(run(d).title, 'REAL', 'and so is the game flag');
 });

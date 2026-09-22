@@ -38,6 +38,7 @@ import {
 } from '../shared/on-stream.mjs';
 import { settleLocalRarity } from './lib/settle.mjs';
 import { settleGoals } from './lib/goals.mjs';
+import { titleProgress } from './lib/progress.mjs';
 import {
   postUpdateResult,
   postProjects,
@@ -635,7 +636,10 @@ async function scanMember(psn, member, updateNo) {
      * new information. Growth is detected by definedTrophies against
      * trophy_count -- a count, not a percentage -- and is unaffected.
      */
-    t.progress = pct(t.progress);
+    // Sony's figure, unless Sony says 0 beside trophies earned - see
+    // lib/progress.mjs. Fixed on the title object itself, so the rollup's
+    // completed count further down reads the corrected figure too.
+    t.progress = titleProgress(t);
     const drifted = was && was.progress !== t.progress;
 
     if (!was || was.earned_total !== earnedTotal || was.scanned_at == null || drifted) {
@@ -1315,7 +1319,7 @@ async function scanGame(
   for (const t of mine) if (counts[t.type] !== undefined) counts[t.type]++;
   // Clamped at the top of the scan; belt and braces for any path that reaches
   // scanGame() with a title object from somewhere else.
-  const progress = pct(title.progress);
+  const progress = titleProgress(title);
   const points = mine.reduce((n, t) => n + t.points, 0);
 
   // The span between their first and last trophy in this game. NULL when

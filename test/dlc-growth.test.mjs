@@ -80,7 +80,8 @@ test('PSN disagreeing about progress is a reason to rescan on its own', () => {
    */
   assert.match(code, /const drifted = was && was\.progress !== t\.progress/,
     'stored progress is compared against what PSN says now');
-  assert.match(code, /t\.progress = pct\(t\.progress\)/,
+  // titleProgress clamps (see lib/progress.mjs and test/progress.test.mjs).
+  assert.match(code, /t\.progress = titleProgress\(t\)/,
     'both sides clamped, so a game Sony leaves at 102 is not rescanned forever');
   assert.match(code, /was\.earned_total !== earnedTotal \|\| was\.scanned_at == null \|\| drifted/,
     'and a disagreement joins the other reasons to rescan');
@@ -220,5 +221,6 @@ test('a percentage never leaves this job above 100', () => {
    */
   assert.match(code, /function pct\(v\) \{[\s\S]{0,120}Math\.min\(100/, 'clamped to 100');
   assert.match(code, /Math\.max\(0,/, 'and not below nothing either');
-  assert.match(code, /const progress = pct\(title\.progress\)/, 'what gets stored is clamped');
+  // Stored progress goes through titleProgress, which clamps the same way.
+  assert.match(code, /const progress = titleProgress\(title\)/, 'what gets stored is clamped');
 });

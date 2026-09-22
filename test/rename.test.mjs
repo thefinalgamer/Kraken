@@ -209,8 +209,11 @@ test('the option is registered, and the scan reads the lock it sets', () => {
   assert.match(WORKER, /rename: opt\('namechange'\)/, 'and the handler is given it');
   assert.match(
     SCAN,
-    /title = CASE WHEN games\.title_locked = 1 THEN games\.title ELSE excluded\.title END/,
+    /title = CASE WHEN games\.title_locked = 1 THEN games\.title/,
     'the scan leaves a locked title alone',
   );
-  assert.match(SCAN, /title_psn = excluded\.title/, 'and records PSN\'s name either way');
+  // The second arm of that CASE keeps a real title when PSN sends none; see
+  // test/nameless-game.test.mjs, which runs the upsert against SQLite.
+  assert.match(SCAN, /title_psn = CASE WHEN excluded\.title = games\.np_comm_id/,
+    'and records PSN\'s name either way, unless PSN had none');
 });

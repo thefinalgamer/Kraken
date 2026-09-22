@@ -1121,6 +1121,23 @@ async function namePacks(psn, title, defs) {
 const cleanTitle = (s) => String(s ?? '').replace(/\s+/g, ' ').trim() || null;
 
 /**
+ * A title that can go in a NOT NULL column.
+ *
+ * 22 September: Pelziowo's scan died on game 152 of 15,482 with
+ * "NOT NULL constraint failed: games.title". PSN had returned a title with no
+ * `trophyTitleName` at all, cleanTitle turned that into null, and the insert
+ * took the whole run down -- twelve minutes of scanning lost to one nameless
+ * game.
+ *
+ * A game with no name is a nuisance; a scan that stops is an outage. So the id
+ * stands in, which is ugly and visible and fixes itself the next time PSN
+ * answers properly. The upsert below knows to treat that stand-in as "no name"
+ * and keep whatever real title the row already had.
+ */
+const titleOrId = (title) =>
+  cleanTitle(title?.trophyTitleName) ?? String(title?.npCommunicationId ?? 'Unknown game');
+
+/**
  * Scan one game for one member, in a single PSN call.
  *
  * `getUserTrophiesEarnedForTitle` returns EVERY trophy in the title, whether
@@ -1210,8 +1227,17 @@ async function scanGame(
           * title_psn is written EITHER WAY, locked or not, so the original is
           * never lost and a rename is always undoable. See migration 026.
           */
-         title_psn = excluded.title,
-         title = CASE WHEN games.title_locked = 1 THEN games.title ELSE excluded.title END,
+         /*
+          * A NAMELESS GAME NEVER OVERWRITES A NAMED ONE. When PSN sends no
+          * title, titleOrId() puts the np_comm_id in, and that stand-in must
+          * not replace a title we already hold -- see titleOrId above.
+          */
+         title_psn = CASE WHEN excluded.title = games.np_comm_id THEN games.title_psn
+                          ELSE excluded.title END,
+         title = CASE WHEN games.title_locked = 1 THEN games.title
+                      WHEN excluded.title = games.np_comm_id AND TRIM(COALESCE(games.title, '')) <> ''
+                        THEN games.title
+                      ELSE excluded.title END,
          platform = excluded.platform,
          icon_url = excluded.icon_url,
          /*
@@ -1264,7 +1290,7 @@ async function scanGame(
       [
         title.npCommunicationId,
         title.npServiceName ?? null,
-        cleanTitle(title.trophyTitleName),
+        titleOrId(title),
         title.trophyTitlePlatform ?? null,
         https(title.trophyTitleIconUrl),
         rated.length,
@@ -1492,7 +1518,7 @@ async function scanGame(
 
   return {
     np_comm_id: title.npCommunicationId,
-    title: cleanTitle(title.trophyTitleName),
+    title: titleOrId(title),
     kind: !was ? 'new' : progress === 100 && was.progress !== 100 ? 'completed' : 'progress',
     trophies_gained: gained,
     new_trophy_ids: newIds,

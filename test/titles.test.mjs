@@ -70,7 +70,10 @@ test('the scan writes the cleaned title, not the raw one', () => {
   // an empty slice and every assertion below passes on nothing.
   const insert = scan.slice(at, scan.indexOf('needsNames', at));
   assert.ok(insert.length > 200, 'the slice actually covers the write');
-  assert.match(insert, /cleanTitle\(title\.trophyTitleName\)/, 'the games row is cleaned');
+  // Through titleOrId, which cleans it and falls back to the id when PSN sends
+  // no name at all -- see test/nameless-game.test.mjs.
+  assert.match(insert, /titleOrId\(title\)/, 'the games row is cleaned');
+  assert.match(scan, /cleanTitle\(title\?\.trophyTitleName\)/, 'and cleaning is what it does');
   assert.ok(
     !/^\s*title\.trophyTitleName,$/m.test(insert),
     'and the raw field is not bound anywhere in that write',

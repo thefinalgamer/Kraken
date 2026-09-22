@@ -502,6 +502,19 @@ async function main() {
   await recomputeRanks();
 
   /**
+   * How many games the website's index lists, for its page numbers. Counted
+   * here, once a night, so the page itself never has to count twenty-six
+   * thousand rows to print "of 520". Best-effort: without it the index just
+   * does not show a last page.
+   */
+  try {
+    const listed = await db.one('SELECT COUNT(*) AS c FROM games WHERE local_started > 0');
+    await db.setState('games_listed', Number(listed?.c) || 0);
+  } catch (err) {
+    console.error('Could not count the games index (harmless):', err.message);
+  }
+
+  /**
    * Goals, for everybody, now the numbers are final. A rescore re-prices the
    * whole board, so anybody's points goal can tip over without them playing,
    * and a goal with a date that passed overnight is frozen here.

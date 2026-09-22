@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
   closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
-  barShade, secureUrl,
+  barShade, secureUrl, numberedPager,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -1023,18 +1023,15 @@ function comparePanel(me, them, ahead, theirs, clearHref, moreHref) {
  * fetched and its existence is the whole of "is there a next page".
  */
 function pager(name, sort, q, pageNo, pages, hasNext) {
-  const href = (p) =>
-    `/hunter/${encodeURIComponent(name)}?sort=${sort}&page=${p}` +
-    (q ? `&q=${encodeURIComponent(q)}` : '');
-
-  const forward = pages ? pageNo < pages : hasNext;
-  if (pageNo <= 1 && !forward) return '';
-
-  const bits = [];
-  if (pageNo > 1) bits.push(`<a href="${esc(href(pageNo - 1))}">‹ Previous</a>`);
-  bits.push(`<span class="of">${pages ? `Page ${pageNo} of ${pages}` : `Page ${pageNo}`}</span>`);
-  if (forward) bits.push(`<a href="${esc(href(pageNo + 1))}">Next ›</a>`);
-  return `<nav class="pager">${bits.join('')}</nav>`;
+  const path = `/hunter/${encodeURIComponent(name)}`;
+  return numberedPager({
+    pageNo,
+    pages,
+    hasNext,
+    href: (p) => `${path}?sort=${sort}&page=${p}` + (q ? `&q=${encodeURIComponent(q)}` : ''),
+    action: path,
+    hidden: { sort, q },
+  });
 }
 
 
@@ -1254,13 +1251,20 @@ export async function onRequestGet({ params, env, request }) {
 
   const onStream = new Map(liveRows.map((r) => [r.np_comm_id, Number(r.live) || 0]));
 
-  // History rides the first page only, and never a search. Somebody on page 6
-  // of their library is reading the table; it would be the same figures every
-  // time at the cost of another query.
+  /**
+   * EVERYTHING ABOVE THE TABLE LOADS ON EVERY PAGE, and a search too.
+   *
+   * History, rivals, goals and the list used to ride page 1 only, on the
+   * reasoning that page 6 is somebody reading the table. But the blocks
+   * themselves still drew, empty: page 2 said "Rivals 0 of 5" and "Playing
+   * next 0" about somebody with rivals and a list, and Goals and the
+   * From-trophies split simply vanished. Shinlight, 22 September: "All data
+   * related to the new functionality is missing when you navigate to the second
+   * page". A header that changes with the page number reads as broken data.
+   * The page is edge-cached for five minutes, so the few extra rows cost nothing.
+   */
   const { results: updates = [] } =
-    pageNo === 1 && !q
-      ? await env.DB.prepare(UPDATES).bind(m.psn_account_id, HISTORY).all()
-      : { results: [] };
+    await env.DB.prepare(UPDATES).bind(m.psn_account_id, HISTORY).all();
 
   const { points: curve, split } = history(
     updates,
@@ -1268,49 +1272,38 @@ export async function onRequestGet({ params, env, request }) {
   );
 
   /**
-   * Rivals ride the first page too, and for the same reason — it is the same
-   * five rows however deep into somebody's library you are, so paying for them
-   * on page 6 buys nothing.
+   * Rivals, on every page (see above).
    *
    * parseRivals never throws. A column mangled by an older build renders as no
    * rivals at all, which is the correct failure: a decoration on a page must
    * not be able to take the page down.
    */
-  const rivalIds = pageNo === 1 && !q ? parseRivals(m.rivals) : [];
+  const rivalIds = parseRivals(m.rivals);
   const { results: rivals = [] } = rivalIds.length
     ? await env.DB.prepare(rivalsSql(rivalIds.length)).bind(...rivalIds).all()
     : { results: [] };
 
   /**
-   * Goals, first page only, for the same reason as rivals. Wrapped, because the
-   * table arrives in migration 037: no table means no goals block, never no
-   * page. `null` means "not loaded" and hides the block entirely, so page 6
-   * does not claim somebody has no goals.
+   * Goals, on every page. Wrapped, because the table arrives in migration 037:
+   * no table means `null`, which hides the block rather than claiming somebody
+   * has no goals, and never costs the page.
    */
-  const goalRows =
-    pageNo === 1 && !q
-      ? await env.DB.prepare(GOALS)
-          .bind(m.psn_account_id)
-          .all()
-          .then((r) => r.results ?? [])
-          .catch(() => null)
-      : null;
+  const goalRows = await env.DB.prepare(GOALS)
+    .bind(m.psn_account_id)
+    .all()
+    .then((r) => r.results ?? [])
+    .catch(() => null);
 
   /**
-   * The list of what they mean to play next, on the first page for the same
-   * reason rivals are: it is the same twelve rows however deep into a library
-   * you have scrolled.
+   * The list of what they mean to play next, on every page.
    *
    * Wrapped, because the table arrives in migration 030. An empty list is a
    * panel that teaches the command; a thrown query is no hunter page at all.
    */
-  const { results: wishes = [] } =
-    pageNo === 1 && !q
-      ? await env.DB.prepare(WISHLIST)
-          .bind(m.psn_account_id)
-          .all()
-          .catch(() => ({ results: [] }))
-      : { results: [] };
+  const { results: wishes = [] } = await env.DB.prepare(WISHLIST)
+    .bind(m.psn_account_id)
+    .all()
+    .catch(() => ({ results: [] }));
 
   // Only when asked. Nobody pays for the dice unless somebody rolls them.
   const [backlogPicks, wildPicks] = rolling

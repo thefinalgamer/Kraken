@@ -28,9 +28,17 @@ const ROWS = [
 let lastSql = '';
 let lastBind = [];
 
-const fakeEnv = (rows) => ({
+/**
+ * `listed` is the nightly count the rescore leaves in kv. It is read with
+ * `.first()` and no bind, so it is routed before `lastSql` records anything:
+ * lastSql is the LIST query and the assertions below are about that.
+ */
+const fakeEnv = (rows, listed = null) => ({
   DB: {
     prepare(sql) {
+      if (sql.includes('FROM kv')) {
+        return { first: async () => (listed === null ? null : { value: JSON.stringify(listed) }) };
+      }
       lastSql = sql;
       return {
         bind: (...args) => {
@@ -42,9 +50,9 @@ const fakeEnv = (rows) => ({
   },
 });
 
-const render = async (rows = ROWS, query = '') => {
+const render = async (rows = ROWS, query = '', listed = null) => {
   const res = await mod.onRequestGet({
-    env: fakeEnv(rows),
+    env: fakeEnv(rows, listed),
     request: new Request(`https://kraken.test/games${query}`),
   });
   return { res, out: await res.text() };
@@ -96,15 +104,15 @@ test('page 3 offsets by a hundred', async () => {
 
 test('a short page shows no Next link', async () => {
   const { out } = await render(ROWS);
-  assert.ok(!out.includes('Next'), 'three rows is not a full page');
+  assert.ok(!out.includes('rel="next"'), 'three rows is not a full page');
 });
 
 test('a full page plus one shows Next but claims no total', async () => {
   const many = Array.from({ length: 51 }, (_, i) => ({ ...ROWS[0], np_comm_id: `N${i}` }));
   const { out } = await render(many);
-  assert.ok(out.includes('Next'), 'there is a next page');
-  assert.ok(out.includes('Page 1'), 'and it says which page this is');
-  assert.ok(!/Page 1 of/.test(out), 'but never "of N" — nothing counted it');
+  assert.ok(out.includes('rel="next"'), 'there is a next page');
+  assert.match(out, /<span class="pn on" aria-current="page">1<\/span>/, 'and it says which page this is');
+  assert.ok(!/Page 1 of/.test(out), 'but never "of N" when nothing has counted it');
   // Count the game links, not <tr> — the header is a row too, and counting it
   // was this assertion failing for a reason that had nothing to do with paging.
   assert.equal(
@@ -211,4 +219,33 @@ test('the flagged count is derived, never a stored column', async () => {
   await render();
   assert.match(lastSql, /FROM trophies WHERE unobtainable = 1/, 'counted from the index');
   assert.match(lastSql, /LEFT JOIN/, 'and joined, so an unflagged game still lists');
+});
+
+// ---------------------------------------------------------- page numbers ---
+
+const many = Array.from({ length: 51 }, (_, i) => ({ ...ROWS[0], np_comm_id: `N${i}` }));
+
+test('with last night\'s count, it numbers the pages and offers a jump', async () => {
+  // Shinlight, 22 September: "add pagination so we can navigate between pages
+  // more quickly". 1,040 games at fifty a page is 21 pages.
+  const { out } = await render(many, '?page=6', 1040);
+  assert.match(out, /Page 6 of 21/);
+  assert.match(out, /href="\/games\?sort=owned&amp;page=21"/, 'straight to the last page');
+  assert.match(out, /href="\/games\?sort=owned&amp;page=1"/, 'and the first');
+  assert.match(out, /href="\/games\?sort=owned&amp;page=8"/, 'two either side');
+  assert.ok(!/page=12"/.test(out), 'but not every page in between');
+  assert.match(out, /<form class="jump" method="get" action="\/games">/);
+  assert.match(out, /name="sort" value="owned"/, 'the jump keeps the sort');
+});
+
+test('a stale count never hides a page that exists', async () => {
+  // Last night said 100 games (2 pages); tonight there is a full page 3 and more.
+  const { out } = await render(many, '?page=3', 100);
+  assert.ok(out.includes('rel="next"'));
+  assert.ok(!/Page 3 of 2/.test(out));
+});
+
+test('a search never uses the count', async () => {
+  const { out } = await render(many, '?q=blood', 5000);
+  assert.ok(!/ of \d/.test(out.slice(out.indexOf('class="pager"'))), 'no total while searching');
 });

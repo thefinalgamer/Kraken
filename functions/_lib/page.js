@@ -33,6 +33,62 @@ export const n = (v) => Number(v ?? 0).toLocaleString('en-GB');
  */
 export const pct = (v) => `${(Math.floor(Number(v ?? 0) * 100) / 100).toFixed(2)}%`;
 
+/**
+ * Numbered pages: « Previous  1 … 4 5 [6] 7 8 … 23  Next », plus a box to jump
+ * straight to a page.
+ *
+ * Shinlight, 22 September: "add pagination so we can navigate between pages
+ * more quickly... currently you need to click to get to the end of your list".
+ * Previous and Next alone meant six clicks to reach page 6 of a library.
+ *
+ * `pages` is the total when it is known and null when it is not (a search, or
+ * a list nobody counts). Unknown, it shows what is certain: every page back to
+ * 1, and the next one if there is one. It never prints a page number that
+ * would be empty.
+ *
+ * `href(n)` builds the link for page n. `hidden` is what the jump box must
+ * carry along (sort, search) so jumping keeps the view you were in.
+ */
+export function numberedPager({ pageNo, pages = null, hasNext = false, href, hidden = {}, action }) {
+  const last = pages ?? (hasNext ? pageNo + 1 : pageNo);
+  if (last <= 1 && pageNo <= 1) return '';
+
+  const want = new Set([1, last, pageNo - 2, pageNo - 1, pageNo, pageNo + 1, pageNo + 2]);
+  const nums = [...want].filter((p) => p >= 1 && p <= last).sort((a, b) => a - b);
+
+  const bits = [];
+  if (pageNo > 1) {
+    bits.push(`<a class="pv" href="${esc(href(pageNo - 1))}" rel="prev" aria-label="Previous page">&lsaquo;</a>`);
+  }
+  let prev = 0;
+  for (const p of nums) {
+    if (p - prev > 1) bits.push('<span class="gap">&hellip;</span>');
+    bits.push(
+      p === pageNo
+        ? `<span class="pn on" aria-current="page">${n(p)}</span>`
+        : `<a class="pn" href="${esc(href(p))}">${n(p)}</a>`,
+    );
+    prev = p;
+  }
+  if (pageNo < last) {
+    bits.push(`<a class="pv" href="${esc(href(pageNo + 1))}" rel="next" aria-label="Next page">&rsaquo;</a>`);
+  }
+
+  // The jump box only when the total is known and there is somewhere to jump.
+  const jump =
+    pages && pages > 5 && action
+      ? `<form class="jump" method="get" action="${esc(action)}">${Object.entries(hidden)
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`)
+          .join('')}<label>Go to <input type="number" name="page" min="1" max="${pages}"
+            value="${pageNo}" inputmode="numeric" aria-label="Page number"></label><button type="submit">Go</button></form>`
+      : '';
+
+  return `<nav class="pager" aria-label="Pages"><div class="pnums">${bits.join('')}</div>${
+    pages ? `<span class="of">Page ${n(pageNo)} of ${n(pages)}</span>` : ''
+  }${jump}</nav>`;
+}
+
 /** 'GB' becomes 🇬🇧 by offsetting into the regional indicator block. */
 export function flag(code) {
   const cc = String(code ?? '').trim().toUpperCase();
@@ -854,10 +910,34 @@ td.prog{min-width:112px}
 .done{color:var(--up);font-weight:600}
 .zero{color:var(--faint)}
 
-.pager{display:flex;align-items:center;gap:16px;justify-content:center;margin:16px 0 0;font-size:13.5px}
+.pager{display:flex;align-items:center;gap:10px 16px;justify-content:center;margin:16px 0 0;font-size:13.5px;flex-wrap:wrap}
 .pager a{color:var(--kraken);text-decoration:none}
 .pager a:hover{text-decoration:underline}
 .pager .of{color:var(--faint)}
+/* Numbered pages. Boxes rather than bare numbers, because a finger has to hit
+   them on a phone and "5 6 7" in running text is a row of tiny targets. */
+.pnums{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center}
+.pnums .pn,.pnums .pv{min-width:34px;height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--edge);
+  background:var(--panel);display:inline-flex;align-items:center;justify-content:center;
+  font-variant-numeric:tabular-nums;font-weight:600}
+.pnums a.pn:hover,.pnums a.pv:hover{border-color:var(--kraken);text-decoration:none}
+.pnums .pn.on{background:var(--kraken);border-color:var(--kraken);color:var(--deep)}
+.pnums .pv{font-size:17px}
+.pnums .gap{color:var(--faint);padding:0 2px}
+.pager .jump{display:flex;align-items:center;gap:6px;margin:0}
+.pager .jump label{color:var(--faint);display:flex;align-items:center;gap:6px}
+.pager .jump input{width:64px;height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--edge);
+  background:var(--panel);color:var(--ink);font:inherit}
+.pager .jump button{height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--edge);
+  background:var(--panel);color:var(--kraken);font:inherit;font-weight:600;cursor:pointer}
+.pager .jump button:hover{border-color:var(--kraken)}
+/* A phone fits nine boxes on one line only if they shrink a little. Without
+   this the Next arrow wrapped onto a line of its own at 390 wide. */
+@media (max-width:480px){
+  .pnums{gap:4px;flex-wrap:nowrap}
+  .pnums .pn,.pnums .pv{min-width:30px;height:32px;padding:0 5px;font-size:13px}
+  .pnums .gap{padding:0}
+}
 
 .name a{color:inherit;text-decoration:none}
 .name a:hover{color:var(--kraken);text-decoration:underline}

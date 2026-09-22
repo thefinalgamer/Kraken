@@ -444,9 +444,12 @@ test('no goals table costs the panel, never the page', async () => {
   assert.ok(!/class="numbers rivals goals"/.test(body));
 });
 
-test('goals are on the first page only, like rivals', async () => {
-  const { body } = await render([goal()], '/hunter/PrimalxFear?page=2');
-  assert.ok(!/class="numbers rivals goals"/.test(body), 'page 2 must not claim they have no goals');
+test('goals show on every page, not just the first', async () => {
+  // Shinlight, 22 September: they vanished on page 2.
+  const { body } = await render([goal({ created_at: Date.now() - DAY, deadline_at: Date.now() + 9 * DAY })],
+    '/hunter/PrimalxFear?page=2');
+  assert.match(body, /<details class="numbers rivals goals">/);
+  assert.match(body, /1 running/);
 });
 
 test('goal titles are escaped like everything else from the database', async () => {

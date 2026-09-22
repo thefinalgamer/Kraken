@@ -639,12 +639,14 @@ test('a brand new member with no updates does not crash', async () => {
   assert.ok(out.includes('Bloodborne'), 'the game list still renders');
 });
 
-test('history is skipped on later pages and during a search', async () => {
+test('the header is the same on every page and during a search', async () => {
+  // Shinlight, 22 September: page 2 lost the From-trophies split and goals, and
+  // said "Rivals 0 of 5" and "Playing next 0" about someone who had both.
   const a = await render('JFL__Leon', '?page=2');
-  assert.ok(!a.out.includes('From trophies'), 'page 2 is the table');
+  assert.ok(a.out.includes('From trophies'), 'page 2 keeps the split');
 
   const b = await render('JFL__Leon', '?q=blood');
-  assert.ok(!b.out.includes('From trophies'), 'a search is a search');
+  assert.ok(b.out.includes('From trophies'), 'and so does a search');
 });
 
 
@@ -967,17 +969,23 @@ test('a mangled rivals column renders a page, not an error', async () => {
   assert.ok(!bodyOf(out).includes('rivaltab'));
 });
 
-test('rivals are fetched by account id, and only on the first unsearched page', async () => {
+test('rivals are fetched by account id, on every page', async () => {
   await render('JFL__Leon', '', withRivals());
   assert.deepEqual(lastRivalBind, ['acc-2', 'acc-3'], 'ids, never names — people rename on PSN');
 
+  /**
+   * Every page, not just the first. Page 3 used to skip the query but still
+   * draw the block, so it read "Rivals 0 of 5" about somebody with two.
+   * Shinlight reported it on 22 September.
+   */
   lastRivalBind = [];
-  await render('JFL__Leon', '?page=3', withRivals());
-  assert.deepEqual(lastRivalBind, [], 'page 3 does not pay for the same five rows again');
+  const p3 = await render('JFL__Leon', '?page=3', withRivals());
+  assert.deepEqual(lastRivalBind, ['acc-2', 'acc-3'], 'page 3 shows the same rivals');
+  assert.ok(!p3.out.includes('0 of 5'), 'and never claims there are none');
 
   lastRivalBind = [];
   await render('JFL__Leon', '?q=blood', withRivals());
-  assert.deepEqual(lastRivalBind, [], 'nor does a search');
+  assert.deepEqual(lastRivalBind, ['acc-2', 'acc-3'], 'and so does a search');
 });
 
 test('a hostile rival name cannot inject markup', async () => {
@@ -1341,4 +1349,16 @@ test('no search, no suggestions, and no query for them either', async () => {
 test('a search that finds nothing missing says nothing at all', async () => {
   const { out } = await render('JFL__Leon', '?q=bloodborne', { missing: [] });
   assert.ok(!bodyOf(out).includes('Not in this library'));
+});
+
+test('page numbers: jump to any page of a library, not six clicks of Next', async () => {
+  // Shinlight, 22 September: "currently you need to click to get to the end of
+  // your list". 354 games at fifty a page is 8 pages.
+  const { out } = await render('JFL__Leon', '?page=6&sort=played');
+  assert.match(out, /Page 6 of 8/);
+  assert.match(out, /href="\/hunter\/JFL__Leon\?sort=played&amp;page=1"/, 'first page');
+  assert.match(out, /href="\/hunter\/JFL__Leon\?sort=played&amp;page=8"/, 'last page');
+  assert.match(out, /<span class="pn on" aria-current="page">6<\/span>/, 'where you are');
+  assert.match(out, /<form class="jump" method="get" action="\/hunter\/JFL__Leon">/, 'and a box to jump');
+  assert.match(out, /name="sort" value="played"/, 'which keeps the sort');
 });

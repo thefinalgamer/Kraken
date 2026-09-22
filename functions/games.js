@@ -20,7 +20,7 @@
 
 import {
   page, html, esc, n, crumb, closingState, closingLabel, isUrgent, deadTitle,
-  secureUrl,
+  secureUrl, numberedPager,
 } from './_lib/page.js';
 
 const PER_PAGE = 50;
@@ -194,15 +194,32 @@ function row(g) {
   </tr>`;
 }
 
-function pager(sort, q, pageNo, hasNext) {
-  const href = (p) => `/games?sort=${sort}&page=${p}` + (q ? `&q=${encodeURIComponent(q)}` : '');
-  if (pageNo <= 1 && !hasNext) return '';
+/**
+ * How many games the index lists, as the nightly rescore last counted them.
+ *
+ * STILL NO COUNT(*) HERE, for the reason at the top of this file. The rescore
+ * counts once a night and leaves the answer in `kv` as `games_listed`; this
+ * reads that one row. It can be a day stale, which is why the pager never
+ * trusts it past what the page itself can see: if there is a next page, there
+ * is a next page, whatever last night said.
+ */
+async function listedCount(env) {
+  const row = await env.DB.prepare("SELECT value FROM kv WHERE key = 'games_listed'")
+    .first()
+    .catch(() => null);
+  const count = Number(JSON.parse(row?.value ?? 'null'));
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
 
-  const bits = [];
-  if (pageNo > 1) bits.push(`<a href="${esc(href(pageNo - 1))}">&lsaquo; Previous</a>`);
-  bits.push(`<span class="of">Page ${n(pageNo)}</span>`);
-  if (hasNext) bits.push(`<a href="${esc(href(pageNo + 1))}">Next &rsaquo;</a>`);
-  return `<nav class="pager">${bits.join('')}</nav>`;
+function pager(sort, q, pageNo, hasNext, pages) {
+  return numberedPager({
+    pageNo,
+    pages,
+    hasNext,
+    href: (p) => `/games?sort=${sort}&page=${p}` + (q ? `&q=${encodeURIComponent(q)}` : ''),
+    action: '/games',
+    hidden: { sort, q },
+  });
 }
 
 export async function onRequestGet({ env, request }) {
@@ -222,6 +239,15 @@ export async function onRequestGet({ env, request }) {
 
   const hasNext = fetched.length > PER_PAGE;
   const games = fetched.slice(0, PER_PAGE);
+
+  // The total, when browsing. A search is unknown, and that is fine: the pager
+  // shows every page back to 1 and the next one if there is one.
+  const counted = q ? null : await listedCount(env);
+  let pages = counted ? Math.max(1, Math.ceil(counted / PER_PAGE)) : null;
+  // Last night's count is only a guide. The page in hand overrules it.
+  if (pages !== null && (hasNext ? pages <= pageNo : pages < pageNo)) {
+    pages = hasNext ? null : pageNo;
+  }
 
   const tabs = Object.entries(SORTS)
     .map(
@@ -270,7 +296,7 @@ export async function onRequestGet({ env, request }) {
                <tbody>${games.map(row).join('')}</tbody>
              </table>
            </div>
-           ${pager(sort, q, pageNo, hasNext)}`
+           ${pager(sort, q, pageNo, hasNext, pages)}`
         : `<div class="tablewrap"><p class="empty">${
             q
               ? `No games matching <b>${esc(q)}</b>. Only games somebody here owns are listed.`

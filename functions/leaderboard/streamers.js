@@ -31,7 +31,7 @@
  */
 
 import {
-  page, html, esc, n, pct, flag, ordinal, supporterStar, secureUrl, boardTabs,
+  page, html, esc, n, pct, flag, ordinal, supporterStar, secureUrl, boardTabs, boardFind,
 } from '../_lib/page.js';
 import { displayBanked, hasCompletion } from '../../shared/scoring.mjs';
 
@@ -245,6 +245,8 @@ export async function onRequestGet({ env }) {
        </section>
 
        ${boardTabs('streamer')}
+
+       ${boardFind()}
 
        <div class="tablewrap">
          <table>

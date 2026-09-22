@@ -18,7 +18,7 @@
 
 import {
   page, html, esc, n, pct, flag, tierFor, TIER, ordinal, crumb, supporterStar,
-  secureUrl, boardTabs,
+  secureUrl, boardTabs, boardFind,
 } from './_lib/page.js';
 
 const BOARD = `
@@ -97,6 +97,8 @@ export async function onRequestGet({ env }) {
        </section>
 
        ${boardTabs('all')}
+
+       ${boardFind()}
 
        <div class="tablewrap">
          <table>

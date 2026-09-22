@@ -747,6 +747,14 @@ td.rank{color:var(--faint);font-size:13px;width:1%}
 .find button{background:var(--panel);color:var(--soft);border:1px solid var(--edge);
   border-radius:8px;padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer}
 .find button:hover{color:var(--ink);border-color:var(--faint)}
+/* Find a hunter on a board. The row it lands on gets the site's own teal edge,
+   the same mark the hunter page uses for "this is you" in the rivals table. */
+.boardfind{max-width:420px;margin:0 0 10px}
+.bfnote{margin:-2px 0 12px;font-size:13px;color:var(--soft)}
+.bfnote a{color:var(--kraken);text-decoration:none;font-weight:600}
+.bfnote a:hover{text-decoration:underline}
+tr.hit td{background:rgba(32,184,153,.14)}
+tr.hit td:first-child{box-shadow:inset 3px 0 0 var(--kraken)}
 .found{color:var(--faint);font-size:13px;margin:0 0 12px}
 .found a{color:var(--kraken)}
 
@@ -2768,6 +2776,64 @@ export const BOARDS = [
  * handle on a door is worse than two handles and a note saying the third is
  * coming. They are there to be seen, not clicked.
  */
+/**
+ * Find a hunter on a board: type a name, the page scrolls to their row and
+ * lights it up, with a link to their profile.
+ *
+ * Martin, 22 September: "could we have a search bar for the leaderboard... for
+ * peoples names we could have it highlight the person or bring you to them".
+ *
+ * ALL IN THE BROWSER. The whole board is already on the page, so this reads
+ * the rows it has rather than asking the database anything: no extra reads, and
+ * the page stays one cached copy however many people search it. The name list
+ * for the dropdown is built from the same rows, so it can never offer somebody
+ * who is not on the board.
+ *
+ * Best match wins: exact, then starts-with, then contains, ignoring case, so
+ * "leon" finds JFL__Leon and "th3fi" finds th3finalgamer--.
+ */
+export const boardFind = () => `
+<form class="find boardfind" role="search" action="#">
+  <input type="search" id="bfq" list="bfnames" placeholder="Find a hunter" aria-label="Find a hunter on this board"
+         autocomplete="off" maxlength="40">
+  <datalist id="bfnames"></datalist>
+  <button type="submit">Find</button>
+</form>
+<p class="bfnote" id="bfnote" hidden></p>
+<script>
+(function(){
+  var f=document.querySelector('.boardfind'),q=document.getElementById('bfq'),
+      note=document.getElementById('bfnote'),dl=document.getElementById('bfnames');
+  if(!f)return;
+  function rows(){return Array.prototype.slice.call(document.querySelectorAll('table tbody tr'));}
+  function nameOf(tr){var a=tr.querySelector('.name a');return a?a.textContent.trim():'';}
+  rows().forEach(function(tr){var o=document.createElement('option');o.value=nameOf(tr);dl.appendChild(o);});
+  function find(){
+    var v=q.value.trim().toLowerCase();
+    rows().forEach(function(tr){tr.classList.remove('hit');});
+    if(!v){note.hidden=true;return;}
+    var all=rows(),hit=null,tests=[
+      function(n){return n===v;},
+      function(n){return n.indexOf(v)===0;},
+      function(n){return n.indexOf(v)>-1;}];
+    for(var i=0;i<tests.length&&!hit;i++){
+      for(var j=0;j<all.length;j++){if(tests[i](nameOf(all[j]).toLowerCase())){hit=all[j];break;}}
+    }
+    note.hidden=false;
+    note.textContent='';
+    if(!hit){note.textContent='Nobody on this board matches “'+q.value.trim()+'”.';return;}
+    hit.classList.add('hit');
+    hit.scrollIntoView({block:'center',behavior:'smooth'});
+    var a=hit.querySelector('.name a'),rk=hit.querySelector('.rank');
+    note.appendChild(document.createTextNode(nameOf(hit)+(rk?' is '+rk.textContent.trim():'')+' · '));
+    var go=document.createElement('a');go.href=a.getAttribute('href');go.textContent='Open their profile ›';
+    note.appendChild(go);
+  }
+  f.addEventListener('submit',function(e){e.preventDefault();find();});
+  q.addEventListener('change',find);
+})();
+</script>`;
+
 export const boardTabs = (here) =>
   `<div class="tabs centre">${BOARDS.map((b) =>
     b.href

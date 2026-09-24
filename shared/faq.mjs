@@ -116,6 +116,13 @@ export const FAQ = [
       'everything happens at 61%. `/rank` tells you which one you are chasing.\n' +
       'Finishing old games is the fastest way up this board. Starting things and walking away ' +
       'drags the multiplier down across your whole library.\n\n' +
+      '**What about "Not published"?**\n' +
+      'Sony publishes a rarity figure for most trophies, but not straight away, and a new ' +
+      'game can have some trophies priced and others still blank. A blank one is not an easy ' +
+      'one, it is an unmeasured one, so in a game that already pays properly it is worth a ' +
+      'holding **2 points** (5 for a platinum) until Sony publishes. The real price lands on ' +
+      'the next rescore and is backdated to everyone who earned it. A game where nothing is ' +
+      'hard gets nothing, blank figures included.\n\n' +
       '-# These figures are read live from the scoring config, so they are always current.',
   },
   {

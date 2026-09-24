@@ -342,9 +342,26 @@ export const fallbackPoints = (type) => UNRATED_FALLBACK[type] ?? 2;
  *    mechanism, and why a time limit was never needed: the system never asks
  *    "is this game hard", it asks "is this trophy hard", forty times a game.
  *
- * The floor only ever applies to trophies we have real rarity for. An unrated
- * trophy inside a partly-rated game stays at zero — otherwise a shovelware
- * title with a couple of missing figures could buy value through the back door.
+ * The floor only ever applies to trophies we have real rarity for.
+ *
+ * 3. UNPUBLISHED TROPHIES IN A GAME THAT HAS ALREADY PROVED ITSELF get the same
+ *    holding value a whole unrated game gets. PrimalxFear, 24 September: "why
+ *    some games have 0 points in trophies still? on psn people popped trophies
+ *    and even in our leaderboard. on psnp they are tracking." He was looking at
+ *    a game where two trophies were priced at 49 and 87 and five said "Not
+ *    published" and paid nothing, side by side on the same page.
+ *
+ *    Those five are not easy, they are unmeasured: Sony has not published a
+ *    figure yet. Before this they stayed at zero, on the reasoning that a
+ *    shovelware title with a couple of missing figures could otherwise buy
+ *    value through the back door. THAT REASONING STILL HOLDS, so the holding
+ *    value is given only where the floor itself applies — a game with at least
+ *    one trophy that genuinely pays. Shovelware never qualifies, because
+ *    nothing in it pays in the first place.
+ *
+ *    Deliberately the same small number as a new release gets, and for the same
+ *    reason: it is a placeholder, never worth farming, and it is replaced by the
+ *    real price the moment Sony publishes one.
  *
  * @param {Array<{type:string, rate:number|null}>} trophies - every trophy in the game
  * @returns the same objects with `points` and `estimated` set
@@ -373,9 +390,25 @@ export function scoreGameTrophies(trophies, cfg = DEFAULT_SCORING, local = null)
     estimated: false,
   }));
 
-  if (scored.some((t) => t.points > 0)) {
+  /**
+   * Does anything in this game genuinely pay? That one question decides both
+   * the floor and the holding value below it, so it is asked once, before
+   * either changes anything.
+   */
+  const proved = scored.some((t) => t.points > 0);
+
+  if (proved) {
     for (const t of scored) {
       if (!isUnrated(t.rate) && t.points === 0) t.points = 1;
+    }
+    // Unpublished trophies in a proved game: the holding value, flagged as a
+    // placeholder rather than as `estimated`, which means "the whole game is
+    // unpriced" and is what sets games.estimated.
+    for (const t of scored) {
+      if (isUnrated(t.rate)) {
+        t.points = fallbackPoints(t.type);
+        t.placeholder = true;
+      }
     }
   }
 

@@ -375,11 +375,19 @@ test('a partly-rated game does not get free value through the back door', () => 
   assert.ok(scored.every((t) => !t.estimated));
 });
 
-test('the floor never touches unrated trophies in a rated game', () => {
+test('the floor is for rated trophies; an unrated one gets the holding value', () => {
+  /**
+   * The floor (every trophy in a proved game is worth at least 1) and the
+   * holding value (an unpublished trophy in a proved game is worth 2) are
+   * different rules with the same trigger. Until 24 September the unrated one
+   * got nothing at all -- see the block at the end of this file for why that
+   * changed.
+   */
   const scored = scoreGameTrophies(game(['platinum', 2], ['bronze', 99], ['bronze', null]));
   assert.equal(scored[0].points, 36, 'the rare one is untouched');
   assert.equal(scored[1].points, 1, 'the common one gets the floor');
-  assert.equal(scored[2].points, 0, 'the unknown one gets nothing');
+  assert.equal(scored[2].points, 2, 'the unpublished one gets the holding value');
+  assert.equal(scored[2].placeholder, true);
 });
 
 test('common trophies never outweigh a genuinely rare one', () => {
@@ -547,4 +555,51 @@ test('withEarnerCounted is the settle, applied to one trophy', async () => {
   assert.equal(withEarnerCounted(0, 2, 15), 0, 'a worthless trophy stays worthless');
   assert.equal(withEarnerCounted(2, 2, 15), Math.max(1, Math.round(2 * (localMultiplier(3, 15) / localMultiplier(2, 15)))));
   assert.ok(withEarnerCounted(3, 0, 40) >= 1, 'and it never floors a real trophy to nothing');
+});
+
+/* ---- unpublished trophies inside a game that already pays ---- */
+
+test('an unpublished trophy in a proved game gets the holding value', () => {
+  /**
+   * PrimalxFear, 24 September: two trophies priced at 49 and 87 sat beside five
+   * reading "Not published" and paying nothing, in the same game. Those five are
+   * not easy, they are unmeasured. They now get the same small holding value a
+   * brand-new game's trophies get, and Sony's real figure replaces it later.
+   */
+  const scored = scoreGameTrophies([
+    { id: 1, type: 'bronze', rate: 0.4 },   // genuinely rare: this proves the game
+    { id: 2, type: 'bronze', rate: null },  // "Not published"
+    { id: 3, type: 'gold', rate: null },
+    { id: 4, type: 'platinum', rate: null },
+  ]);
+  const by = new Map(scored.map((t) => [t.id, t]));
+  assert.ok(by.get(1).points > 1, 'the rare one is still priced on its rarity');
+  assert.equal(by.get(2).points, 2);
+  assert.equal(by.get(3).points, 2);
+  assert.equal(by.get(4).points, 5, 'the platinum is worth a little more, as in a new game');
+  assert.equal(by.get(2).placeholder, true, 'and it is marked as a placeholder');
+  assert.ok(!by.get(2).estimated, 'but not as "the whole game is unpriced"');
+});
+
+test('shovelware cannot buy value through a missing figure', () => {
+  // The rule this replaced existed for exactly this case, and it still holds:
+  // nothing in this game pays, so nothing in it is proved, so the holding value
+  // is never handed out.
+  const scored = scoreGameTrophies([
+    { id: 1, type: 'bronze', rate: 96 },
+    { id: 2, type: 'bronze', rate: null },
+    { id: 3, type: 'platinum', rate: null },
+  ]);
+  assert.deepEqual(scored.map((t) => t.points), [0, 0, 0]);
+  assert.ok(!scored.some((t) => t.placeholder));
+});
+
+test('a game with no rarity at all is unchanged: every trophy estimated', () => {
+  const scored = scoreGameTrophies([
+    { id: 1, type: 'platinum', rate: null },
+    { id: 2, type: 'bronze', rate: null },
+  ]);
+  assert.deepEqual(scored.map((t) => t.points), [5, 2]);
+  assert.ok(scored.every((t) => t.estimated), 'which is what sets games.estimated');
+  assert.ok(!scored.some((t) => t.placeholder));
 });

@@ -136,23 +136,29 @@ test('it writes who came on and who went off, and nothing else', async () => {
   assert.match(touched[0].sql, /live_checked_at = \?/);
 });
 
-test('going off air takes the game pin with it, and only for whoever went off', async () => {
+test('going off air no longer takes the game pin with it', async () => {
   /**
-   * A pin nobody clears is a bar that lies for a week, which is worse than the
-   * bug /setgame fixes. Leon is the one who went off, so Leon is the only one
-   * whose pin goes - Pelzio just came ON and is the person most likely to have
-   * set one two minutes ago.
+   * CHANGED 2 October 2026. This used to assert the opposite.
+   *
+   * The old rule was that a pin should not outlive the stream that needed it.
+   * The trouble is that setting it BEFORE going live is the normal way to use
+   * the command, and the live check was then taking it straight back off again
+   * - which is a good half of why Leon and UncleUrbi both sat watching a bar
+   * that would not change. Martin: "only swap it if a trophy pops".
+   *
+   * A trophy in a different game still clears it, in live.mjs, because that is
+   * actual evidence they moved on. Going dark is not.
    */
   const { env, writes } = harness({ streams: [live('pelzio')] });
   await checkLive(env);
 
-  const pins = writes.filter((w) => w.sql.includes('live_pin = NULL'));
-  assert.equal(pins.length, 1, 'one statement, for everybody who ended');
-  assert.deepEqual(pins[0].args, ['a2'], 'and only Leon is in it');
+  assert.equal(
+    writes.filter((w) => w.sql.includes('live_pin')).length, 0,
+    'Leon went off air and his pin was left exactly where he put it',
+  );
 });
 
-test('nobody going off air means no pin statement at all', async () => {
-  // The ordinary tick. It must not cost a write to clear nothing.
+test('an ordinary tick never touches a pin either', async () => {
   const { env, writes } = harness({ streams: [live('pelzio'), live('jfl__leon')] });
   await checkLive(env);
   assert.equal(writes.filter((w) => w.sql.includes('live_pin')).length, 0);

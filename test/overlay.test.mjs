@@ -972,6 +972,74 @@ test('a fresh pin rings the doorbell even though Twitch last said dark', async (
   }
 });
 
+/* ---- 2 October: the pin that nothing could act on ---- */
+
+test('a pin names the game on its own, with no note and Twitch saying dark', async () => {
+  /**
+   * THE BUG THIS CLOSES. A pin used to reach the bar only through the Worker's
+   * note, and pollMember refuses anybody isLive() says is dark. So the normal
+   * way to use the command - type it before going live - wrote a pin that
+   * nothing could act on. Leon gave up at nine minutes. UncleUrbi waited
+   * forty-five and re-ran it, which worked only because by then he was live.
+   *
+   * Martin, 2 October: "once a person /setgame change the game instantly, even
+   * if they aint playing that game".
+   */
+  await render({ member: { ...MEMBER, ...DARK, live_pin: 'NPWR_PIN', live_pin_at: Date.now() } });
+
+  assert.match(lastPlayingSql, /WHERE g\.np_comm_id = \?/, 'the named game, not the recent one');
+  assert.ok(!/ORDER BY COALESCE\(mg\.last_played_at/.test(lastPlayingSql),
+    'PSN ordering is not consulted at all');
+  assert.deepEqual(lastPlayingBind, ['acct-1', 'NPWR_PIN'], 'bound to what they typed');
+});
+
+test('the pin beats a fresh note about a different game', async () => {
+  // The poll is seconds old and still wrong: PSN has not reordered yet, which
+  // is the entire reason somebody reached for /setgame.
+  const note = JSON.stringify({
+    id: 'NPWR_OTHER', at: Date.now() - 3000, counts: true,
+    progress: 61, platinum: 0, gold: 2, silver: 3, bronze: 6,
+  });
+  await render({ member: { ...MEMBER, live_pin: 'NPWR_PIN', live_play: note } });
+  assert.deepEqual(lastPlayingBind, ['acct-1', 'NPWR_PIN'], 'the person wins over the poll');
+});
+
+test('a note about another game lends the pinned game none of its counts', async () => {
+  /**
+   * The guard that had to come with the change above. The old test was "is
+   * there a note at all", which would now paint one game's trophy counts onto
+   * a different game's row - 11 of 46 under a title that has 43.
+   */
+  const note = JSON.stringify({
+    id: 'NPWR_OTHER', at: Date.now() - 3000, counts: true,
+    progress: 61, platinum: 0, gold: 2, silver: 3, bronze: 6,
+  });
+  const body = bodyOf((await render({
+    member: { ...MEMBER, live_pin: 'NPWR_PIN', live_play: note },
+  })).out);
+
+  assert.match(body, />43\/46</, 'the stored counts stand');
+  assert.ok(!/>11\/46</.test(body), 'and the other game\'s counts are nowhere near it');
+});
+
+test('a note about the pinned game still lends its counts', async () => {
+  // The pin must not cost the live counts once the poll catches up to it.
+  const note = JSON.stringify({
+    id: PLAYING.np_comm_id, at: Date.now() - 3000, counts: true,
+    progress: 61, platinum: 0, gold: 2, silver: 3, bronze: 6,
+  });
+  const body = bodyOf((await render({
+    member: { ...MEMBER, live_pin: PLAYING.np_comm_id, live_play: note },
+  })).out);
+  assert.match(body, />11\/46</, 'seconds old, and about this game');
+});
+
+test('no pin leaves the recently played query exactly as it was', async () => {
+  await render({ member: { ...MEMBER, live_pin: null } });
+  assert.match(lastPlayingSql, /ORDER BY COALESCE\(mg\.last_played_at/);
+  assert.deepEqual(lastPlayingBind, ['acct-1']);
+});
+
 /* ---- 18 September: the index that was never used for the sort ---- */
 
 test('every "what are they playing" query sorts by exactly what 035 indexes', async () => {

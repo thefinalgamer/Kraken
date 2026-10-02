@@ -102,7 +102,7 @@ const knownOffAir = (member, now = Date.now()) =>
 const MEMBER = `
   SELECT psn_account_id, psn_online_id, rank, points, raw_points, completion,
          platinum, gold, silver, bronze, projects, completed, live_play,
-         live_since, live_checked_at, twitch_login, live_pin_at
+         live_since, live_checked_at, twitch_login, live_pin, live_pin_at
     FROM members
    WHERE psn_online_id = ? COLLATE NOCASE
      AND rank IS NOT NULL
@@ -922,12 +922,39 @@ async function render({ env, request, params, waitUntil }) {
     live = null;
   }
 
-  const [playing, totals] = await Promise.all([
-    live
-      ? env.DB.prepare(ONE_GAME).bind(member.psn_account_id, live.id).first().catch(() => null)
+  /**
+   * THE PIN IS READ HERE, NOT WAITED FOR. Martin, 2 October: "once a person
+   * /setgame change the game instantly, even if they aint playing that game.
+   * only swap it if a trophy pops".
+   *
+   * It used to reach the bar only through the Worker's note, and `pollMember`
+   * refuses anybody `isLive()` says is dark. So the normal way to use the
+   * command - type it BEFORE going live - wrote a pin that nothing could act
+   * on. Leon waited nine minutes and gave up; UncleUrbi waited forty-five and
+   * re-ran it, which worked only because by then he was live. The grace window
+   * above made the page refresh faster and fixed none of that, because the
+   * refusal was at the other end.
+   *
+   * So the pin now beats the note, the poll, PSN's ordering and the live check
+   * alike. It is a person stating what they are playing, and there is nothing
+   * this page could learn from anywhere else that is better evidence than that.
+   */
+  const pin = String(member.live_pin ?? '').trim() || null;
+  const showId = pin || (live ? live.id : null);
+
+  let [playing, totals] = await Promise.all([
+    showId
+      ? env.DB.prepare(ONE_GAME).bind(member.psn_account_id, showId).first().catch(() => null)
       : env.DB.prepare(PLAYING).bind(member.psn_account_id).first().catch(() => null),
     env.DB.prepare(TOTAL).first().catch(() => null),
   ]);
+
+  // A pin naming a game `games` has never heard of would leave the bar blank,
+  // which is worse than the wrong game. /setgame checks their library before
+  // it writes, so this is the belt to that braces.
+  if (!playing && showId) {
+    playing = await env.DB.prepare(PLAYING).bind(member.psn_account_id).first().catch(() => null);
+  }
 
   /**
    * The scan's row, wearing the poll's numbers.
@@ -966,7 +993,15 @@ async function render({ env, request, params, waitUntil }) {
    * The absence of the field means an older note, from before pins existed.
    * Those always carried counts, so only an explicit false opts out.
    */
-  const shown = playing && live && live.counts !== false
+  /**
+   * AND THE NOTE'S COUNTS ONLY GO ON THE GAME THE NOTE WAS ABOUT.
+   *
+   * Now that a pin can name a game the poll has never written a note for, the
+   * old test - "is there a note" - would paint one game's trophy counts onto
+   * another game's row. Matching the id is the whole guard, and it also covers
+   * a note that is merely stale by a game.
+   */
+  const shown = playing && live && live.counts !== false && live.id === playing.np_comm_id
     ? {
         ...playing,
         progress: live.progress,
@@ -1008,7 +1043,11 @@ async function render({ env, request, params, waitUntil }) {
   const livePoints = (() => {
     const stored = Number(member.points) || 0;
     const raw = Number(member.raw_points);
-    if (!live || !playing || !Number.isFinite(raw) || !Number.isFinite(live.points)) return stored;
+    // Same guard as the counts above: swapping one game's stale share of the
+    // raw total for a DIFFERENT game's live one would be arithmetic on two
+    // unrelated numbers. A pin the poll has no note for keeps the stored total.
+    if (!live || !playing || live.id !== playing.np_comm_id) return stored;
+    if (!Number.isFinite(raw) || !Number.isFinite(live.points)) return stored;
     const was = Number(playing.points) || 0;
     const now = Number(live.points) || 0;
     if (now === was) return stored;

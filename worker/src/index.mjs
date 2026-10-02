@@ -1005,11 +1005,17 @@ async function goal(env, userId, { kind, target, by, remove }) {
  * SELF ONLY, like /twitch. Somebody else's overlay is on somebody else's
  * canvas, and nobody gets to relabel it.
  *
- * IT CLEARS ITSELF, which matters more than it sets. A pin nobody removes is a
- * bar that lies for a week - worse than the bug. The poll drops it the moment a
- * trophy lands in a different game, and the live check drops it when the stream
- * ends. Running it bare is the third way, for the case where somebody notices
- * before either of those happen.
+ * IT TAKES EFFECT AT ONCE. The overlay reads the pin straight off the row, so
+ * the bar changes on its next refresh whether or not PSN has noticed, whether
+ * or not Twitch says they are live, and whether or not the poll has run. That
+ * is the point: this command exists for the case where no other source knows
+ * yet. Martin, 2 October: "change the game instantly, even if they aint
+ * playing that game".
+ *
+ * ONE THING CLEARS IT BY ITSELF: a trophy landing in a different game, which is
+ * proof they moved on. Going off air used to clear it too and no longer does -
+ * setting it before going live is the normal way to use it, and the live check
+ * was taking it away again. Running it bare is the manual way off.
  */
 async function setGame(env, userId, npCommId) {
   const me = await db.memberByDiscordId(env, userId);
@@ -1089,9 +1095,10 @@ async function setGame(env, userId, npCommId) {
             `### Bar set to ${md(picked.title)}\n` +
               `**${md(picked.platform || 'PlayStation')}** · ${picked.progress ?? 0}% · ` +
               `${n(picked.earned_total ?? 0)} of ${n(picked.trophy_count ?? 0)} trophies\n\n` +
-              'It shows up on the next refresh, about ten seconds.\n\n' +
-              '-# This comes off by itself when you earn a trophy in something else, and when ' +
-              'your stream ends. `/setgame` on its own takes it off now.',
+              'The bar changes on its next refresh, about ten seconds, whether or not PSN has ' +
+              'caught up and whether or not you are live yet.\n\n' +
+              '-# It stays until you earn a trophy in something else. `/setgame` on its own ' +
+              'takes it off now.',
           ),
         ],
         COLOR.green,

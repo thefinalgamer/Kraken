@@ -262,8 +262,6 @@ export async function checkLive(env, { onStreamEnd = null, onStreamStart = null 
 
   const now = Date.now();
   const writes = [];
-  // Whoever went off air on this tick. Used after the batch to drop game pins.
-  const ended = [];
   // And whoever came ON air, which nothing used to watch. See below.
   const started = [];
   /** The same streams as objects, for the scan dispatch below. */
@@ -296,7 +294,6 @@ export async function checkLive(env, { onStreamEnd = null, onStreamStart = null 
 
     const justEnded = wasOn && !on;
     if (justEnded) {
-      ended.push(r.psn_account_id);
       finished.push({ row: r, from: Number(r.live_since), to: now });
     }
 
@@ -323,18 +320,20 @@ export async function checkLive(env, { onStreamEnd = null, onStreamStart = null 
   await env.DB.batch(writes);
 
   /**
-   * A GAME PIN DOES NOT OUTLIVE THE STREAM THAT NEEDED IT.
+   * A PIN USED TO DIE WITH THE STREAM. IT NO LONGER DOES. Martin, 2 October:
+   * "only swap it if a trophy pops".
    *
-   * `/setgame` is a fail-safe for PSN being slow to reorder somebody's
-   * recently-played list, which only matters while a bar is on screen. Left
-   * standing it would show the wrong game on the next stream instead, so going
-   * off air takes it off. The poll drops it too, the moment a trophy lands in
-   * a different game. See migration 027.
+   * The old rule existed because a pin was a stream-time fix for PSN's
+   * ordering, and one left standing would mislabel the NEXT stream. But it
+   * also meant the pin was gone every time somebody set it before going live
+   * and the live check noticed them going dark in between, which is the thing
+   * people kept hitting. A trophy in a different game is proof of what they
+   * are actually playing; going off air is not, and the overlay already stops
+   * showing to nobody.
    *
-   * SEPARATE FROM THE BATCH ON PURPOSE. `live_pin` arrives in migration 027 and
-   * a batch is all-or-nothing: folded into the writes above, a database that
-   * has not run it yet would lose the entire live check rather than one pin
-   * clear. Same seatbelt every migration since 024 carries.
+   * ONE THING STILL CLEARS IT AUTOMATICALLY: a trophy popping in a different
+   * game, in live.mjs. `/setgame` on its own is the manual way. See
+   * migration 027.
    */
   /**
    * LEARN THE CHANNEL ID FROM A STREAM WE WERE READING ANYWAY.
@@ -370,17 +369,6 @@ export async function checkLive(env, { onStreamEnd = null, onStreamStart = null 
   for (const f of finished) {
     await env.DB.prepare(RECORD_WINDOW_SQL)
       .bind(f.row.psn_account_id, f.from, f.to)
-      .run()
-      .catch(() => {});
-  }
-
-  if (ended.length) {
-    await env.DB.prepare(
-      'UPDATE members SET live_pin = NULL, live_pin_at = NULL WHERE psn_account_id IN (' +
-        ended.map(() => '?').join(',') +
-        ')',
-    )
-      .bind(...ended)
       .run()
       .catch(() => {});
   }

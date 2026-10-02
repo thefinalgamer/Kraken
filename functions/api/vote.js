@@ -131,15 +131,50 @@ async function state(env, member, voter, now = Date.now()) {
   };
 }
 
+/**
+ * WRITE DOWN WHAT TWITCH ACTUALLY SENT. Temporary; migration 039 explains why
+ * and how to read it, and `DROP TABLE panel_log` removes it.
+ *
+ * Three viewers get "Log in to Twitch to vote" while signed in, and every guess
+ * so far has been wrong - ad blocker, VPN, antivirus, hard refresh, and Firefox
+ * tracking protection all ruled out by UncleUrbi in turn. The token carries more
+ * than the opaque id, so this records the rest of it and lets the data say what
+ * the guessing could not.
+ *
+ * NEVER THROWS AND NEVER WAITED ON. A diagnostic that can break the panel it is
+ * diagnosing is worse than no diagnostic. No table yet, D1 busy, anything at
+ * all: it is swallowed and the vote goes on exactly as before.
+ */
+function note(env, claims, voter) {
+  const id = String(claims?.opaque_user_id ?? '');
+  return env.DB.prepare(
+    `INSERT OR IGNORE INTO panel_log (minute, channel, kind, prefix, role, unlinked, has_user)
+     VALUES (?,?,?,?,?,?,?)`,
+  )
+    .bind(
+      Math.floor(Date.now() / 60000),
+      String(claims?.channel_id ?? ''),
+      voter ? 'known' : 'anon',
+      id.slice(0, 1) || '?',
+      String(claims?.role ?? ''),
+      claims?.is_unlinked ? 1 : 0,
+      claims?.user_id ? 1 : 0,
+    )
+    .run()
+    .catch(() => {});
+}
+
 async function context(request, env) {
   if (!env.TWITCH_EXTENSION_SECRET) return { error: json({ error: 'votes are not set up' }, 503) };
   const claims = await who(request, env);
   if (!claims) return { error: json({ error: 'not from the panel' }, 401) };
   const channel = String(claims.channel_id);
   if (!/^\d{1,20}$/.test(channel)) return { error: json({ error: 'bad channel' }, 400) };
+  const voter = voterId(claims.opaque_user_id);
+  await note(env, claims, voter);
   const member = await env.DB.prepare(MEMBER).bind(channel).first().catch(() => null);
   if (!member) return { error: json({ vote: null }) };
-  return { member, voter: voterId(claims.opaque_user_id) };
+  return { member, voter };
 }
 
 export async function onRequestGet({ request, env }) {

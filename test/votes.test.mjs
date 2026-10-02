@@ -114,8 +114,8 @@ const GAMES = {
 };
 
 /** A D1 stand-in holding one vote and its ballots. */
-const apiEnv = ({ vote, ballots = [], member = MEMBER, secret = SECRET } = {}) => {
-  const store = { vote, ballots: ballots.map((b) => ({ ...b })) };
+const apiEnv = ({ vote, ballots = [], member = MEMBER, secret = SECRET, logFails = false } = {}) => {
+  const store = { vote, ballots: ballots.map((b) => ({ ...b })), log: [] };
   return {
     store,
     env: {
@@ -152,6 +152,13 @@ const apiEnv = ({ vote, ballots = [], member = MEMBER, secret = SECRET } = {}) =
                 if (!store.ballots.some((b) => b.vote_id === vote_id && b.voter === voter)) {
                   store.ballots.push({ vote_id, voter, np_comm_id });
                 }
+              }
+              // Migration 039's diagnostic. `logFails` makes D1 refuse it, which
+              // is the case that matters: it must never reach the viewer.
+              if (sql.includes('INTO panel_log')) {
+                if (logFails) throw new Error('no such table: panel_log');
+                const [minute, channel, kind, prefix, role, unlinked, has_user] = args;
+                store.log.push({ minute, channel, kind, prefix, role, unlinked, has_user });
               }
               return { meta: { changes: 1 } };
             },
@@ -489,4 +496,46 @@ test('vote options are buttons, never links', async () => {
   const js = await readFile(new URL('../twitch/panel.js', import.meta.url), 'utf8');
   const fn = js.slice(js.indexOf('function tabVote'), js.indexOf('function voteResult'));
   assert.match(fn, /el\('button', 'opt'\)/);
+});
+
+/* ---- 2 October: writing down what Twitch actually sends ---- */
+
+test('every panel load is written down as anon or known, with no id in it', async () => {
+  /**
+   * Migration 039, and it is temporary. Three viewers get "Log in to Twitch to
+   * vote" while signed in, and every guess has been wrong in turn: ad blocker,
+   * VPN, antivirus, hard refresh, Firefox tracking protection. UncleUrbi tried
+   * them all. So this stops guessing and records the rest of the token.
+   *
+   * ONLY THE FIRST CHARACTER of the opaque id is kept. There is nothing in this
+   * table that points at a person, which is also the point - an "A" id points
+   * at nobody by design, because it is different every page load.
+   */
+  const { env, store } = apiEnv({ vote: OPEN });
+
+  await get(env, 'Uviewer1');
+  await get(env, 'A_anon_123');
+
+  assert.deepEqual(store.log.map((r) => [r.kind, r.prefix]), [['known', 'U'], ['anon', 'A']]);
+  assert.equal(store.log[0].role, 'viewer', 'and the rest of the token comes with it');
+  assert.equal(store.log[0].channel, '4242');
+  assert.equal(store.log[0].has_user, 0, 'no identity shared, which is normal and allowed');
+  assert.ok(
+    !JSON.stringify(store.log).includes('viewer1'),
+    'the opaque id itself is never stored',
+  );
+});
+
+test('a diagnostic that cannot write is a diagnostic nobody notices', async () => {
+  /**
+   * The table arrives in a migration, so there is a window where the code is
+   * live and the table is not. A panel that breaks because its own debugging
+   * failed would be worse than the bug being debugged.
+   */
+  const { env } = apiEnv({ vote: OPEN, logFails: true });
+  const { status, body } = await get(env, 'Uviewer1');
+
+  assert.equal(status, 200);
+  assert.equal(body.vote.id, 7, 'the vote came back exactly as it would have');
+  assert.equal(body.vote.canVote, true);
 });

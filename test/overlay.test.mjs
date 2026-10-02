@@ -852,18 +852,24 @@ test('a query that fails mid-render still draws the rest of the bar', async () =
 
 /* ---- 16 September: the bar stops asking when nobody is watching ---- */
 
-test('off air, the bar still draws but backs off to five minutes', async () => {
+test('off air, the bar still draws but backs off to a minute', async () => {
   /**
+   * CHANGED 2 October 2026: this asserted five minutes.
+   *
    * The saving Martin asked for, without the thing that would have gone wrong:
    * an empty bar. Somebody dragging the source into a scene at four in the
-   * afternoon still needs to see it, so it renders as normal and simply stops
-   * asking every minute. Twitch is only checked every five minutes anyway, so
-   * a faster refresh is asking a question whose answer cannot have moved.
+   * afternoon still needs to see it, so it renders as normal.
+   *
+   * Five minutes came down to one because of the case five could not serve -
+   * "if the person does /setgame off stream and is waiting for it to change
+   * before going live". The page on screen when the command is typed was loaded
+   * before the pin existed, so nothing can shorten its timer afterwards; the
+   * only lever is how long that timer was to begin with.
    */
   const { out } = await render({
     member: { ...MEMBER, twitch_login: 'pelzio', live_since: null, live_checked_at: Date.now() - 60000 },
   });
-  assert.match(out, /http-equiv="refresh" content="300"/);
+  assert.match(out, /http-equiv="refresh" content="60"/);
   assert.match(out, /class="bar/, 'and it is still a bar');
 });
 
@@ -929,23 +935,60 @@ test('a pin typed seconds ago refreshes in ten, not in five minutes', async () =
   assert.match(out, /http-equiv="refresh" content="10"/, 'ten seconds, which is what he expected');
 });
 
-test('a pin a few minutes old keeps the minute rather than the five', async () => {
-  // Past the fast window, still inside the grace: they are between typing it
-  // and going live, which is the whole point of typing it early.
+test('a pin a few minutes old is still on ten seconds', async () => {
+  /**
+   * CHANGED 2 October 2026: this asserted sixty.
+   *
+   * There used to be two tiers - ten seconds for two minutes, then sixty for
+   * thirteen more - and the second tier put Leon straight back where he
+   * started the moment his two minutes were up. Fifteen minutes at ten seconds
+   * covers typing the command, finding the scene and going live, and costs
+   * ninety requests to do it.
+   */
   const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 5 * 60000 } });
-  assert.match(out, /http-equiv="refresh" content="60"/);
+  assert.match(out, /http-equiv="refresh" content="10"/);
 });
 
 test('an old pin lets the backoff come back', async () => {
-  // Otherwise one /setgame would hold the source at a minute forever, and the
-  // saving this was all built around would leak away a streamer at a time.
+  // Otherwise one /setgame would hold the source fast forever, and the saving
+  // this was all built around would leak away a streamer at a time.
   const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 60 * 60000 } });
-  assert.match(out, /http-equiv="refresh" content="300"/);
+  assert.match(out, /http-equiv="refresh" content="60"/);
 });
 
 test('no pin at all still backs off', async () => {
   const { out } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: null } });
-  assert.match(out, /http-equiv="refresh" content="300"/);
+  assert.match(out, /http-equiv="refresh" content="60"/);
+});
+
+test('being on air is itself a reason to refresh fast', async () => {
+  /**
+   * Leon typed /setgame mid-stream and it still did not move. A live streamer
+   * is the one person guaranteed to be looking at the bar, and he was sitting
+   * on a sixty second timer with a thirty second cache behind it - a minute and
+   * a half of "it still not changed".
+   */
+  const { out } = await render({
+    member: { ...MEMBER, twitch_login: 'pelzio', live_since: Date.now() - 3600000, live_checked_at: Date.now() - 5000 },
+  });
+  assert.match(out, /http-equiv="refresh" content="10"/);
+});
+
+test('nothing is cached while somebody is watching it change', async () => {
+  /**
+   * The other half of Leon's minute and a half. `public, max-age=30` is shared
+   * with Cloudflare's edge, so a bar that refreshed on time could still be
+   * handed a copy of itself from before the pin was typed.
+   */
+  const onAir = { twitch_login: 'pelzio', live_since: Date.now() - 3600000, live_checked_at: Date.now() - 5000 };
+  const { res } = await render({ member: { ...MEMBER, ...onAir } });
+  assert.equal(res.headers.get('cache-control'), 'no-store', 'live: ask every time');
+
+  const { res: pinned } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: Date.now() - 5000 } });
+  assert.equal(pinned.headers.get('cache-control'), 'no-store', 'just pinned: ask every time');
+
+  const { res: idle } = await render({ member: { ...MEMBER, ...DARK, live_pin_at: null } });
+  assert.match(idle.headers.get('cache-control'), /max-age=30/, 'and the idle source still shares a hit');
 });
 
 test('a fresh pin rings the doorbell even though Twitch last said dark', async () => {

@@ -46,21 +46,30 @@ import { localMultiplier } from '../../shared/scoring.mjs';
 const REFRESH = 60;
 
 /**
- * FIVE MINUTES WHEN TWITCH SAYS THEY ARE DARK.
+ * A MINUTE WHEN TWITCH SAYS THEY ARE DARK. It was five, and five was too long.
  *
  * The bar is not empty off air -- it still shows rank, cabinet and the last
  * game, which is what somebody dragging it into a scene needs to see -- so it
- * keeps rendering rather than going blank. It just stops asking every minute.
+ * keeps rendering rather than going blank.
  *
- * Five rather than the pop's one, because the pop has to be quick off the mark
- * the moment a trophy lands and this does not: everything on the bar changes
- * when a scan runs, not when a second passes. Twitch is only checked every five
- * minutes anyway, so this matches the rate the underlying answer can move.
+ * WHY IT CAME DOWN. Martin, 2 October: "my worry would be if the person does
+ * /setgame off stream and is waiting for it to change before going live". He is
+ * right, and it is the one case five minutes could not serve. A page only ever
+ * finds out as often as it asks, and the page sitting on screen when somebody
+ * types the command was loaded BEFORE the pin existed -- so it was carrying the
+ * old five minute timer and nothing could shorten it after the fact. The fast
+ * pin refresh below is always a lap behind for exactly that reason.
+ *
+ * WHAT IT COSTS, with the arithmetic out loud. A source left open all day goes
+ * from 288 requests to 1,440. Ten of those is about 14,000 a day against
+ * Cloudflare's 100,000, so the saving this was protecting is small change at
+ * the size this board actually is, and being right is worth more than it.
+ * One number to put back if that ever stops being true.
  *
  * ONLY WHEN WE KNOW. No linked channel means no evidence, and the overlay has
- * always worked for anybody with an account. Those keep the minute.
+ * always worked for anybody with an account.
  */
-const IDLE_REFRESH = 300;
+const IDLE_REFRESH = 60;
 
 /**
  * A PIN IS A PERSON ACTING, AND A PERSON WILL NOT WAIT FIVE MINUTES.
@@ -76,19 +85,20 @@ const IDLE_REFRESH = 300;
  * most wants this page to react is precisely the moment the off-air backoff had
  * put it on a five minute timer. Two cycles of that is Leon's nine minutes.
  *
- * So a fresh pin does two things. For two minutes the page refreshes every ten
- * seconds, because ten seconds is what Leon expected and he was right to. For
- * fifteen minutes after that it is not treated as off air at all, so it keeps
- * the normal minute AND keeps ringing the doorbell, which is what notices they
- * have gone live.
+ * So for fifteen minutes after a pin the page refreshes every ten seconds, is
+ * not treated as off air, keeps ringing the doorbell that notices they have
+ * gone live, and is not cached on the way. Fifteen minutes covers typing the
+ * command, finding the right scene and actually going live.
  *
- * The cost is bounded by the pin: about a dozen extra requests each time
- * somebody runs /setgame, against the twenty thousand a day the backoff saved.
- * live_pin_at has been sitting in migration 027 unread since it was added, for
- * exactly this.
+ * It was two minutes at ten seconds and thirteen more at sixty, which was too
+ * clever by half: the sixty second tier put Leon right back where he started
+ * the moment his two minutes were up.
+ *
+ * The cost is bounded by the pin: ninety requests each time somebody runs
+ * /setgame. live_pin_at has been sitting in migration 027 unread since it was
+ * added, for exactly this.
  */
 const PIN_REFRESH = 10;
-const PIN_FAST_MS = 2 * 60 * 1000;
 const PIN_GRACE_MS = 15 * 60 * 1000;
 
 const pinnedWithin = (member, ms, now = Date.now()) =>
@@ -1062,6 +1072,15 @@ async function render({ env, request, params, waitUntil }) {
   const streaming = Number(member.live_since) > 0
     && Date.now() - (Number(member.live_checked_at) || 0) < LIVE_PLAY_MS;
 
+  /**
+   * SOMEBODY IS WATCHING THIS CHANGE: refresh fast and cache nothing.
+   *
+   * On air, or inside the fifteen minutes after a /setgame. Everybody else -
+   * a source sitting in a scene nobody has looked at since Tuesday - keeps the
+   * minute and the shared cache.
+   */
+  const quick = streaming || pinnedWithin(member, PIN_GRACE_MS);
+
   const onStream = streaming && shown?.np_comm_id
     ? Number(
         (
@@ -1096,11 +1115,20 @@ async function render({ env, request, params, waitUntil }) {
         warn: Number(shown?.unobtainable) === 1,
         live: onStream > 0,
       }),
-      pinnedWithin(member, PIN_FAST_MS)
-        ? PIN_REFRESH
-        : offAir
-          ? IDLE_REFRESH
-          : REFRESH,
+      /**
+       * TEN SECONDS WHENEVER SOMEBODY IS WATCHING THE THING CHANGE.
+       *
+       * That is two cases, and they used to be one. A pin in the last two
+       * minutes was already quick. Being ON AIR was not - Leon typed /setgame
+       * mid-stream and sat looking at a sixty second timer with a thirty second
+       * cache behind it, which is a minute and a half of "it still not
+       * changed". A live streamer is the one person guaranteed to be looking.
+       *
+       * The pin window is the grace one rather than the fast one now: fifteen
+       * minutes covers typing it, finding your scene and going live, and it
+       * costs ninety requests to do it.
+       */
+      quick ? PIN_REFRESH : offAir ? IDLE_REFRESH : REFRESH,
     ),
     {
     headers: {
@@ -1113,7 +1141,15 @@ async function render({ env, request, params, waitUntil }) {
        * refresh interval is the longest a viewer could see a stale figure
        * while still letting two streamers on the same page share a hit.
        */
-      'cache-control': 'public, max-age=30',
+      /**
+       * AND NOTHING IS CACHED WHILE THEY ARE WATCHING, which is the other half
+       * of Leon's minute and a half. `public, max-age=30` is shared with
+       * Cloudflare's edge, so a bar that refreshed on time could still be
+       * handed a copy of itself from before the pin was typed. Thirty seconds
+       * of staleness is invisible on a nightly scan and unforgivable on a
+       * command somebody just ran.
+       */
+      'cache-control': quick ? 'no-store' : 'public, max-age=30',
       // It is going into somebody else's OBS, so no referrer and no sniffing.
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',

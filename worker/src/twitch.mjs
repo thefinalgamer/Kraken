@@ -406,8 +406,8 @@ export async function checkLive(env, { onStreamEnd = null, onStreamStart = null 
      * the fix would do nothing at all, silently.
      */
     const { results: waiting = [] } = await env.DB.prepare(
-      `SELECT psn_account_id, psn_online_id, live_pin, live_since, live_checked_at,
-              psn_polled_at
+      `SELECT psn_account_id, psn_online_id, live_pin, live_pin_at, live_since,
+              live_checked_at, psn_polled_at
          FROM members
         WHERE live_pin IS NOT NULL AND TRIM(live_pin) <> ''
           AND psn_account_id IN (${started.map(() => '?').join(',')})`,

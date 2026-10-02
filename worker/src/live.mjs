@@ -183,19 +183,42 @@ export async function pollMember(env, member) {
     const e = top?.earnedTrophies ?? {};
 
     /**
-     * A TROPHY IN A DIFFERENT GAME TAKES THE PIN OFF.
+     * A TROPHY EARNED IN A DIFFERENT GAME **AFTER THE PIN WAS SET** TAKES IT OFF.
      *
-     * A pin nobody remembers to clear is a bar that lies for a week, which is
-     * strictly worse than the bug it fixes. `moved` is a game whose count went
-     * up since the last poll - proof they are playing it, from data already in
-     * hand - so if that is not the pinned game, the pin has been overtaken by
-     * events and goes.
+     * THE WORDS "AFTER THE PIN WAS SET" ARE THE WHOLE FIX. Martin, 2 October:
+     * "leon /setgame and it changed stright away, but then went back to his old
+     * game... he then did set game again and now its not changing".
      *
-     * The other half of this lives in twitch.mjs: going off air drops it too,
-     * because a pin is a stream-time fix and should not outlive the stream.
+     * `moved` means "PSN's count is ahead of what `member_games` stores", and
+     * `member_games` is written by the SCAN. So any game somebody has earned in
+     * since their last /update is ahead, on every poll, for as long as it takes
+     * them to run another one. That is not evidence of what they are playing
+     * now; it is evidence of what the scan has not caught up with.
+     *
+     * And it is the same game every time, because `titles` arrives sorted by
+     * `lastUpdatedDateTime` and `find` takes the first match - which is exactly
+     * the stale game at the top of the recently-played list. So the condition
+     * that makes somebody REACH for /setgame was also the condition that tore
+     * the pin up ten seconds later. Leon's pin was being cleared on the first
+     * poll after every attempt.
+     *
+     * `lastUpdatedDateTime` is when a trophy last popped in that game, and it
+     * comes free with the list we already fetched. Later than the pin means
+     * they really have moved on. Earlier means the scan is behind, which is not
+     * their problem and must not cost them their pin.
+     *
+     * NO TIMESTAMP, NO CLEAR, on either side. A stale pin is a nuisance that
+     * `/setgame` on its own fixes in three seconds; a pin that will not stick
+     * is the bug people have been reporting for a fortnight.
      */
+    const pinnedAt = Number(member.live_pin_at) || 0;
+    const movedAt = moved ? Date.parse(String(moved.lastUpdatedDateTime ?? '')) : NaN;
+
     let pinDropped = false;
-    if (pinned && moved && moved.npCommunicationId !== pinned) {
+    if (
+      pinned && moved && moved.npCommunicationId !== pinned
+      && pinnedAt > 0 && Number.isFinite(movedAt) && movedAt > pinnedAt
+    ) {
       await env.DB.prepare(
         'UPDATE members SET live_pin = NULL, live_pin_at = NULL WHERE psn_account_id = ?',
       )

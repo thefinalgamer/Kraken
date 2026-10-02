@@ -457,16 +457,23 @@ test('a pin PSN has not caught up with carries the id and no counts', async () =
   assert.equal(play.bronze, undefined, 'no invented counts');
 });
 
-test('a trophy in a different game takes the pin off, and the bar follows', async () => {
+/** TWO_TITLES with a time on inFAMOUS 2, for the pin rules below. */
+const titlesStamped = (at) => [
+  { ...TWO_TITLES[0], lastUpdatedDateTime: new Date(at).toISOString() },
+  TWO_TITLES[1],
+];
+
+test('a trophy earned in a different game AFTER the pin takes it off', async () => {
   /**
-   * `moved` is a game whose count went up since the last poll - proof from data
-   * already in hand that they are playing it. If that is not the pinned game,
-   * the pin has been overtaken by events.
+   * CHANGED 2 October 2026: this used to need no timestamp at all.
+   *
+   * They pinned Ghost of Tsushima ten minutes ago and have popped something in
+   * inFAMOUS 2 since. That is somebody moving on, and the pin goes.
    */
-  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_B' };
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_B', live_pin_at: NOW - 10 * MIN };
   const { env, writes } = harness({
     member: pinned,
-    titles: TWO_TITLES,
+    titles: titlesStamped(NOW - 2 * MIN),
     // inFAMOUS 2 is up on what we stored; Ghost of Tsushima is not.
     known: [{ np_comm_id: 'NPWR_A', earned_total: 10 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
   });
@@ -477,6 +484,50 @@ test('a trophy in a different game takes the pin off, and the bar follows', asyn
   assert.deepEqual(cleared[0].args, ['acct-1']);
 
   assert.equal(playOf(writes).id, 'NPWR_A', 'and the bar moves to what they are actually on');
+});
+
+test('a game the SCAN is merely behind on does not clear a pin', async () => {
+  /**
+   * THE BUG THIS EXISTS FOR, and it is the one that made /setgame look broken
+   * for a fortnight. Martin, 2 October: "leon /setgame and it changed stright
+   * away, but then went back to his old game... he then did set game again and
+   * now its not changing".
+   *
+   * `moved` compares PSN against `member_games`, which the SCAN writes. A game
+   * somebody earned in three hours ago and has not run /update for is ahead on
+   * every poll until they do. It is also first in the recently-played list, so
+   * `find` picks it every time.
+   *
+   * Which means the exact state that makes somebody reach for /setgame - PSN
+   * still showing the old game at the top - was also tearing the pin up ten
+   * seconds later, forever.
+   */
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_B', live_pin_at: NOW - MIN };
+  const { env, writes } = harness({
+    member: pinned,
+    titles: titlesStamped(NOW - 3 * 60 * MIN),
+    known: [{ np_comm_id: 'NPWR_A', earned_total: 10 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
+  });
+  await pollMember(env, pinned);
+
+  assert.equal(
+    writes.filter((w) => w.sql.includes('live_pin = NULL')).length, 0,
+    'the last trophy there predates the pin, so it proves nothing',
+  );
+  assert.equal(playOf(writes).id, 'NPWR_B', 'and the bar stays where they put it');
+});
+
+test('a title PSN gives no time for never clears a pin', async () => {
+  // Conservative on purpose. A stale pin is three seconds of /setgame; a pin
+  // that will not stick is the thing people have been complaining about.
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_B', live_pin_at: NOW - MIN };
+  const { env, writes } = harness({
+    member: pinned,
+    titles: TWO_TITLES,
+    known: [{ np_comm_id: 'NPWR_A', earned_total: 10 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
+  });
+  await pollMember(env, pinned);
+  assert.equal(writes.filter((w) => w.sql.includes('live_pin = NULL')).length, 0);
 });
 
 test('a trophy in the pinned game leaves the pin alone', async () => {
@@ -528,10 +579,10 @@ test('a pin PSN cannot see still goes when a trophy lands somewhere else', async
    * else, and the bar would keep their old answer forever because the pinned
    * game never appears in the list to be compared against.
    */
-  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_ZZZ' };
+  const pinned = { ...LIVE_MEMBER, live_pin: 'NPWR_ZZZ', live_pin_at: NOW - 10 * MIN };
   const { env, writes } = harness({
     member: pinned,
-    titles: TWO_TITLES,
+    titles: titlesStamped(NOW - 2 * MIN),
     known: [{ np_comm_id: 'NPWR_A', earned_total: 10 }, { np_comm_id: 'NPWR_B', earned_total: 28 }],
   });
   await pollMember(env, pinned);

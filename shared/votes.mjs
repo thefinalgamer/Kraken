@@ -94,8 +94,45 @@ export function tally(options, counts) {
  * "U" ids belong to logged-in viewers and stay the same for them on this
  * extension. "A" ids are logged-out viewers and change every session, so
  * letting them vote would be one vote per page refresh.
+ *
+ * THE FIRST CHARACTER IS THE ONLY THING TWITCH ACTUALLY PROMISES. This used to
+ * be `/^U[A-Za-z0-9]{1,64}$/`, written from the documented shape: "U" followed
+ * by the numeric Twitch user id, as in `U15185913`. That is not what everybody
+ * gets. Twitch's own issue tracker has it as issue 559 - with ID linking in the
+ * picture the id comes back as "U" followed by a long random token instead, and
+ * one `-`, one `_` or a sixty-fifth character was enough for us to call a
+ * signed-in viewer anonymous.
+ *
+ * WHAT IT COST. UncleUrbi, JoJo and GD could not vote for a fortnight, and it
+ * read as a Twitch problem the whole time because the panel's own message said
+ * "Log in to Twitch to vote" to three people who plainly were. They were sent
+ * off to turn off ad blockers, VPNs, antivirus and Firefox's tracking
+ * protection, none of which was ever going to help, because the refusal was
+ * ours. Migration 039's `panel_log` is what caught it: a row saying `anon` with
+ * the prefix `U` on it, which cannot happen if the rule is right.
+ *
+ * SO THE RULE IS NOW WHAT IT ALWAYS MEANT. Starts with U, is not empty, has no
+ * spaces or control characters in it, and is a sane length. The old pattern was
+ * guarding against SQL that cannot happen anyway: this value is only ever bound
+ * as a parameter, never pasted into a statement.
  */
 export const voterId = (opaqueUserId) => {
-  const id = String(opaqueUserId ?? '');
-  return /^U[A-Za-z0-9]{1,64}$/.test(id) ? id : null;
+  const id = String(opaqueUserId ?? '').trim();
+  if (id.length < 2 || id.length > 255) return null;
+  if (id[0] !== 'U') return null;
+  // Printable ASCII only - no spaces, no control characters, nothing exotic.
+  return /^[\x21-\x7e]+$/.test(id) ? id : null;
+};
+
+/**
+ * The SHAPE of an opaque id: letters become `a`, digits become `9`, and
+ * anything else is left as itself. `U15185913` reads `U99999999`.
+ *
+ * For the diagnostic only, and it exists so that a question like "what is in
+ * these ids" can be answered without storing anybody's id. It is the difference
+ * between knowing there is a hyphen in there and knowing who that is.
+ */
+export const idShape = (opaqueUserId) => {
+  const id = String(opaqueUserId ?? '').slice(0, 80);
+  return id.slice(0, 1) + id.slice(1).replace(/[A-Za-z]/g, 'a').replace(/[0-9]/g, '9');
 };

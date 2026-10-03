@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { tally, parseOptions, voterId, FINISHABLE_SQL, VOTE_SOURCES } from '../shared/votes.mjs';
+import { tally, parseOptions, voterId, idShape, FINISHABLE_SQL, VOTE_SOURCES } from '../shared/votes.mjs';
 import { verifyExtensionToken, signExtensionToken } from '../functions/_lib/twitch-jwt.js';
 
 /**
@@ -51,6 +51,33 @@ test('only logged-in viewers can vote', () => {
   assert.equal(voterId('A98765'), null);
   assert.equal(voterId(''), null);
   assert.equal(voterId('U12; DROP TABLE'), null);
+
+  /**
+   * CHANGED 2 October 2026. This used to demand `/^U[A-Za-z0-9]{1,64}$/`, from
+   * the documented shape - "U" plus the numeric user id, `U15185913`.
+   *
+   * THAT IS NOT WHAT EVERYBODY GETS, and it cost three people a fortnight of
+   * voting. twitchdev/issues#559: with ID linking in the picture the id comes
+   * back as "U" plus a long random token, and one hyphen or a sixty-fifth
+   * character was enough for us to call a signed-in viewer anonymous and tell
+   * them to log in to a site they were already logged in to.
+   *
+   * `panel_log` caught it in one minute: `anon` with the prefix `U` on it.
+   */
+  assert.equal(voterId('U15185913'), 'U15185913', 'the documented shape still works');
+  assert.equal(
+    voterId('U-gibberish_with-dashes'), 'U-gibberish_with-dashes',
+    'and so does the one Twitch actually sends',
+  );
+  const long = `U${'x'.repeat(120)}`;
+  assert.equal(voterId(long), long, 'length is not the test either');
+  assert.equal(voterId(`U${'x'.repeat(300)}`), null, 'but it is still bounded');
+  assert.equal(voterId('  U15185913  '), 'U15185913', 'and trimmed');
+  assert.equal(voterId('Bsomething'), null, 'anything that is not a U is not a voter');
+
+  // The shape, for the diagnostic. It must never give an id back.
+  assert.equal(idShape('U15185913'), 'U99999999');
+  assert.equal(idShape('U-gibberish_01'), 'U-aaaaaaaaa_99');
 });
 
 test('"finishable" rules out the game flag AND any flagged trophy', () => {
@@ -157,8 +184,8 @@ const apiEnv = ({ vote, ballots = [], member = MEMBER, secret = SECRET, logFails
               // is the case that matters: it must never reach the viewer.
               if (sql.includes('INTO panel_log')) {
                 if (logFails) throw new Error('no such table: panel_log');
-                const [minute, channel, kind, prefix, role, unlinked, has_user] = args;
-                store.log.push({ minute, channel, kind, prefix, role, unlinked, has_user });
+                const [minute, channel, kind, prefix, role, unlinked, has_user, shape, len] = args;
+                store.log.push({ minute, channel, kind, prefix, role, unlinked, has_user, shape, len });
               }
               return { meta: { changes: 1 } };
             },
@@ -517,6 +544,8 @@ test('every panel load is written down as anon or known, with no id in it', asyn
   await get(env, 'A_anon_123');
 
   assert.deepEqual(store.log.map((r) => [r.kind, r.prefix]), [['known', 'U'], ['anon', 'A']]);
+  assert.equal(store.log[0].shape, 'Uaaaaaa9', 'the shape, never the id');
+  assert.equal(store.log[0].len, 8);
   assert.equal(store.log[0].role, 'viewer', 'and the rest of the token comes with it');
   assert.equal(store.log[0].channel, '4242');
   assert.equal(store.log[0].has_user, 0, 'no identity shared, which is normal and allowed');
@@ -538,4 +567,26 @@ test('a diagnostic that cannot write is a diagnostic nobody notices', async () =
   assert.equal(status, 200);
   assert.equal(body.vote.id, 7, 'the vote came back exactly as it would have');
   assert.equal(body.vote.canVote, true);
+});
+
+test('a viewer Twitch gives a gibberish U id to can vote like anybody else', async () => {
+  /**
+   * The whole of UncleUrbi's fortnight, as a test. He was signed in, Twitch
+   * said so, and we told him to log in.
+   */
+  const { env, store } = apiEnv({ vote: OPEN });
+  const urbi = 'U-7f3a_b21c-9de4f';
+
+  const before = await get(env, urbi);
+  assert.equal(before.body.vote.loggedIn, true, 'he is logged in, and now we agree');
+  assert.equal(before.body.vote.canVote, true);
+  assert.equal(store.log.at(-1).kind, 'known');
+
+  const cast = await post(env, 'NPWR_SR', urbi);
+  assert.equal(cast.status, 200);
+  assert.equal(cast.body.vote.mine, 'NPWR_SR', 'and his vote sticks to him');
+
+  // Still one vote each: the id is stable, so a second go changes nothing.
+  await post(env, 'NPWR_Y0', urbi);
+  assert.equal(store.ballots.filter((b) => b.voter === urbi).length, 1);
 });

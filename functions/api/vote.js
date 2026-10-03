@@ -20,7 +20,7 @@
 import { verifyExtensionToken } from '../_lib/twitch-jwt.js';
 import { secureUrl } from '../_lib/page.js';
 import {
-  VOTE_SOURCES, RESULT_SHOWN_MS, parseOptions, tally, voterId,
+  VOTE_SOURCES, RESULT_SHOWN_MS, parseOptions, tally, voterId, idShape,
 } from '../../shared/votes.mjs';
 
 const HEADERS = {
@@ -148,8 +148,9 @@ async function state(env, member, voter, now = Date.now()) {
 function note(env, claims, voter) {
   const id = String(claims?.opaque_user_id ?? '');
   return env.DB.prepare(
-    `INSERT OR IGNORE INTO panel_log (minute, channel, kind, prefix, role, unlinked, has_user)
-     VALUES (?,?,?,?,?,?,?)`,
+    `INSERT OR IGNORE INTO panel_log
+       (minute, channel, kind, prefix, role, unlinked, has_user, shape, len)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       Math.floor(Date.now() / 60000),
@@ -159,6 +160,8 @@ function note(env, claims, voter) {
       String(claims?.role ?? ''),
       claims?.is_unlinked ? 1 : 0,
       claims?.user_id ? 1 : 0,
+      idShape(id),
+      id.length,
     )
     .run()
     .catch(() => {});

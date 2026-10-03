@@ -20,7 +20,7 @@
 
 import {
   page, html, esc, n, crumb, closingState, closingLabel, isUrgent, deadTitle,
-  secureUrl, numberedPager,
+  secureUrl, numberedPager, paysPill,
 } from './_lib/page.js';
 
 const PER_PAGE = 50;
@@ -73,7 +73,7 @@ const DEFAULT_SORT = 'owned';
  *
  * LEFT JOIN, so a game with nothing flagged still appears, with a null count.
  */
-const listSql = (order, search) => `
+const listSql = (order, search, payOnly) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.trophy_count,
          g.max_points, g.estimated, g.unobtainable, g.unobtainable_note,
          g.closes_at, g.local_started, d.dead AS dead_trophies
@@ -82,6 +82,7 @@ const listSql = (order, search) => `
                  FROM trophies WHERE unobtainable = 1
                 GROUP BY np_comm_id) d ON d.np_comm_id = g.np_comm_id
    WHERE g.local_started > 0
+     ${payOnly ? 'AND g.max_points > 0' : ''}
      ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
@@ -203,22 +204,29 @@ function row(g) {
  * trusts it past what the page itself can see: if there is a next page, there
  * is a next page, whatever last night said.
  */
-async function listedCount(env) {
-  const row = await env.DB.prepare("SELECT value FROM kv WHERE key = 'games_listed'")
+async function listedCount(env, payOnly) {
+  // Two literals rather than a bind: the key comes from a boolean, never from
+  // the URL, and `prepare(...).first()` is the shape every other read here uses.
+  const row = await env.DB.prepare(
+    payOnly
+      ? "SELECT value FROM kv WHERE key = 'games_listed_paid'"
+      : "SELECT value FROM kv WHERE key = 'games_listed'",
+  )
     .first()
     .catch(() => null);
   const count = Number(JSON.parse(row?.value ?? 'null'));
   return Number.isFinite(count) && count > 0 ? count : null;
 }
 
-function pager(sort, q, pageNo, hasNext, pages) {
+function pager(sort, q, pageNo, hasNext, pages, payOnly) {
+  const tail = (q ? `&q=${encodeURIComponent(q)}` : '') + (payOnly ? '' : '&pays=all');
   return numberedPager({
     pageNo,
     pages,
     hasNext,
-    href: (p) => `/games?sort=${sort}&page=${p}` + (q ? `&q=${encodeURIComponent(q)}` : ''),
+    href: (p) => `/games?sort=${sort}&page=${p}` + tail,
     action: '/games',
-    hidden: { sort, q },
+    hidden: { sort, q, ...(payOnly ? {} : { pays: 'all' }) },
   });
 }
 
@@ -227,13 +235,20 @@ export async function onRequestGet({ env, request }) {
   const sort = SORTS[url.searchParams.get('sort')] ? url.searchParams.get('sort') : DEFAULT_SORT;
   const pageNo = Math.max(1, Math.floor(Number(url.searchParams.get('page')) || 1));
   const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
+  /**
+   * HIDDEN BY DEFAULT HERE, and only here. This page is for finding something
+   * worth playing, and two thirds of the index is My Name is Mayo. A profile
+   * is somebody's own library and defaults the other way - see the hunter
+   * page, where quietly hiding most of their games would read as a bug.
+   */
+  const payOnly = url.searchParams.get('pays') !== 'all';
   const offset = (pageNo - 1) * PER_PAGE;
 
   const args = q
     ? [likeTerm(q), PER_PAGE + 1, offset]
     : [PER_PAGE + 1, offset];
 
-  const { results: fetched = [] } = await env.DB.prepare(listSql(SORTS[sort].sql, !!q))
+  const { results: fetched = [] } = await env.DB.prepare(listSql(SORTS[sort].sql, !!q, payOnly))
     .bind(...args)
     .all();
 
@@ -242,21 +257,30 @@ export async function onRequestGet({ env, request }) {
 
   // The total, when browsing. A search is unknown, and that is fine: the pager
   // shows every page back to 1 and the next one if there is one.
-  const counted = q ? null : await listedCount(env);
+  const counted = q ? null : await listedCount(env, payOnly);
   let pages = counted ? Math.max(1, Math.ceil(counted / PER_PAGE)) : null;
   // Last night's count is only a guide. The page in hand overrules it.
   if (pages !== null && (hasNext ? pages <= pageNo : pages < pageNo)) {
     pages = hasNext ? null : pageNo;
   }
 
+  /** Every link on this page keeps the sort, the search and the filter. */
+  const href = (over = {}) => {
+    const o = { sort, q, pays: payOnly ? null : 'all', ...over };
+    const bits = [`sort=${o.sort}`];
+    if (o.q) bits.push(`q=${encodeURIComponent(o.q)}`);
+    if (o.pays) bits.push(`pays=${o.pays}`);
+    return `/games?${bits.join('&')}`;
+  };
+
   const tabs = Object.entries(SORTS)
     .map(
       ([key, s]) =>
-        `<a class="tab${key === sort ? ' on' : ''}" href="/games?sort=${key}${
-          q ? `&q=${encodeURIComponent(q)}` : ''
-        }">${esc(s.label)}</a>`,
+        `<a class="tab${key === sort ? ' on' : ''}" href="${esc(href({ sort: key }))}">${esc(
+          s.label,
+        )}</a>`,
     )
-    .join('');
+    .join('') + paysPill(payOnly, (on) => href({ pays: on ? null : 'all' }));
 
   const body = `
     ${crumb('/', 'Home')}
@@ -270,13 +294,14 @@ export async function onRequestGet({ env, request }) {
       <input type="search" name="q" value="${esc(q)}" placeholder="Search every game"
              aria-label="Search every game" maxlength="60">
       <input type="hidden" name="sort" value="${esc(sort)}">
+      ${payOnly ? '' : '<input type="hidden" name="pays" value="all">'}
       <button type="submit">Search</button>
     </form>
 
     ${
       q
         ? `<p class="found">Showing games matching <b>${esc(q)}</b>.
-             <a href="/games?sort=${esc(sort)}">Clear</a></p>`
+             <a href="${esc(href({ q: '' }))}">Clear</a></p>`
         : ''
     }
 
@@ -296,7 +321,7 @@ export async function onRequestGet({ env, request }) {
                <tbody>${games.map(row).join('')}</tbody>
              </table>
            </div>
-           ${pager(sort, q, pageNo, hasNext, pages)}`
+           ${pager(sort, q, pageNo, hasNext, pages, payOnly)}`
         : `<div class="tablewrap"><p class="empty">${
             q
               ? `No games matching <b>${esc(q)}</b>. Only games somebody here owns are listed.`

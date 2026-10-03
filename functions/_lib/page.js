@@ -90,6 +90,35 @@ export function numberedPager({ pageNo, pages = null, hasNext = false, href, hid
 }
 
 /** 'GB' becomes 🇬🇧 by offsetting into the regional indicator block. */
+/**
+ * THE SHOVELWARE FILTER, as one pill beside the sorts.
+ *
+ * `max_points = 0` is not a gap in the data, it is a verdict. A game scores
+ * zero when EVERY trophy in it is earned by more than half the players in the
+ * world: the curve pays nothing above 50%, and a game with no hard trophy
+ * anywhere in it gets no floor either. That is My Name is Mayo, and about two
+ * thirds of the index. Martin, 26 August: "it's the easy trophies on the easy
+ * shovelware that should be worth nothing at all."
+ *
+ * So the filter needs no new column, no migration and no hand-kept list of
+ * games somebody decided were rubbish. The scoring model already said it, and
+ * it said it from rarity rather than from taste.
+ *
+ * NOT A FOURTH SORT, and it does not look like one - the same reasoning as the
+ * "Left to earn" pill on a game page. A sort rearranges the list; this changes
+ * which list it is. It wears `.tab.filter`, which keeps the panel background
+ * and goes brass rather than kraken when it is on, so nothing but the chosen
+ * sort ever looks like the chosen sort.
+ *
+ * THE WORDS AVOID THE JUDGEMENT. "Shovelware" is what everybody means and the
+ * wrong thing to print on somebody's own profile under their platinum. "Pays
+ * points" is the same filter stated as a fact.
+ */
+export const paysPill = (on, href) =>
+  `<a class="tab filter${on ? ' on' : ''}" href="${esc(href(!on))}">${
+    on ? 'Show all' : 'Pays points'
+  }</a>`;
+
 export function flag(code) {
   const cc = String(code ?? '').trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(cc)) return '';

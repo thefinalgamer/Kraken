@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
   closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
-  barShade, secureUrl, numberedPager,
+  barShade, secureUrl, numberedPager, paysPill,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -352,7 +352,7 @@ const MISSING = `
 /** How many of those to show. Enough to be worth reading, short enough to skim. */
 const MISSING_ROWS = 5;
 
-const gamesSql = (order, search) => `
+const gamesSql = (order, search, payOnly) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
          mg.points, mg.progress, mg.earned_total, mg.earned_platinum,
@@ -368,6 +368,7 @@ const gamesSql = (order, search) => `
                  FROM trophies WHERE unobtainable = 1
                 GROUP BY np_comm_id) d ON d.np_comm_id = g.np_comm_id
    WHERE mg.psn_account_id = ?
+     ${payOnly ? 'AND g.max_points > 0' : ''}
      ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
@@ -1022,15 +1023,16 @@ function comparePanel(me, them, ahead, theirs, clearHref, moreHref) {
  * full scan of the library to print "of 4", so instead one extra row is
  * fetched and its existence is the whole of "is there a next page".
  */
-function pager(name, sort, q, pageNo, pages, hasNext) {
+function pager(name, sort, q, pageNo, pages, hasNext, payOnly) {
   const path = `/hunter/${encodeURIComponent(name)}`;
+  const tail = (q ? `&q=${encodeURIComponent(q)}` : '') + (payOnly ? '&pays=1' : '');
   return numberedPager({
     pageNo,
     pages,
     hasNext,
-    href: (p) => `${path}?sort=${sort}&page=${p}` + (q ? `&q=${encodeURIComponent(q)}` : ''),
+    href: (p) => `${path}?sort=${sort}&page=${p}` + tail,
     action: path,
-    hidden: { sort, q },
+    hidden: { sort, q, ...(payOnly ? { pays: '1' } : {}) },
   });
 }
 
@@ -1162,6 +1164,12 @@ export async function onRequestGet({ params, env, request }) {
   // 60 characters is longer than any game anybody is looking for, and it caps
   // what a bored person can put into a LIKE pattern.
   const q = String(url.searchParams.get('q') || '').trim().slice(0, 60);
+  /**
+   * SHOWN BY DEFAULT HERE, unlike the index. This is somebody's own library,
+   * and silently hiding two thirds of it is how a feature gets reported as a
+   * missing game. The pill is there for anybody who wants only what scored.
+   */
+  const payOnly = url.searchParams.get('pays') === '1';
   const rolling = url.searchParams.has('roll');
 
   // PSN online ids top out at sixteen characters. Forty is generous and still
@@ -1210,7 +1218,10 @@ export async function onRequestGet({ params, env, request }) {
   const projects = Number(m.projects) || 0;
   // Page count is known when browsing (members.projects is stored) and unknown
   // when searching, where counting would cost a second full scan.
-  const pages = q ? null : Math.max(1, Math.ceil(projects / PER_PAGE));
+  // `projects` counts their whole library, so it cannot describe a filtered
+  // one. Unknown, exactly as a search is: one extra row answers "is there a
+  // next page" and the numbers go back to 1.
+  const pages = q || payOnly ? null : Math.max(1, Math.ceil(projects / PER_PAGE));
   const shownPage = pages ? Math.min(pageNo, pages) : pageNo;
   const offset = (shownPage - 1) * PER_PAGE;
 
@@ -1219,7 +1230,7 @@ export async function onRequestGet({ params, env, request }) {
     ? [m.psn_account_id, likeTerm(q), PER_PAGE + 1, offset]
     : [m.psn_account_id, PER_PAGE + 1, offset];
 
-  const { results: fetched = [] } = await env.DB.prepare(gamesSql(SORTS[sort].sql, !!q))
+  const { results: fetched = [] } = await env.DB.prepare(gamesSql(SORTS[sort].sql, !!q, payOnly))
     .bind(...args)
     .all();
 
@@ -1379,14 +1390,23 @@ export async function onRequestGet({ params, env, request }) {
 
   const country = flag(m.country);
 
+  /** Every link on the games list keeps the sort, the search and the filter. */
+  const gamesHref = (over = {}) => {
+    const o = { sort, q, pays: payOnly ? '1' : null, ...over };
+    const bits = [`sort=${o.sort}`];
+    if (o.q) bits.push(`q=${encodeURIComponent(o.q)}`);
+    if (o.pays) bits.push(`pays=${o.pays}`);
+    return `/hunter/${encodeURIComponent(m.psn_online_id)}?${bits.join('&')}`;
+  };
+
   const tabs = Object.entries(SORTS)
     .map(
       ([key, s]) =>
-        `<a class="tab${key === sort ? ' on' : ''}" href="/hunter/${encodeURIComponent(
-          m.psn_online_id,
-        )}?sort=${key}${q ? `&q=${encodeURIComponent(q)}` : ''}">${esc(s.label)}</a>`,
+        `<a class="tab${key === sort ? ' on' : ''}" href="${esc(gamesHref({ sort: key }))}">${esc(
+          s.label,
+        )}</a>`,
     )
-    .join('');
+    .join('') + paysPill(payOnly, (on) => gamesHref({ pays: on ? '1' : null }));
 
   /**
    * Where the points came from, and the movements behind it.
@@ -1801,7 +1821,7 @@ export async function onRequestGet({ params, env, request }) {
                  .join('')}</tbody>
              </table>
            </div>
-           ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext)}`
+           ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext, payOnly)}`
         : `<div class="tablewrap"><p class="empty">${
             q ? `No games matching <b>${esc(q)}</b>.` : 'No games on this page.'
           }</p></div>`

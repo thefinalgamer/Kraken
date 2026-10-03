@@ -1362,3 +1362,27 @@ test('page numbers: jump to any page of a library, not six clicks of Next', asyn
   assert.match(out, /<form class="jump" method="get" action="\/hunter\/JFL__Leon">/, 'and a box to jump');
   assert.match(out, /name="sort" value="played"/, 'which keeps the sort');
 });
+
+/* ---- 3 October: the shovelware filter, defaulting the other way ---- */
+
+test('a profile shows the whole library by default', async () => {
+  /**
+   * The index hides games that pay nothing; a profile does not. This is
+   * somebody's own library, and quietly dropping two thirds of it is how a
+   * feature gets reported as a missing game.
+   */
+  const { out } = await render('Pelzio');
+
+  assert.ok(!lastGamesSql.includes('g.max_points > 0'), lastGamesSql);
+  assert.match(out, />Pays points</, 'the pill is there for anybody who wants it');
+});
+
+test('pays=1 narrows a profile to what actually scored', async () => {
+  const { out } = await render('Pelzio', '?pays=1');
+
+  assert.ok(lastGamesSql.includes('g.max_points > 0'), lastGamesSql);
+  assert.match(out, /class="tab filter on"/);
+  // `projects` counts their whole library, so it cannot describe a filtered
+  // one. Unknown, exactly as a search is.
+  assert.ok(!/of \d+<\/span>/.test(out) || /pays=1/.test(out), 'and the links keep the filter');
+});

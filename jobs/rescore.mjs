@@ -510,6 +510,20 @@ async function main() {
   try {
     const listed = await db.one('SELECT COUNT(*) AS c FROM games WHERE local_started > 0');
     await db.setState('games_listed', Number(listed?.c) || 0);
+
+    /**
+     * And the same count with the shovelware filter on, because the index
+     * defaults to it. Without this the default view would be the one view with
+     * no page numbers, which is the wrong way round.
+     *
+     * TWO THIRDS OF THE INDEX SCORES NOTHING, and that is the scoring model
+     * working rather than a gap: a game pays zero when every trophy in it is
+     * earned by more than half the players in the world.
+     */
+    const paid = await db.one(
+      'SELECT COUNT(*) AS c FROM games WHERE local_started > 0 AND max_points > 0',
+    );
+    await db.setState('games_listed_paid', Number(paid?.c) || 0);
   } catch (err) {
     console.error('Could not count the games index (harmless):', err.message);
   }

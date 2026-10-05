@@ -465,3 +465,67 @@ test('several games growing at once are listed, not enumerated forever', async (
   assert.match(out, /Diablo IV, Borderlands 4 and 2 more/);
   assert.match(out, /29\*\* new trophies/, 'the total added is the sum of all of them');
 });
+
+// ------------------------------------------- what the card is a delta OF ---
+
+test('the card says which window it covers', () => {
+  /**
+   * PrimalxFear, 5 October: "i started a new game and got 10 trophies live as
+   * shown on my profile Minecraft Dungeons 2. but on the update it shows 4
+   * trophies with 0 started games".
+   *
+   * Every number on that card was right. He had run /update an hour into the
+   * stream, which took seven of the ten and the new project with them, and this
+   * one took the last four — by which time the game was not new any more.
+   * Nothing on the card said "since 12:13", so it read as a statement about his
+   * whole evening.
+   */
+  const card = updateCard({
+    member: { discord_id: '1', psn_online_id: 'PrimalxFear' },
+    updateNo: 1744,
+    before: { platinum: 0, gold: 0, silver: 10, bronze: 40, completion: 50, projects: 100, completed: 20 },
+    after: { platinum: 0, gold: 0, silver: 13, bronze: 41, completion: 50.01, projects: 100, completed: 20 },
+    delta: { earned: 422, backlog: 0, drift: -335, net: 88 },
+    gamesChanged: 1,
+    durationSeconds: 11,
+    since: Date.now() - (88 * 60000),
+  });
+  const out = JSON.stringify(card);
+
+  assert.match(out, /Everything since your last update, 1h 28m ago/);
+  assert.match(out, /1 game changed/, 'and it keeps what it always said');
+});
+
+test('a first update has no window to name and does not invent one', () => {
+  const card = updateCard({
+    member: { discord_id: '1', psn_online_id: 'Newcomer' },
+    updateNo: 1,
+    before: { platinum: 0, gold: 0, silver: 0, bronze: 0, completion: 0, projects: 0, completed: 0 },
+    after: { platinum: 3, gold: 9, silver: 20, bronze: 80, completion: 40, projects: 60, completed: 12 },
+    delta: { earned: 9000, backlog: 0, drift: 0, net: 9000 },
+    gamesChanged: 60,
+    durationSeconds: 95,
+    since: null,
+  });
+  const out = JSON.stringify(card);
+
+  assert.match(out, /Your first update/);
+  assert.doesNotMatch(out, /since your last update/);
+});
+
+test('the gap is written roughly, because nobody needs it to the minute', () => {
+  const at = (ms) => JSON.stringify(updateCard({
+    member: { discord_id: '1', psn_online_id: 'X' },
+    updateNo: 2,
+    before: { platinum: 0, gold: 0, silver: 0, bronze: 0, completion: 0, projects: 0, completed: 0 },
+    after: { platinum: 0, gold: 0, silver: 0, bronze: 1, completion: 0, projects: 0, completed: 0 },
+    delta: { earned: 1, backlog: 0, drift: 0, net: 1 },
+    gamesChanged: 1,
+    durationSeconds: 5,
+    since: Date.now() - ms,
+  }));
+
+  assert.match(at(20 * 60000), /20 minutes ago/);
+  assert.match(at(2 * 3600000), /2 hours ago/, 'no stray "0m" on the hour');
+  assert.match(at(4 * 86400000), /4 days ago/);
+});

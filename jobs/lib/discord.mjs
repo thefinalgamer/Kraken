@@ -158,6 +158,7 @@ export async function postUpdateResult({ member, result, interactionToken }) {
       durationSeconds: result.durationSeconds,
       repaired: result.repaired,
       grew: result.grew,
+      since: result.since ?? null,
     }),
   ]);
 

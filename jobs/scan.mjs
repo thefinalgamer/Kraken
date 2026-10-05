@@ -229,6 +229,9 @@ async function main() {
     const result = await scanMember(psn, member, updateNo);
     result.updateNo = updateNo;
     result.durationSeconds = Math.round((Date.now() - started) / 1000);
+    // What this update is a delta OF. Captured above, before scanMember writes
+    // last_update_at as its final act, so it is the PREVIOUS one.
+    result.since = member.last_update_at ?? null;
 
     await finaliseUpdate(updateNo, result, member);
 

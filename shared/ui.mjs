@@ -629,7 +629,7 @@ export function blockChars(blocks) {
 /** The `/update` result — same shape as the old embed, plus the explanation. */
 export function updateCard({
   member, updateNo, before, after, delta, gamesChanged, durationSeconds, repaired = 0,
-  grew = [],
+  grew = [], since = null,
 }) {
   const gained = [
     after.platinum - before.platinum && `${EMOJI.platinum} ${signed(after.platinum - before.platinum)}`,
@@ -778,8 +778,28 @@ export function updateCard({
     );
   }
 
+  /**
+   * WHAT THIS CARD IS A DELTA OF, which it never used to say.
+   *
+   * PrimalxFear, 5 October: "i started a new game and got 10 trophies live as
+   * shown on my profile Minecraft Dungeons 2. but on the update it shows 4
+   * trophies with 0 started games".
+   *
+   * He was right about every number and the card was right too. He had run
+   * /update an hour into the stream, which took seven of the ten and the new
+   * project with them; this one took the last four, by which time the game was
+   * not new any more. Nothing on the card said "since 12:13", so it read as a
+   * statement about his evening rather than about the gap since he last looked.
+   *
+   * Naming the window costs nine words and answers the question before it is
+   * asked - and it is a question that gets asked by a different person every
+   * time somebody updates twice in a night.
+   */
+  const window = since ? `Everything since your last update, ${ago(since)}` : 'Your first update';
+
   lines.push(
-    `-# Update took ${formatDuration(durationSeconds)} · ${n(gamesChanged)} game${gamesChanged === 1 ? '' : 's'} changed`,
+    `-# ${window} · took ${formatDuration(durationSeconds)} · ` +
+      `${n(gamesChanged)} game${gamesChanged === 1 ? '' : 's'} changed`,
   );
 
   return container(
@@ -811,6 +831,25 @@ function formatDuration(seconds) {
   if (!seconds && seconds !== 0) return 'a moment';
   if (seconds < 90) return `${seconds} seconds`;
   return `${Math.round(seconds / 60)} minutes`;
+}
+
+/**
+ * How long ago, in the shortest true form. "4 days", "1h 28m", "12 minutes".
+ *
+ * Rougher the further back it goes, because nobody needs "2 days, 3h 11m" and
+ * everybody needs to see at a glance that it was this afternoon.
+ */
+function ago(ms) {
+  const mins = Math.max(0, Math.round((Date.now() - Number(ms)) / 60000));
+  if (mins < 2) return 'a moment ago';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    const rest = mins % 60;
+    return rest ? `${hours}h ${rest}m ago` : `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
 export const FALLBACK_AVATAR = 'https://cdn.discordapp.com/embed/avatars/0.png';

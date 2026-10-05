@@ -572,10 +572,33 @@ function midZone(m, g, total, ahead, points) {
   </span>`;
 }
 
-function rightZone(m) {
+/**
+ * THE CABINET MOVES LIVE TOO, and it is the third time this exact complaint has
+ * been made. JFL__Leon, 5 October: "dont know how it took me this long to
+ * notice but these dont update live".
+ *
+ * He is right, and he was right the previous two times - the game's counts in
+ * September, then the gap to the next rank a few days later. Both were the same
+ * shape: half the bar seconds old, half of it from their last /update, with
+ * nothing saying which. His four cups were a platinum, three golds, three
+ * silvers and four bronzes behind - one session's worth.
+ *
+ * NOTHING IS INVENTED, and it is the same arithmetic the points already use:
+ * their stored total, plus the difference the poll measured in the ONE game it
+ * has fresh counts for. `cab` is null whenever there is no such game, and then
+ * this prints exactly what it always printed.
+ *
+ * WHAT STAYS STALE, deliberately: the completion percentage and the
+ * started/finished pair beside it. Completion is a weighted fraction over their
+ * whole library, so a live one would be this page CALCULATING a score rather
+ * than printing a figure somebody else worked out, and that is the line this
+ * project does not cross.
+ */
+function rightZone(m, cab = null) {
   const done = Number(m.completed) || 0;
   const started = Number(m.projects) || 0;
   const pc = Number(m.completion);
+  const cup = (k) => n(cab ? cab[k] : m[k]);
   return `<span class="zone">
     <span class="seg s-comp">
       <span class="ic pad">${PAD}</span>
@@ -584,10 +607,10 @@ function rightZone(m) {
     </span>
     <span class="seg s-cab">
       <span class="cups">
-        <span class="c-plat">${CUP}${n(m.platinum)}</span>
-        <span class="c-gold">${CUP}${n(m.gold)}</span>
-        <span class="c-silv">${CUP}${n(m.silver)}</span>
-        <span class="c-bron">${CUP}${n(m.bronze)}</span>
+        <span class="c-plat">${CUP}${cup('platinum')}</span>
+        <span class="c-gold">${CUP}${cup('gold')}</span>
+        <span class="c-silv">${CUP}${cup('silver')}</span>
+        <span class="c-bron">${CUP}${cup('bronze')}</span>
       </span>
     </span>
   </span>`;
@@ -1025,6 +1048,29 @@ async function render({ env, request, params, waitUntil }) {
     : playing;
 
   /**
+   * Their cabinet, plus whatever the poll has seen since the scan wrote it.
+   *
+   * SAME GUARD AS THE COUNTS AND THE POINTS: the note has to be about the game
+   * being shown. A note about a different game would add one game's session to
+   * another game's row and land the difference on their lifetime totals.
+   *
+   * CLAMPED AT ZERO because the scan can be AHEAD of the poll - they run
+   * /update mid-session and `member_games` catches up while the note is still
+   * the one from before it. Subtracting then would take trophies off somebody's
+   * cabinet, which is the one direction this must never go.
+   */
+  const cabinet = (() => {
+    if (!live || !playing || live.counts === false || live.id !== playing.np_comm_id) return null;
+    const grew = (now, was) => Math.max(0, (Number(now) || 0) - (Number(was) || 0));
+    return {
+      platinum: (Number(member.platinum) || 0) + grew(live.platinum, playing.earned_platinum),
+      gold: (Number(member.gold) || 0) + grew(live.gold, playing.earned_gold),
+      silver: (Number(member.silver) || 0) + grew(live.silver, playing.earned_silver),
+      bronze: (Number(member.bronze) || 0) + grew(live.bronze, playing.earned_bronze),
+    };
+  })();
+
+  /**
    * THE CHASE MOVES LIVE TOO, and it is the same bug as the game points were.
    *
    * Martin, on the gold figure: "leons points to earn to the next rank never
@@ -1099,7 +1145,7 @@ async function render({ env, request, params, waitUntil }) {
   const body = `<div class="bar ${pos}">
     ${leftZone(shown, { points: showMid ? gamePoints(member, shown) : '', onStream })}
     ${showMid ? midZone(member, shown, totals?.c ?? 0, ahead, livePoints) : '<span class="spacer"></span>'}
-    ${rightZone(member)}
+    ${rightZone(member, cabinet)}
   </div>`;
 
   return new Response(

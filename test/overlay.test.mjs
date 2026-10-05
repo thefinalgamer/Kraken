@@ -1125,3 +1125,60 @@ test('every "what are they playing" query sorts by exactly what 035 indexes', as
   assert.match(worker, /ORDER BY mg\.last_played_at (ASC|DESC)/,
     'nothing sorts on the bare column any more, so 017 could go');
 });
+
+/* ---- 5 October: the cabinet was the last stale thing on the bar ---- */
+
+const cabNote = (counts, id = PLAYING.np_comm_id) =>
+  JSON.stringify({ id, at: Date.now() - 2000, counts: true, progress: 95, ...counts });
+
+test('the cabinet counts the session the poll has seen', async () => {
+  /**
+   * JFL__Leon, 5 October: "dont know how it took me this long to notice but
+   * these dont update live". Third time this complaint has been made and the
+   * third place it was true - the game's counts went live in September, the gap
+   * to the next rank a few days later, and his four cups were still a platinum,
+   * three golds, three silvers and four bronzes behind.
+   *
+   * The arithmetic is their stored total plus the difference the poll measured
+   * in the one game it has fresh counts for. Nothing is calculated here that
+   * the scan would not reach the same way.
+   */
+  const body = bodyOf((await render({
+    member: {
+      ...MEMBER,
+      platinum: 143, gold: 1050, silver: 1203, bronze: 2201,
+      live_play: cabNote({ platinum: 1, gold: 3, silver: 5, bronze: 8 }),
+    },
+    playing: { ...PLAYING, earned_platinum: 0, earned_gold: 2, earned_silver: 4, earned_bronze: 7 },
+  })).out);
+
+  assert.match(body, /class="c-plat"[^>]*>(?:<svg[\s\S]*?<\/svg>)?144</, 'one platinum this session');
+  assert.match(body, /class="c-gold"[^>]*>(?:<svg[\s\S]*?<\/svg>)?1,051</, 'and one gold');
+  assert.match(body, /class="c-silv"[^>]*>(?:<svg[\s\S]*?<\/svg>)?1,204</);
+  assert.match(body, /class="c-bron"[^>]*>(?:<svg[\s\S]*?<\/svg>)?2,202</);
+});
+
+test('a note about another game never touches the cabinet', async () => {
+  // Otherwise one game's session lands on a different game's row and the
+  // difference ends up on somebody's lifetime totals.
+  const body = bodyOf((await render({
+    member: {
+      ...MEMBER,
+      live_play: cabNote({ platinum: 9, gold: 9, silver: 9, bronze: 9 }, 'NPWR_OTHER'),
+    },
+  })).out);
+  assert.match(body, /class="c-plat"[^>]*>(?:<svg[\s\S]*?<\/svg>)?143</, 'the stored cabinet stands');
+});
+
+test('a scan that got ahead of the poll never takes trophies away', async () => {
+  /**
+   * They run /update mid-session: member_games catches up while the note is
+   * still the one from before it, so the difference goes negative. Clamped,
+   * because that is the one direction a cabinet must never move.
+   */
+  const body = bodyOf((await render({
+    member: { ...MEMBER, live_play: cabNote({ platinum: 0, gold: 0, silver: 0, bronze: 0 }) },
+    playing: { ...PLAYING, earned_platinum: 1, earned_gold: 9, earned_silver: 9, earned_bronze: 9 },
+  })).out);
+  assert.match(body, /class="c-plat"[^>]*>(?:<svg[\s\S]*?<\/svg>)?143</, 'never below the scan');
+});

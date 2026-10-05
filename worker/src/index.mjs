@@ -2879,11 +2879,27 @@ async function changelog(env, updateId) {
 
   const total = await db.changelogCount(env, updateId);
   const icon = { new: '🆕', completed: '✅', progress: '📈' };
+  /**
+   * "100% → 100%" IS TRUE AND READS AS A BUG. PrimalxFear reported it twice, on
+   * 23 September and again on 5 October: "Minecraft: PlayStation(R)4 Edition
+   * Set 2 - 100% -> 100% - +1 trophies - +445 pts".
+   *
+   * Nothing is wrong with it. He had finished every trophy the list held, Sony
+   * added one, he earned that too, and he is at 100% of a bigger list than
+   * before. The percentage genuinely did not move; the game underneath it grew.
+   * The September fix was to the SCORING of those DLC trophies - which worked,
+   * hence the +445 - and this line was left saying the same number twice.
+   *
+   * So an arrow is only drawn when something moved. Same rule the rank line has
+   * carried since it would otherwise have printed "3rd → 3rd".
+   */
   const lines = rows.map((c) => {
     const what =
       c.kind === 'new'
         ? `started (${c.progress_to}%)`
-        : `${c.progress_from}% → ${c.progress_to}%`;
+        : c.progress_from === c.progress_to
+          ? `${c.progress_to}%`
+          : `${c.progress_from}% → ${c.progress_to}%`;
     const gained = c.trophies_gained > 0 ? ` · +${n(c.trophies_gained)} trophies` : '';
     const worth = c.points_gained > 0 ? ` · +${n(c.points_gained)} pts` : '';
     return `${icon[c.kind] ?? '•'} **${c.title}** - ${what}${gained}${worth}`;

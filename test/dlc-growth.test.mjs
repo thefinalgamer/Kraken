@@ -224,3 +224,37 @@ test('a percentage never leaves this job above 100', () => {
   // Stored progress goes through titleProgress, which clamps the same way.
   assert.match(code, /const progress = titleProgress\(title\)/, 'what gets stored is clamped');
 });
+
+/* ---- 5 October: and the line that reported it twice ---- */
+
+test('a game that grew without moving its percentage draws no arrow', async () => {
+  /**
+   * PrimalxFear, 23 September and again on 5 October:
+   *
+   *   "Minecraft: PlayStation(R)4 Edition Set 2 - 100% -> 100% - +1 trophies
+   *    - +445 pts"
+   *
+   * NOTHING WAS WRONG WITH IT, which is why it survived a fix. He had every
+   * trophy the list held, Sony added one, he earned that too, and he is now at
+   * 100% of a bigger list. The percentage really did not move. The work above
+   * made those DLC trophies SCORE - hence the +445 - and left the sentence
+   * announcing it saying the same number twice, which reads as a bug to
+   * everybody who sees it.
+   *
+   * An arrow is for movement. The rank line has had this rule since it would
+   * otherwise have printed "3rd → 3rd".
+   */
+  const worker = await readFile(new URL('../worker/src/index.mjs', import.meta.url), 'utf8');
+  const src = worker.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  assert.match(
+    src,
+    /c\.progress_from === c\.progress_to[\s\S]{0,80}progress_to\}%/,
+    'same number both ends means one number',
+  );
+  assert.match(
+    src,
+    /progress_from\}% → \$\{c\.progress_to\}%/,
+    'and the arrow is still there when something actually moved',
+  );
+});

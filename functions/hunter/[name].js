@@ -22,7 +22,7 @@
 import {
   page, html, esc, n, pct, flag, ordinal, cup, miniCups, TIER, tierFor,
   closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
-  barShade, secureUrl, numberedPager, paysPill,
+  barShade, secureUrl, numberedPager, paysPill, PLATFORM_SQL, platformPills,
 } from '../_lib/page.js';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
@@ -352,7 +352,7 @@ const MISSING = `
 /** How many of those to show. Enough to be worth reading, short enough to skim. */
 const MISSING_ROWS = 5;
 
-const gamesSql = (order, search, payOnly) => `
+const gamesSql = (order, search, payOnly, listPlat) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.unobtainable, g.unobtainable_note, g.closes_at, g.trophy_count,
          mg.points, mg.progress, mg.earned_total, mg.earned_platinum,
@@ -369,6 +369,7 @@ const gamesSql = (order, search, payOnly) => `
                 GROUP BY np_comm_id) d ON d.np_comm_id = g.np_comm_id
    WHERE mg.psn_account_id = ?
      ${payOnly ? 'AND g.max_points > 0' : ''}
+     ${listPlat ? PLATFORM_SQL : ''}
      ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
@@ -1023,16 +1024,17 @@ function comparePanel(me, them, ahead, theirs, clearHref, moreHref) {
  * full scan of the library to print "of 4", so instead one extra row is
  * fetched and its existence is the whole of "is there a next page".
  */
-function pager(name, sort, q, pageNo, pages, hasNext, payOnly) {
+function pager(name, sort, q, pageNo, pages, hasNext, payOnly, platKey) {
   const path = `/hunter/${encodeURIComponent(name)}`;
-  const tail = (q ? `&q=${encodeURIComponent(q)}` : '') + (payOnly ? '&pays=1' : '');
+  const tail = (q ? `&q=${encodeURIComponent(q)}` : '') + (payOnly ? '&pays=1' : '')
+    + (platKey ? `&pl=${platKey}` : '');
   return numberedPager({
     pageNo,
     pages,
     hasNext,
     href: (p) => `${path}?sort=${sort}&page=${p}` + tail,
     action: path,
-    hidden: { sort, q, ...(payOnly ? { pays: '1' } : {}) },
+    hidden: { sort, q, ...(payOnly ? { pays: '1' } : {}), ...(platKey ? { pl: platKey } : {}) },
   });
 }
 
@@ -1170,6 +1172,16 @@ export async function onRequestGet({ params, env, request }) {
    * missing game. The pill is there for anybody who wants only what scored.
    */
   const payOnly = url.searchParams.get('pays') === '1';
+
+  /**
+   * `pl` is the TABLE's platform, and `plat` stays the dice's.
+   *
+   * Two separate controls on one page, so two parameters. Sharing one would
+   * mean dealing yourself a PS3 card silently emptied the library underneath
+   * it, which is the sort of thing that gets reported as a missing game.
+   */
+  const listPlatKey = PLATFORMS[url.searchParams.get('pl')] ? url.searchParams.get('pl') : null;
+  const listPlat = listPlatKey ? PLATFORMS[listPlatKey].match : null;
   const rolling = url.searchParams.has('roll');
 
   // PSN online ids top out at sixteen characters. Forty is generous and still
@@ -1221,16 +1233,21 @@ export async function onRequestGet({ params, env, request }) {
   // `projects` counts their whole library, so it cannot describe a filtered
   // one. Unknown, exactly as a search is: one extra row answers "is there a
   // next page" and the numbers go back to 1.
-  const pages = q || payOnly ? null : Math.max(1, Math.ceil(projects / PER_PAGE));
+  const pages = q || payOnly || listPlat ? null : Math.max(1, Math.ceil(projects / PER_PAGE));
   const shownPage = pages ? Math.min(pageNo, pages) : pageNo;
   const offset = (shownPage - 1) * PER_PAGE;
 
   // One extra row, purely so Next knows whether it exists.
-  const args = q
-    ? [m.psn_account_id, likeTerm(q), PER_PAGE + 1, offset]
-    : [m.psn_account_id, PER_PAGE + 1, offset];
+  // Bound in the order the fragments appear in the query.
+  const args = [
+    m.psn_account_id,
+    ...(q ? [likeTerm(q)] : []),
+    ...(listPlat ? [listPlat] : []),
+    PER_PAGE + 1,
+    offset,
+  ];
 
-  const { results: fetched = [] } = await env.DB.prepare(gamesSql(SORTS[sort].sql, !!q, payOnly))
+  const { results: fetched = [] } = await env.DB.prepare(gamesSql(SORTS[sort].sql, !!q, payOnly, listPlat))
     .bind(...args)
     .all();
 
@@ -1392,10 +1409,11 @@ export async function onRequestGet({ params, env, request }) {
 
   /** Every link on the games list keeps the sort, the search and the filter. */
   const gamesHref = (over = {}) => {
-    const o = { sort, q, pays: payOnly ? '1' : null, ...over };
+    const o = { sort, q, pays: payOnly ? '1' : null, pl: listPlatKey, ...over };
     const bits = [`sort=${o.sort}`];
     if (o.q) bits.push(`q=${encodeURIComponent(o.q)}`);
     if (o.pays) bits.push(`pays=${o.pays}`);
+    if (o.pl) bits.push(`pl=${o.pl}`);
     return `/hunter/${encodeURIComponent(m.psn_online_id)}?${bits.join('&')}`;
   };
 
@@ -1801,6 +1819,8 @@ export async function onRequestGet({ params, env, request }) {
         : ''
     }
 
+    <div class="tabs">${platformPills(listPlatKey, (k) => gamesHref({ pl: k }))}</div>
+
     <div class="tabs">${tabs}</div>
 
     ${
@@ -1821,7 +1841,7 @@ export async function onRequestGet({ params, env, request }) {
                  .join('')}</tbody>
              </table>
            </div>
-           ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext, payOnly)}`
+           ${pager(m.psn_online_id, sort, q, shownPage, pages, hasNext, payOnly, listPlatKey)}`
         : `<div class="tablewrap"><p class="empty">${
             q ? `No games matching <b>${esc(q)}</b>.` : 'No games on this page.'
           }</p></div>`

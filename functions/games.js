@@ -20,7 +20,7 @@
 
 import {
   page, html, esc, n, crumb, closingState, closingLabel, isUrgent, deadTitle,
-  secureUrl, numberedPager, paysPill,
+  secureUrl, numberedPager, paysPill, PLATFORMS, PLATFORM_SQL, platformPills,
 } from './_lib/page.js';
 
 const PER_PAGE = 50;
@@ -73,7 +73,7 @@ const DEFAULT_SORT = 'owned';
  *
  * LEFT JOIN, so a game with nothing flagged still appears, with a null count.
  */
-const listSql = (order, search, payOnly) => `
+const listSql = (order, search, payOnly, plat) => `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.trophy_count,
          g.max_points, g.estimated, g.unobtainable, g.unobtainable_note,
          g.closes_at, g.local_started, d.dead AS dead_trophies
@@ -83,6 +83,7 @@ const listSql = (order, search, payOnly) => `
                 GROUP BY np_comm_id) d ON d.np_comm_id = g.np_comm_id
    WHERE g.local_started > 0
      ${payOnly ? 'AND g.max_points > 0' : ''}
+     ${plat ? PLATFORM_SQL : ''}
      ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
@@ -218,15 +219,16 @@ async function listedCount(env, payOnly) {
   return Number.isFinite(count) && count > 0 ? count : null;
 }
 
-function pager(sort, q, pageNo, hasNext, pages, payOnly) {
-  const tail = (q ? `&q=${encodeURIComponent(q)}` : '') + (payOnly ? '' : '&pays=all');
+function pager(sort, q, pageNo, hasNext, pages, payOnly, platKey) {
+  const tail = (q ? `&q=${encodeURIComponent(q)}` : '') + (payOnly ? '' : '&pays=all')
+    + (platKey ? `&pl=${platKey}` : '');
   return numberedPager({
     pageNo,
     pages,
     hasNext,
     href: (p) => `/games?sort=${sort}&page=${p}` + tail,
     action: '/games',
-    hidden: { sort, q, ...(payOnly ? {} : { pays: 'all' }) },
+    hidden: { sort, q, ...(payOnly ? {} : { pays: 'all' }), ...(platKey ? { pl: platKey } : {}) },
   });
 }
 
@@ -242,13 +244,28 @@ export async function onRequestGet({ env, request }) {
    * page, where quietly hiding most of their games would read as a bug.
    */
   const payOnly = url.searchParams.get('pays') !== 'all';
+
+  /**
+   * `pl`, NOT `plat`. The hunter page already spends `plat` on the platform
+   * tabs inside "deal the cards", and two separate controls sharing one
+   * parameter would mean picking PS3 for the dice silently emptied the table
+   * underneath it. Same name on both pages for the list, so a link works
+   * wherever it is pasted.
+   */
+  const platKey = PLATFORMS[url.searchParams.get('pl')] ? url.searchParams.get('pl') : null;
+  const plat = platKey ? PLATFORMS[platKey].match : null;
   const offset = (pageNo - 1) * PER_PAGE;
 
-  const args = q
-    ? [likeTerm(q), PER_PAGE + 1, offset]
-    : [PER_PAGE + 1, offset];
+  // Bound in the order the fragments appear: the search LIKE, then the
+  // platform LIKE, then the window.
+  const args = [
+    ...(q ? [likeTerm(q)] : []),
+    ...(plat ? [plat] : []),
+    PER_PAGE + 1,
+    offset,
+  ];
 
-  const { results: fetched = [] } = await env.DB.prepare(listSql(SORTS[sort].sql, !!q, payOnly))
+  const { results: fetched = [] } = await env.DB.prepare(listSql(SORTS[sort].sql, !!q, payOnly, plat))
     .bind(...args)
     .all();
 
@@ -257,7 +274,9 @@ export async function onRequestGet({ env, request }) {
 
   // The total, when browsing. A search is unknown, and that is fine: the pager
   // shows every page back to 1 and the next one if there is one.
-  const counted = q ? null : await listedCount(env, payOnly);
+  // Nothing counts the platforms overnight, and four more kv keys to save one
+  // page number is not a trade worth making. Unknown, exactly as a search is.
+  const counted = q || plat ? null : await listedCount(env, payOnly);
   let pages = counted ? Math.max(1, Math.ceil(counted / PER_PAGE)) : null;
   // Last night's count is only a guide. The page in hand overrules it.
   if (pages !== null && (hasNext ? pages <= pageNo : pages < pageNo)) {
@@ -266,10 +285,11 @@ export async function onRequestGet({ env, request }) {
 
   /** Every link on this page keeps the sort, the search and the filter. */
   const href = (over = {}) => {
-    const o = { sort, q, pays: payOnly ? null : 'all', ...over };
+    const o = { sort, q, pays: payOnly ? null : 'all', pl: platKey, ...over };
     const bits = [`sort=${o.sort}`];
     if (o.q) bits.push(`q=${encodeURIComponent(o.q)}`);
     if (o.pays) bits.push(`pays=${o.pays}`);
+    if (o.pl) bits.push(`pl=${o.pl}`);
     return `/games?${bits.join('&')}`;
   };
 
@@ -295,6 +315,7 @@ export async function onRequestGet({ env, request }) {
              aria-label="Search every game" maxlength="60">
       <input type="hidden" name="sort" value="${esc(sort)}">
       ${payOnly ? '' : '<input type="hidden" name="pays" value="all">'}
+      ${platKey ? `<input type="hidden" name="pl" value="${esc(platKey)}">` : ''}
       <button type="submit">Search</button>
     </form>
 
@@ -304,6 +325,8 @@ export async function onRequestGet({ env, request }) {
              <a href="${esc(href({ q: '' }))}">Clear</a></p>`
         : ''
     }
+
+    <div class="tabs">${platformPills(platKey, (k) => href({ pl: k }))}</div>
 
     <div class="tabs">${tabs}</div>
 
@@ -321,7 +344,7 @@ export async function onRequestGet({ env, request }) {
                <tbody>${games.map(row).join('')}</tbody>
              </table>
            </div>
-           ${pager(sort, q, pageNo, hasNext, pages, payOnly)}`
+           ${pager(sort, q, pageNo, hasNext, pages, payOnly, platKey)}`
         : `<div class="tablewrap"><p class="empty">${
             q
               ? `No games matching <b>${esc(q)}</b>. Only games somebody here owns are listed.`

@@ -1386,3 +1386,20 @@ test('pays=1 narrows a profile to what actually scored', async () => {
   // one. Unknown, exactly as a search is.
   assert.ok(!/of \d+<\/span>/.test(out) || /pays=1/.test(out), 'and the links keep the filter');
 });
+
+test('a profile can be narrowed to one console too', async () => {
+  // Same filter, same pills, same parameter name as the index, so a link works
+  // wherever it is pasted.
+  await render('Pelzio', '?pl=ps3');
+  assert.ok(lastGamesSql.includes("g.platform LIKE '%' || ? || '%'"), lastGamesSql);
+});
+
+test('the dice keep their own platform tabs', async () => {
+  /**
+   * `plat` belongs to "deal the cards" and `pl` to the table. Sharing one would
+   * mean dealing yourself a PS3 card silently emptied the library underneath
+   * it, which is exactly the shape of thing that gets reported as a bug.
+   */
+  await render('Pelzio', '?plat=ps3');
+  assert.ok(!lastGamesSql.includes('g.platform LIKE'), 'the dice do not filter the table');
+});

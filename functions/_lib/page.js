@@ -114,6 +114,47 @@ export function numberedPager({ pageNo, pages = null, hasNext = false, href, hid
  * wrong thing to print on somebody's own profile under their platinum. "Pays
  * points" is the same filter stated as a fact.
  */
+/**
+ * THE FOUR CONSOLES, and the one awkward fact about them.
+ *
+ * `games.platform` is free text and a game can be on more than one: Energy
+ * Cycle is stored as "PSVITA,PS4". So matching is `LIKE '%PS3%'`, a leading
+ * wildcard, which can never use an index however many we add. SQLite scans.
+ *
+ * MEASURED BEFORE BUILDING, 7 October. 26,343 games listed, of which 9,826 are
+ * PS5, 14,044 PS4, 1,519 PS3 and 1,495 Vita - and the D1 console counted all
+ * four of those at once, over every row, in 22ms. One of them on its own is
+ * cheaper than that, so the scan is not worth a column, a migration or a
+ * generated index. Asked for by JFL__Leon: "can we have a filter for platform?
+ * So if I want ps3 games only listed".
+ */
+export const PLATFORMS = {
+  ps5: { label: 'PS5', match: 'PS5' },
+  ps4: { label: 'PS4', match: 'PS4' },
+  ps3: { label: 'PS3', match: 'PS3' },
+  vita: { label: 'Vita', match: 'PSVITA' },
+};
+
+/** The SQL fragment, for a query that binds the match string after it. */
+export const PLATFORM_SQL = "AND g.platform LIKE '%' || ? || '%'";
+
+/**
+ * All, then the four, as ordinary sort-style pills.
+ *
+ * These ARE a kind of sort in the way that matters here - one row of mutually
+ * exclusive choices, exactly one of them on - so unlike the pays filter they
+ * wear the plain `.tab` and the kraken fill. "All" is a real option rather than
+ * an absence, because a row where nothing is lit looks broken.
+ */
+export const platformPills = (current, href) =>
+  `<a class="tab${current ? '' : ' on'}" href="${esc(href(null))}">All</a>` +
+  Object.entries(PLATFORMS)
+    .map(
+      ([key, p]) =>
+        `<a class="tab${key === current ? ' on' : ''}" href="${esc(href(key))}">${esc(p.label)}</a>`,
+    )
+    .join('');
+
 export const paysPill = (on, href) =>
   `<a class="tab filter${on ? ' on' : ''}" href="${esc(href(!on))}">${
     on ? 'Show all' : 'Pays points'

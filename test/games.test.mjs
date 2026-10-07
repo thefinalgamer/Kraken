@@ -292,14 +292,63 @@ test('every link on the page carries the filter with it', async () => {
   assert.match(out, /name="pays" value="all"/, 'and on the search form');
 });
 
-test('the filter is not a fourth sort and does not dress like one', async () => {
+test('the pays filter is not a sort and does not dress like one', async () => {
   /**
-   * A sort rearranges the list; this changes which list it is. Same reasoning
-   * as the "Left to earn" pill on a game page, and the same `.tab.filter`
-   * class, which keeps the panel background and goes brass rather than wearing
-   * the kraken fill of the chosen sort.
+   * A sort rearranges the list; the pays filter changes which list it is. Same
+   * reasoning as the "Left to earn" pill on a game page, and the same
+   * `.tab.filter` class, which keeps the panel background and goes brass rather
+   * than wearing the kraken fill of a chosen sort.
+   *
+   * UPDATED 7 October: two pills are lit now, not one. The platform row is a
+   * genuine choice of its own - one row, mutually exclusive, exactly one on -
+   * so it wears the plain pill. The pays filter still does not.
    */
   const { out } = await render();
   const chosen = out.match(/class="tab on"/g) ?? [];
-  assert.equal(chosen.length, 1, 'exactly one thing looks like the chosen sort');
+  assert.equal(chosen.length, 2, 'one chosen sort, one chosen platform, and nothing else');
+  assert.match(out, /class="tab filter on"/, 'and the pays filter wears its own');
+});
+
+/* ---- 7 October: Leon wants his PS3 games on their own ---- */
+
+test('a platform narrows the list and binds what it matches', async () => {
+  /**
+   * JFL__Leon: "can we have a filter for platform? So if I want ps3 games only
+   * listed got example".
+   *
+   * `games.platform` is free text and a game can hold more than one - Energy
+   * Cycle is stored as "PSVITA,PS4" - so this is a leading-wildcard LIKE and
+   * no index will ever help it. MEASURED FIRST, 7 October: 26,343 games listed,
+   * and the D1 console counted all four platforms over every one of them in
+   * 22ms. One LIKE is cheaper than that, so it stays a scan.
+   */
+  await render(ROWS, '?pl=ps3');
+
+  assert.ok(lastSql.includes("g.platform LIKE '%' || ? || '%'"), lastSql);
+  assert.ok(lastBind.includes('PS3'), 'bound, never pasted into the query');
+});
+
+test('vita is stored as PSVITA and matched as PSVITA', async () => {
+  // The one label that is not its own match string.
+  await render(ROWS, '?pl=vita');
+  assert.ok(lastBind.includes('PSVITA'), lastBind.join());
+});
+
+test('a platform nobody has heard of is simply no filter', async () => {
+  await render(ROWS, '?pl=dreamcast');
+  assert.ok(!lastSql.includes('g.platform LIKE'), 'the whitelist is a whitelist');
+});
+
+test('a platform page stops claiming a page count', async () => {
+  // Nothing counts the platforms overnight, and four more kv keys to save one
+  // page number is not a trade worth making.
+  const { out } = await render(ROWS, '?pl=ps3', 520);
+  assert.ok(!/of 527/.test(out), 'last night\'s total describes a different list');
+});
+
+test('the platform rides along with the sort, the search and the pays filter', async () => {
+  const { out } = await render(ROWS, '?pl=ps3&pays=all&q=mayo');
+  assert.match(out, /pl=ps3/, 'on the links');
+  assert.match(out, /name="pl" value="ps3"/, 'and on the search form');
+  assert.match(out, /pays=all/, 'without losing the other one');
 });

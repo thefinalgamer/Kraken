@@ -1182,3 +1182,71 @@ test('a scan that got ahead of the poll never takes trophies away', async () => 
   })).out);
   assert.match(body, /class="c-plat"[^>]*>(?:<svg[\s\S]*?<\/svg>)?143</, 'never below the scan');
 });
+
+/* ---- 9 October: the failure that would not come back ---- */
+
+test('a failed render recovers at the speed of the bar it replaced', async () => {
+  /**
+   * JFL__Leon, 9 October: "everytime he earns a trophy his overlay is
+   * disapears he has to refresh".
+   *
+   * The empty page has carried a refresh since 13 September, so a bad second
+   * repairs itself. That was written when every overlay ran on sixty seconds.
+   * On 2 October the live bar went to ten and nobody moved this, so the page
+   * that recovers became six times slower than the page it recovers — a full
+   * minute of nothing, which is far longer than anybody waits before reaching
+   * for refresh.
+   */
+  const boom = {
+    DB: { prepare() { throw new Error('D1 had a moment'); } },
+  };
+  const res = await mod.onRequestGet({
+    env: boom,
+    request: new Request('https://platinumintel.co.uk/overlay/Pelzio'),
+    params: { name: 'Pelzio' },
+  });
+  const out = await res.text();
+
+  assert.equal(res.status, 200, 'never an error status, which browser sources draw over');
+  assert.match(out, /http-equiv="refresh" content="10"/, 'one tick is a flicker, a minute is a question in chat');
+  assert.doesNotMatch(out, /class="bar/, 'and it still draws nothing rather than something wrong');
+});
+
+test('a failure is written down, and writing it down cannot fail', async () => {
+  // Migration 041. It runs inside the handler whose whole job is that nothing
+  // gets out of this file but an overlay, so a broken table must not matter.
+  const writes = [];
+  const env = {
+    DB: {
+      prepare(sql) {
+        if (sql.includes('overlay_errors')) {
+          return { bind: (...a) => ({ run: async () => writes.push(a) }) };
+        }
+        throw new Error('kaboom');
+      },
+    },
+  };
+  const res = await mod.onRequestGet({
+    env,
+    request: new Request('https://platinumintel.co.uk/overlay/Pelzio'),
+    params: { name: 'Pelzio' },
+    waitUntil: (p) => p,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(writes.length, 1, 'the reason is recorded');
+  assert.equal(writes[0][1], 'Pelzio');
+  assert.match(String(writes[0][2]), /kaboom/, 'with what actually threw');
+});
+
+test('a diagnostic that cannot write still shows an overlay', async () => {
+  const env = { DB: { prepare() { throw new Error('no such table: overlay_errors'); } } };
+  const res = await mod.onRequestGet({
+    env,
+    request: new Request('https://platinumintel.co.uk/overlay/Pelzio'),
+    params: { name: 'Pelzio' },
+    waitUntil: (p) => p,
+  });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /http-equiv="refresh"/);
+});

@@ -837,12 +837,63 @@ const doc = (body, scale = 1, fit = '', refresh = REFRESH) => `<!doctype html>
  * caches treat an error status as a reason to show their own message, which
  * is the thing this exists to prevent.
  */
+/**
+ * A FAILURE MUST RECOVER AT THE SPEED THE GOOD PAGE RUNS AT, and for three
+ * weeks it did not. JFL__Leon, 9 October: "everytime he earns a trophy his
+ * overlay is disapears he has to refresh".
+ *
+ * The empty page below has carried a refresh since 13 September, so a bad
+ * second repairs itself. That was written when every overlay ran on sixty
+ * seconds and the two matched. On 2 October the live bar went to TEN seconds,
+ * and nobody moved this: the page that recovers became six times slower than
+ * the page it recovers. One throw, and a streamer gets a full minute of
+ * nothing - long enough that every single person would reach for refresh, and
+ * Leon did.
+ *
+ * So the empty page now refreshes as fast as the bar it replaces. The gap is
+ * one tick, which is a flicker, instead of a minute, which is a question in
+ * chat.
+ */
+const FAIL_REFRESH = PIN_REFRESH;
+
+/**
+ * And write down WHY, because "it disappears sometimes" is not something
+ * anybody can act on. Migration 041; `DROP TABLE overlay_errors` when we are
+ * done with it.
+ *
+ * ONE ROW PER MEMBER PER MINUTE. This runs on a page that refreshes every ten
+ * seconds, so without the primary key doing the throttling a single broken
+ * overlay would write six rows a minute all night.
+ *
+ * IT CANNOT ITSELF THROW. It is running inside the handler whose whole job is
+ * that nothing gets out of this file but an overlay.
+ */
+function noteFailure(env, name, err) {
+  try {
+    return env?.DB?.prepare(
+      'INSERT OR IGNORE INTO overlay_errors (minute, name, message) VALUES (?,?,?)',
+    )
+      .bind(
+        Math.floor(Date.now() / 60000),
+        String(name ?? '').slice(0, 40),
+        String(err?.message ?? err ?? '').slice(0, 300),
+      )
+      .run()
+      .catch(() => {});
+  } catch {
+    return undefined;
+  }
+}
+
 export async function onRequestGet(context) {
   try {
     return await render(context);
   } catch (err) {
     console.error('overlay failed, showing nothing:', err?.message ?? err);
-    return new Response(doc(''), {
+    if (typeof context?.waitUntil === 'function') {
+      context.waitUntil(noteFailure(context.env, context?.params?.name, err));
+    }
+    return new Response(doc('', 1, '', FAIL_REFRESH), {
       headers: {
         'content-type': 'text/html;charset=utf-8',
         'cache-control': 'no-store',

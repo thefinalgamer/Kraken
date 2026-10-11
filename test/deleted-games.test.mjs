@@ -213,7 +213,16 @@ test('an empty library is refused for a member who has one', async () => {
   const scanSrc = await readFile(new URL('../jobs/scan.mjs', import.meta.url), 'utf8');
   const src = scanSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
-  assert.match(src, /const knownGames = Number\(member\.projects\)/, 'it reads what we already had');
+  assert.match(
+    src,
+    /SELECT COUNT\(\*\) AS c FROM member_games WHERE psn_account_id/,
+    'it counts the games that survived, rather than trusting the summary that did not',
+  );
+  assert.match(
+    src,
+    /const knownGames = Math\.max\(Number\(member\.projects\) \|\| 0, heldGames\)/,
+    'whichever witness still remembers something',
+  );
   assert.match(src, /const knownTrophies =/, 'trophies too, in case projects alone is wrong');
   assert.match(
     src,
@@ -239,4 +248,18 @@ test('a genuinely empty first scan is still allowed through', () => {
   assert.equal(known(0, 0), false, 'a brand new member is not a casualty');
   assert.equal(known(263, 0), true, 'but 263 games is');
   assert.equal(known(0, 34756), true, 'and so is a cabinet with nothing listed');
+});
+
+test('the guard still protects a member whose summary was already flattened', () => {
+  /**
+   * The hole the first version left, and the one SC0TSMENN fell through. He was
+   * wiped on 28 September, so from the 29th his own row agreed he had nothing,
+   * and six further scans had nothing to compare against. His 263 game rows
+   * were sitting there the whole time.
+   */
+  const known = (projects, heldGames) => Math.max(projects, heldGames) > 0;
+
+  assert.equal(known(263, 263), true, 'before the damage');
+  assert.equal(known(0, 263), true, 'and after it, which is the whole point');
+  assert.equal(known(0, 0), false, 'a genuinely empty account is still let through');
 });

@@ -473,7 +473,21 @@ async function scanMember(psn, member, updateNo) {
    * better witness here, and unlike a second PSN call it cannot be having the
    * same bad minute.
    */
-  const knownGames = Number(member.projects) || 0;
+  /**
+   * COUNTED, NOT READ OFF THE SUMMARY. The summary is the thing that gets
+   * flattened, so asking it "did they have games?" fails exactly when it
+   * matters: SC0TSMENN was wiped on 28 September, and from the 29th onwards
+   * his own row agreed he had nothing. Six more scans sailed through on that.
+   *
+   * `member_games` is the record that survived all of it - 263 rows, still
+   * there, still correct, through every one of those scans. It is the witness
+   * to use.
+   */
+  const heldGames = Number(
+    (await db.one('SELECT COUNT(*) AS c FROM member_games WHERE psn_account_id = ?', [accountId]))?.c,
+  ) || 0;
+
+  const knownGames = Math.max(Number(member.projects) || 0, heldGames);
   const knownTrophies =
     (Number(member.platinum) || 0) + (Number(member.gold) || 0) +
     (Number(member.silver) || 0) + (Number(member.bronze) || 0);

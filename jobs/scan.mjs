@@ -451,6 +451,42 @@ async function scanMember(psn, member, updateNo) {
   // Sanity check. If the summary says this member owns trophies but their game
   // list comes back empty, something is wrong with the request rather than with
   // the account — fail loudly instead of quietly writing a card full of zeroes.
+  /**
+   * AND THE SAME CHECK AGAINST WHAT WE ALREADY KNOW, which is the one that
+   * would have caught SC0TSMENN and ceejayxbloo.
+   *
+   * 5 October, forty-nine minutes apart, both of them: PSN answered BOTH calls
+   * with nothing. The guard below compares one PSN call against another, so
+   * two calls agreeing on zero sailed straight through it, and the scan wrote
+   * nine zeroes over a member with 263 games and 85.32% completion.
+   *
+   * WHY IT LOOKED FINE AFTERWARDS, and why nobody noticed for six days: the
+   * nightly rescore owns `points`, `raw_points` and `completion` and rebuilt
+   * all three from the games that were still sitting there untouched. It does
+   * not own the other six columns, and nothing else writes them, so the board
+   * showed 451,808 points beside 0 trophies and 0/0 games until somebody
+   * looked at row eight.
+   *
+   * A MEMBER WITH TROPHIES CANNOT GO TO ZERO. PSN only lets you delete a list
+   * you have earned nothing in, so "they had 263 games yesterday and have none
+   * today" is never the account and always the request. The stored row is the
+   * better witness here, and unlike a second PSN call it cannot be having the
+   * same bad minute.
+   */
+  const knownGames = Number(member.projects) || 0;
+  const knownTrophies =
+    (Number(member.platinum) || 0) + (Number(member.gold) || 0) +
+    (Number(member.silver) || 0) + (Number(member.bronze) || 0);
+
+  if (titles.length === 0 && (knownGames > 0 || knownTrophies > 0)) {
+    throw new Error(
+      `${member.psn_online_id} has ${knownGames} games and ${knownTrophies} trophies on the ` +
+        `board, and PSN just returned an empty library. A member with trophies cannot go to ` +
+        `zero, so this is the request failing rather than the account changing. Nothing was ` +
+        `written. Run /update again in a few minutes.`,
+    );
+  }
+
   const summaryTrophies = sumTrophies(summary?.earnedTrophies);
   if (summaryTrophies > 0 && titles.length === 0) {
     throw new Error(

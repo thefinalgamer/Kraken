@@ -186,3 +186,57 @@ test('tools/hiding.sql reads what the scan writes', () => {
   assert.match(sql, /AS days/, 'and surface how long it has been gone, which is the signal');
   assert.ok(!/earned_total\s*=\s*0/.test(sql), 'hidden games are the ones WITH trophies');
 });
+
+/* ---- 11 October: and the opposite blind spot, where EVERYTHING left ---- */
+
+test('an empty library is refused for a member who has one', async () => {
+  /**
+   * SC0TSMENN sat 8th on the board with 451,808 points, 85.32% completion,
+   * and 0 trophies across 0 / 0 games. ceejayxbloo had the same shape at 63rd.
+   * Both were scanned on 5 October, forty-nine minutes apart, and both still
+   * had their games: 263 rows in SC0TSMENN's case, untouched.
+   *
+   * PSN answered BOTH calls with nothing that morning. The existing guard
+   * compares the summary call against the titles call, so two calls agreeing on
+   * zero went straight through it and the scan wrote nine zeroes.
+   *
+   * NOBODY NOTICED FOR SIX DAYS because of a split that matters more than it
+   * looks: the nightly rescore owns points, raw_points and completion and
+   * rebuilt all three from the surviving games. It does not own the other six
+   * columns and nothing else writes them, so the row stayed half-true until
+   * somebody read row eight.
+   *
+   * The stored row is the better witness than a second PSN call, because it
+   * cannot be having the same bad minute. And a member with trophies cannot go
+   * to zero: PSN only lets you delete a list you earned nothing in.
+   */
+  const scanSrc = await readFile(new URL('../jobs/scan.mjs', import.meta.url), 'utf8');
+  const src = scanSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  assert.match(src, /const knownGames = Number\(member\.projects\)/, 'it reads what we already had');
+  assert.match(src, /const knownTrophies =/, 'trophies too, in case projects alone is wrong');
+  assert.match(
+    src,
+    /titles\.length === 0 && \(knownGames > 0 \|\| knownTrophies > 0\)/,
+    'and refuses an empty library from a member who has one',
+  );
+
+  // It must come BEFORE anything is written, and throw rather than return, so
+  // the existing failure path marks the update and tells the member.
+  const guard = src.indexOf('knownGames > 0 || knownTrophies > 0');
+  // The SUMMARY write specifically - `UPDATE members SET` on its own also
+  // matches the last_scan_ok flag, which is set on the failure path and so
+  // legitimately appears earlier in the file.
+  const write = src.indexOf('platinum = ?, gold = ?');
+  assert.ok(guard > 0, 'the guard exists');
+  assert.ok(write > guard, 'and runs before the nine columns are written');
+});
+
+test('a genuinely empty first scan is still allowed through', () => {
+  // Somebody who registers with nothing earned has projects = 0 and no
+  // trophies, so the guard has nothing to protect and must not block them.
+  const known = (projects, trophies) => projects > 0 || trophies > 0;
+  assert.equal(known(0, 0), false, 'a brand new member is not a casualty');
+  assert.equal(known(263, 0), true, 'but 263 games is');
+  assert.equal(known(0, 34756), true, 'and so is a cabinet with nothing listed');
+});

@@ -73,8 +73,8 @@ export const FAQ = [
       'other people do is the whole point of this board.\n\n' +
       '**They went DOWN.**\n' +
       '▫️ Somebody finished a game you both own, so it is back to its normal value\n' +
-      '▫️ You started a new game. That lowers your completion %, which pays out across your ' +
-      'entire library\n' +
+      '▫️ You earned your first trophy in a new game. That is when it joins your completion ' +
+      'denominator, and your % dips until you make progress in it\n' +
       '▫️ A game you own got new DLC. Sony adding trophies is the same thing as you ' +
       'starting a game: they join your completion denominator, so your % dips until you ' +
       'earn them. A game you had at 100% can stop being at 100% overnight, and there is ' +
@@ -87,7 +87,14 @@ export const FAQ = [
       '**My completion % is lower than PSNProfiles.**\n' +
       'Games worth zero points don\'t count toward it. If you have platted 100 cheap games, ' +
       'PSNProfiles counts all 100 and we count none. Buying games shouldn\'t raise your ' +
-      'percentage. Only finishing real ones should.',
+      'percentage. Only finishing real ones should.\n\n' +
+      '**What about games I have never played?**\n' +
+      'They do not count at all, in either direction. A game you have never earned a trophy ' +
+      'in does not lower your completion, does not raise it, and deleting it off PSN does ' +
+      'nothing to your score. Your backlog is yours; it costs you nothing to keep it.\n\n' +
+      'One trophy is enough to start counting, even if PlayStation still shows the game at ' +
+      '0%. Their percentage is weighted, so a single bronze in a long list can read as ' +
+      'nothing. We go by whether you have earned something, not by the number.',
   },
   {
     value: 'scoring',

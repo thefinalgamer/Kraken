@@ -83,14 +83,35 @@ async function countLocalRarity() {
   const PAGE = 2000;
   for (;;) {
     const rows = await db.query(
-      `SELECT np_comm_id, earned_ids FROM member_games
+      `SELECT np_comm_id, earned_total, earned_ids FROM member_games
         ORDER BY psn_account_id, np_comm_id LIMIT ? OFFSET ?`,
       [PAGE, offset],
     );
     if (!rows.length) break;
 
     for (const row of rows) {
-      started.set(row.np_comm_id, (started.get(row.np_comm_id) ?? 0) + 1);
+      /**
+       * AN OWNER IS SOMEBODY WHO HAS EARNED SOMETHING IN IT. Martin, 12 October:
+       * "0% games shouldnt effect you".
+       *
+       * This is the other half of that rule, and without it the third exploit
+       * PrimalxFear described survives the first half untouched. `local_started`
+       * is the denominator of local rarity, so adding yourself to a game as a
+       * non-finisher moves what that game pays EVERYBODY who owns it — a lever
+       * on other people's scores that costs nothing to pull and needs no
+       * deletion to work.
+       *
+       * Counting only members who have actually earned something takes the
+       * lever away: starting a game you never touch now changes nothing for
+       * anyone, which is exactly what the rule says it should do.
+       *
+       * `earned_total` rather than `earned_ids`, because the ids are written by
+       * the deep scan and a game can legitimately have a count before it has a
+       * list. The count is the cheap signal that is always there.
+       */
+      if ((Number(row.earned_total) || 0) > 0) {
+        started.set(row.np_comm_id, (started.get(row.np_comm_id) ?? 0) + 1);
+      }
       for (const id of safeJson(row.earned_ids, [])) {
         const key = `${row.np_comm_id}\u0000${id}`;
         earned.set(key, (earned.get(key) ?? 0) + 1);

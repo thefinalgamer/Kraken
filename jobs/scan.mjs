@@ -510,6 +510,35 @@ async function scanMember(psn, member, updateNo) {
     );
   }
 
+  /**
+   * WHAT PSN SAYS THEY HOLD, AGAINST WHAT IT WILL SHOW US. Migration 042.
+   *
+   * Hiding is the one thing left that a newcomer can do to flatter themselves:
+   * PSN lets you hide a game you are part way through, with none of the 0%
+   * limit that makes deleting harmless, and somebody who hides before they
+   * register arrives with those games simply absent. There is no history to
+   * compare against, so nothing else on this board can see it.
+   *
+   * These two calls answer different questions and ought to agree. A gap is
+   * trophies PSN counts on the profile and will not list a game for.
+   *
+   * A NUMBER, NOT AN ACCUSATION. Sony delists games, regional stacks get
+   * restructured, and one short response drops titles for a scan. It is stored
+   * so Martin can look, exactly as migration 036 is, and nothing member-facing
+   * reads it.
+   *
+   * Best-effort on purpose: the column arrives in 042 and a database that has
+   * not run it must lose this, never the scan.
+   */
+  const visibleTrophies = titles.reduce((n, t) => n + sumTrophies(t.earnedTrophies), 0);
+  await db
+    .run(
+      `UPDATE members SET summary_trophies = ?, visible_trophies = ?, hidden_checked_at = ?
+        WHERE psn_account_id = ?`,
+      [summaryTrophies, visibleTrophies, Date.now(), member.psn_account_id],
+    )
+    .catch(() => {});
+
   const priorRows = await db.query(
     'SELECT np_comm_id, earned_total, progress, points, scanned_at, earned_ids ' +
       'FROM member_games WHERE psn_account_id = ?',

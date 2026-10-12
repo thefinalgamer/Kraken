@@ -160,3 +160,43 @@ test('the two halves ship together or the fix is half a fix', async () => {
   assert.match(completion, /AND mg\.earned_total > 0/, 'completion half');
   assert.match(rescore, /Number\(row\.earned_total\) \|\| 0\) > 0/, 'local rarity half');
 });
+
+/* ---- the one hole the 0% rule does not cover ---- */
+
+test('the scan records what PSN counts against what it will show', async () => {
+  /**
+   * Martin, 12 October: "if player two joins us but before he joins us he
+   * deletes all his shit to make himself look good... anyway we can see this?"
+   *
+   * Deleting is already dead: PSN only permits it on a list you have earned
+   * nothing in, and those now count for nothing. HIDING has no such limit, and
+   * somebody who hides a half-finished game before registering arrives with it
+   * simply absent — no history, nothing to compare against.
+   *
+   * The account summary and the titles call answer different questions and
+   * ought to agree. Where they do not, the difference is trophies PSN counts on
+   * the profile and will not list a game for. It works on a first scan, which
+   * is the case nothing else covers.
+   *
+   * A NUMBER, NOT AN ACCUSATION, and stored as two numbers and a date with no
+   * flag: Sony delists games, regional stacks move, short responses drop
+   * titles. Migration 042.
+   */
+  const src = await readFile(new URL('../jobs/scan.mjs', import.meta.url), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  assert.match(
+    code,
+    /const visibleTrophies = titles\.reduce\(\(n, t\) => n \+ sumTrophies\(t\.earnedTrophies\), 0\)/,
+    'it adds up what the games actually show',
+  );
+  assert.match(code, /summary_trophies = \?, visible_trophies = \?/, 'and stores both sides');
+
+  // Best-effort: the columns arrive in 042, and a database without them must
+  // lose the measurement rather than the scan.
+  assert.match(code, /visible_trophies[\s\S]{0,260}?\.catch\(\(\) => \{\}\)/, 'never fatal');
+
+  // Nothing member-facing may read it. The same rule migration 036 carries.
+  const faq = await readFile(new URL('../shared/faq.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(faq, /summary_trophies|visible_trophies/, 'no badge, no card, no mention');
+});

@@ -1425,9 +1425,37 @@ async function scanGame(
   const earnedIds = mine.map((t) => t.id);
   const counts = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
   for (const t of mine) if (counts[t.type] !== undefined) counts[t.type]++;
+  /**
+   * AND IF PSN'S TITLE ENTRY TOLD US NOTHING, ASK THE TROPHIES WE JUST FETCHED.
+   *
+   * Shinlight, 17 October: "With my last update I got a game that gone from
+   * 100% to 0%. The game is Monster of the Deep: Final Fantasy XV Chinese
+   * Stack." He had all 36 of 36, and the row still said 36 — only the
+   * percentage went.
+   *
+   * `titleProgress` repairs the case where Sony sends progress 0 beside counts
+   * that disagree. It cannot repair the case where Sony sends NOTHING: no
+   * name, no earned counts, no defined counts. With no counts to weigh it hands
+   * back the zero, honestly, because the title list gave it nothing better.
+   *
+   * But we are inside scanGame(), and the per-game trophy call in front of us
+   * DID work — that is where the 36 came from. So when the list entry is empty
+   * and our own fetch found trophies, the same arithmetic runs against the
+   * better source. Nothing new is invented: it is titleProgress again, over
+   * counts we did the counting for.
+   *
+   * One row in the database had this, which is why it is a repair and not an
+   * alarm. The degraded entry is also why his changelog line read
+   * NPWR14023_00 instead of a name.
+   */
   // Clamped at the top of the scan; belt and braces for any path that reaches
   // scanGame() with a title object from somewhere else.
-  const progress = titleProgress(title);
+  let progress = titleProgress(title);
+  if (progress === 0 && mine.length) {
+    const defined = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+    for (const t of rated) if (defined[t.type] !== undefined) defined[t.type]++;
+    progress = titleProgress({ progress: 0, earnedTrophies: counts, definedTrophies: defined });
+  }
   const points = mine.reduce((n, t) => n + t.points, 0);
 
   // The span between their first and last trophy in this game. NULL when

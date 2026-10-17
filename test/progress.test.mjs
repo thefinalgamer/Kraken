@@ -38,10 +38,50 @@ test('partly earned and zeroed: worked out from the counts, never shown as 0', (
 test('the scan uses it, so the completed count is right too', async () => {
   const src = await readFile(new URL('../jobs/scan.mjs', import.meta.url), 'utf8');
   assert.match(src, /t\.progress = titleProgress\(t\)/);
-  assert.match(src, /const progress = titleProgress\(title\)/);
+  assert.match(src, /let progress = titleProgress\(title\)/);
 });
 
 test('never above 100, never below 0', () => {
   assert.equal(titleProgress({ progress: 150 }), 100);
   assert.equal(titleProgress({ progress: -5 }), 0);
+});
+
+test('an empty title entry is re-derived from the trophies we fetched ourselves', async () => {
+  /**
+   * Shinlight, 17 October: "With my last update I got a game that gone from
+   * 100% to 0%. The game is Monster of the Deep: Final Fantasy XV Chinese
+   * Stack." He held all 36 of 36 and the row still said 36 — the percentage
+   * was the only casualty.
+   *
+   * titleProgress repairs a zero that disagrees with the counts beside it. It
+   * cannot repair a title entry with NO counts: with nothing to weigh it hands
+   * the zero back, which is the honest answer from that source. Sony had sent
+   * the whole entry empty, which is also why his changelog line read
+   * NPWR14023_00 rather than a name.
+   *
+   * Inside scanGame() there is a better source already in hand — the per-game
+   * trophy call that found the 36 — so the same function runs again over counts
+   * we did the counting for. One row in the database had this.
+   */
+  const scan = await readFile(new URL('../jobs/scan.mjs', import.meta.url), 'utf8');
+  const code = scan.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  assert.match(code, /if \(progress === 0 && mine\.length\)/, 'only when Sony gave us nothing');
+  assert.match(code, /for \(const t of rated\) if \(defined\[t\.type\]/, 'counts the list itself');
+  assert.match(
+    code,
+    /titleProgress\(\{ progress: 0, earnedTrophies: counts, definedTrophies: defined \}\)/,
+    'and reuses the tested function rather than inventing a second one',
+  );
+});
+
+test('all of them earned is a hundred, whatever the title entry said', () => {
+  // Shinlight's exact shape, through the function that now gets the counts.
+  const all = { platinum: 1, gold: 2, silver: 8, bronze: 25 };
+  assert.equal(titleProgress({ progress: 0, earnedTrophies: all, definedTrophies: all }), 100);
+
+  // And a part-finished one is weighted, never zero and never a hundred.
+  const some = { platinum: 0, gold: 1, silver: 2, bronze: 5 };
+  const got = titleProgress({ progress: 0, earnedTrophies: some, definedTrophies: all });
+  assert.ok(got > 0 && got < 100, `expected a real percentage, got ${got}`);
 });

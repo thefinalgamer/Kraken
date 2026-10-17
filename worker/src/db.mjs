@@ -1077,10 +1077,25 @@ export const rankedCount = async (env) =>
 export const changelogFor = (env, updateId, limit = 60) =>
   all(
     env,
-    `SELECT title, kind, trophies_gained, points_gained, progress_from, progress_to
-       FROM update_changelog
-      WHERE update_id = ?
-      ORDER BY points_gained DESC, trophies_gained DESC
+    /**
+     * THE NAME COMES FROM THE GAME, NOT FROM THE SNAPSHOT.
+     *
+     * `update_changelog.title` is whatever PSN called the game at the moment
+     * that update ran, and when PSN sends a title entry with no name at all
+     * the scan falls back to the np_comm_id. Shinlight's card read
+     * `NPWR14023_00 - 100% -> 0%` for a game that has a perfectly good name
+     * sitting in `games` the whole time, kept there by the upsert guard that
+     * refuses to overwrite a title with an id.
+     *
+     * Reading it through the join fixes the rows already written as well as
+     * the ones to come, which a change in the scan could not do.
+     */
+    `SELECT COALESCE(NULLIF(g.title, c.np_comm_id), c.title) AS title,
+            c.kind, c.trophies_gained, c.points_gained, c.progress_from, c.progress_to
+       FROM update_changelog c
+       LEFT JOIN games g ON g.np_comm_id = c.np_comm_id
+      WHERE c.update_id = ?
+      ORDER BY c.points_gained DESC, c.trophies_gained DESC
       LIMIT ?`,
     [updateId, limit],
   );

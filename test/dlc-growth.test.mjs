@@ -222,7 +222,9 @@ test('a percentage never leaves this job above 100', () => {
   assert.match(code, /function pct\(v\) \{[\s\S]{0,120}Math\.min\(100/, 'clamped to 100');
   assert.match(code, /Math\.max\(0,/, 'and not below nothing either');
   // Stored progress goes through titleProgress, which clamps the same way.
-  assert.match(code, /const progress = titleProgress\(title\)/, 'what gets stored is clamped');
+  // `let` since 17 October: an empty PSN title entry is re-derived from the
+  // trophies scanGame() fetched itself. Still titleProgress, still clamped.
+  assert.match(code, /let progress = titleProgress\(title\)/, 'what gets stored is clamped');
 });
 
 /* ---- 5 October: and the line that reported it twice ---- */

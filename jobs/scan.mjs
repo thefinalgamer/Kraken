@@ -10,7 +10,7 @@
  * Two caches do the heavy lifting:
  *
  *  1. Game trophy definitions and worldwide earn rates are IDENTICAL for every
- *     member, so they live in a shared table with a 14-day TTL. The first
+ *     member, so they live in a shared table with a 30-40 day TTL. The first
  *     member to touch a stale game pays the one call that refreshes it for the
  *     whole server. In a hunting community libraries overlap heavily, so this
  *     gets cheaper the more members you have.
@@ -61,6 +61,46 @@ import {
  * accuracy and roughly halves the background refreshing.
  */
 const GAME_CACHE_TTL_MS = Number(process.env.GAME_CACHE_TTL_DAYS || 30) * 24 * 60 * 60 * 1000;
+
+/**
+ * EVERY GAME GETS ITS OWN LIFETIME: 30 days, plus up to 10 more.
+ *
+ * A flat 30 days does not spread the refreshing out, it repeats whatever
+ * clumping already exists. A whole library is fetched on one day, so a month
+ * later it all expires on one day, and a month after that it does it again.
+ * Primal, 19 October: updates that had taken ten seconds for a month took
+ * three minutes, then fifteen, with nothing new earned -- all 1,169 of his
+ * games had been fetched in the same few days in September and came due
+ * together. The same week had 4,000-odd games across the board due on two
+ * consecutive days.
+ *
+ * So each game adds 0-10 days to the TTL, worked out from its own id. Games
+ * fetched on the same day now come due across ten days instead of one, and
+ * because the extra is fixed per game the spread widens every cycle rather
+ * than collapsing back.
+ *
+ * ONLY EVER LONGER, NEVER SHORTER. A 25-35 range would have made a third of
+ * the September clump stale the moment this shipped -- the exact pile-up it
+ * exists to prevent. Rarity forty days old is as good as thirty.
+ *
+ * Derived from the id rather than random at write time so it needs no new
+ * column and no migration, and it applies to the games already stored the
+ * moment it deploys -- the existing clumps start breaking up immediately.
+ */
+const GAME_CACHE_JITTER_MS = Number(process.env.GAME_CACHE_JITTER_DAYS ?? 10) * 24 * 60 * 60 * 1000;
+
+/** A stable number in [0, 1) for a game id. FNV-1a; nothing clever needed. */
+function idFraction(id) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) / 0x100000000;
+}
+
+/** This game's rarity lifetime: the base TTL plus its own share of the jitter. */
+const gameTtlMs = (npCommId) => GAME_CACHE_TTL_MS + Math.floor(idFraction(npCommId) * GAME_CACHE_JITTER_MS);
 
 /**
  * Most stale-rarity refreshes allowed in a single update. Games the member has
@@ -730,7 +770,7 @@ async function scanMember(psn, member, updateNo) {
   }
 
   // Refresh any globally-stale game definitions. Shared across all members.
-  const cutoff = Date.now() - GAME_CACHE_TTL_MS;
+  const now = Date.now();
   const estimateCutoff = Date.now() - ESTIMATE_TTL_MS;
   const estimated = new Set();
   const freshness = new Map();
@@ -818,7 +858,9 @@ async function scanMember(psn, member, updateNo) {
     gameRows
       .filter((t) => {
         if (grown.has(t.npCommunicationId)) return true;
-        const by = estimated.has(t.npCommunicationId) ? estimateCutoff : cutoff;
+        const by = estimated.has(t.npCommunicationId)
+          ? estimateCutoff
+          : now - gameTtlMs(t.npCommunicationId);
         return (freshness.get(t.npCommunicationId) ?? 0) < by;
       })
       .map((t) => t.npCommunicationId),

@@ -24,6 +24,7 @@ import {
   closingState, closingLabel, isUrgent, gameHref, crumb, supporterStar, deadTitle,
   barShade, secureUrl, numberedPager, paysPill, PLATFORM_SQL, platformPills,
 } from '../_lib/page.js';
+import { titleMatchSql, titleContains } from '../../shared/search.mjs';
 import { parseRivals, MAX_RIVALS } from '../../shared/rivals.mjs';
 import { displayBanked } from '../../shared/scoring.mjs';
 import {
@@ -341,7 +342,7 @@ const MISSING = `
   SELECT g.np_comm_id, g.title, g.platform, g.icon_url, g.max_points,
          g.trophy_count, g.local_started
     FROM games g
-   WHERE g.title LIKE ? ESCAPE '\\'
+   WHERE ${titleMatchSql('g.')}
      AND g.max_points > 0
      AND NOT EXISTS (SELECT 1 FROM member_games mg
                       WHERE mg.psn_account_id = ?
@@ -370,7 +371,7 @@ const gamesSql = (order, search, payOnly, listPlat) => `
    WHERE mg.psn_account_id = ?
      ${payOnly ? 'AND g.max_points > 0' : ''}
      ${listPlat ? PLATFORM_SQL : ''}
-     ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
+     ${search ? `AND ${titleMatchSql('g.')}` : ''}
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
 
@@ -471,7 +472,13 @@ const rollWildSql = (plat) => `
 
 const MAX_ROWID = `SELECT MAX(rowid) AS m FROM games`;
 
-const likeTerm = (q) => `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+/*
+ * SEARCH NO LONGER NEEDS THE SPECIAL CHARACTERS TYPED. The term and the stored
+ * title go through the same normaliser, so searching "far cry 6" finds
+ * `Far Cry(R) 6` and "marvels spider man" finds `Marvel's Spider-Man`. The
+ * fragment and its arguments live in shared/search.mjs; migration 043 has the
+ * numbers behind it.
+ */
 
 /** "3 days ago". Coarse on purpose — nobody needs the minute they last played. */
 function ago(ms) {
@@ -1241,7 +1248,7 @@ export async function onRequestGet({ params, env, request }) {
   // Bound in the order the fragments appear in the query.
   const args = [
     m.psn_account_id,
-    ...(q ? [likeTerm(q)] : []),
+    ...(q ? titleContains(q) : []),
     ...(listPlat ? [listPlat] : []),
     PER_PAGE + 1,
     offset,
@@ -1261,7 +1268,7 @@ export async function onRequestGet({ params, env, request }) {
    */
   const { results: missingRows = [] } = q
     ? await env.DB.prepare(MISSING)
-        .bind(likeTerm(q), m.psn_account_id, MISSING_ROWS + 1)
+        .bind(...titleContains(q), m.psn_account_id, MISSING_ROWS + 1)
         .all()
         .catch(() => ({ results: [] }))
     : { results: [] };

@@ -535,13 +535,18 @@ test('search is bound, escaped, and only added when asked for', async () => {
   assert.ok(!lastGamesSql.includes('LIKE'), 'no filter when not searching');
 
   await render('JFL__Leon', '?q=batman');
-  assert.ok(lastGamesSql.includes('g.title LIKE ? ESCAPE'), lastGamesSql);
+  // Migration 043 (14 November 2026): the comparison moved to the normalised
+  // key, and binds the raw term beside it for the pre-backfill fallback arm.
+  assert.ok(lastGamesSql.includes('g.title_search LIKE ? ESCAPE'), lastGamesSql);
   assert.equal(lastBind[1], '%batman%', 'bound as a parameter, not spliced in');
+  assert.equal(lastBind[2], '%batman%', 'and the raw fallback beside it');
 
   // LIKE has its own wildcards. Somebody searching for "100%" must not match
-  // their entire library, and "_" must not match any single character.
+  // their entire library, and "_" must not match any single character. The key
+  // turns both into gaps before they reach SQL; the raw arm still escapes them.
   await render('JFL__Leon', `?q=${encodeURIComponent('100%_x')}`);
-  assert.equal(lastBind[1], '%100\\%\\_x%');
+  assert.equal(lastBind[1], '%100 x%', 'the key has no wildcard left in it');
+  assert.equal(lastBind[2], '%100\\%\\_x%', 'the raw fallback escapes both');
 });
 
 test('pages are 50 at a time and the offset follows the page number', async () => {

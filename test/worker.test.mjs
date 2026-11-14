@@ -112,9 +112,16 @@ test('the game search only reads games somebody here owns', async () => {
   // game nobody here owns cannot usefully be flagged or asked about.
   await dbmod.searchGames(spyEnv(), 'minecraft', 25);
   assert.match(lastSql, /local_started > 0/, 'unowned games are not searched');
-  assert.match(lastSql, /LIKE \? COLLATE NOCASE/, 'still a case-insensitive match');
+  /*
+   * Migration 043, 14 November 2026. The comparison moved to title_search, and
+   * each of the two fragments binds a pair: the normalised key first, then the
+   * raw term for the fallback arm. Case insensitivity is now inherent on the
+   * key side, which is lowercased before it is ever stored.
+   */
+  assert.match(lastSql, /title_search LIKE \? ESCAPE/, 'the key is what is matched');
+  assert.match(lastSql, /LIKE \? ESCAPE '.' COLLATE NOCASE/, 'raw fallback stays insensitive');
   assert.equal(lastArgs[0], '%minecraft%', 'mid-word matches still work');
-  assert.equal(lastArgs[1], 'minecraft%', 'and prefix matches sort first');
+  assert.equal(lastArgs[2], 'minecraft%', 'and prefix matches sort first');
 });
 
 test('the game search offers the most-owned match first, not the shortest', async () => {
@@ -307,10 +314,18 @@ test('the fallback resolver can find a title an exact match misses', async () =>
    * resolve to a longer game that merely contains those words.
    */
   await dbmod.findGame(spyEnv(), 'Uncharted 2: Among Thieves');
-  assert.match(lastSql, /title = \? COLLATE NOCASE/, 'exact is still tried');
-  assert.match(lastSql, /OR title LIKE \? COLLATE NOCASE/, 'and a LIKE catches the rest');
+  /*
+   * Migration 043, 14 November 2026 adds a THIRD arm in front of these two: an
+   * exact match on the normalised key. That is the one that now resolves a
+   * title typed without its trademark sign, which is what this test was
+   * describing all along and what the LIKE was only approximating.
+   */
+  assert.match(lastSql, /title_search = \?/, 'the key is tried exactly, first');
+  assert.match(lastSql, /title = \? COLLATE NOCASE/, 'exact on the raw title is still tried');
+  assert.match(lastSql, /title_search LIKE \? ESCAPE/, 'and a LIKE catches the rest');
   assert.match(lastSql, /ORDER BY LENGTH\(title\) ASC/, 'shortest match, not any match');
-  assert.equal(lastArgs[1], '%Uncharted 2: Among Thieves%');
+  assert.equal(lastArgs[0], 'uncharted 2 among thieves', 'the key, with the colon gone');
+  assert.equal(lastArgs[3], '%Uncharted 2: Among Thieves%');
 });
 
 test('a blank version flags the trophy across every edition, by name', () => {

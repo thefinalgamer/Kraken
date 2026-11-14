@@ -8,6 +8,9 @@
 
 import { FINISHABLE_SQL, RANDOM_PICKS, BACKLOG_MAX } from '../../shared/votes.mjs';
 import {
+  searchKey, titleMatchSql, titleContains, titleStartsWith,
+} from '../../shared/search.mjs';
+import {
   CONTESTED_SQL,
   CONTESTED_MIN_OWNERS,
   CONTESTED_LIMIT,
@@ -600,13 +603,35 @@ export async function renameGame(env, { title, npCommId = null }, name) {
       .run();
   }
 
-  return all(
+  const after = await all(
     env,
     'SELECT np_comm_id, title, platform, title_psn FROM games WHERE np_comm_id IN (' +
       before.map(() => '?').join(',') +
       ')',
     before.map((r) => r.np_comm_id),
   );
+
+  /*
+   * THE SEARCH KEY IS REWRITTEN FROM WHAT ACTUALLY LANDED, not from `name`.
+   *
+   * Both branches above need this and only one of them could compute it up
+   * front: the unlock branch restores `COALESCE(title_psn, title)`, which is
+   * decided inside SQL and differs per row when the rename matched on title
+   * and caught a whole stack. Reading the result back is the one version that
+   * is right for both, and this command runs a handful of times a month.
+   *
+   * Without it a renamed game keeps the key of its old name: the mod sees the
+   * fix land on the page, and then nobody can find the game by the name it now
+   * shows. See migration 043.
+   */
+  await env.DB.batch(
+    after.map((g) =>
+      env.DB.prepare('UPDATE games SET title_search = ? WHERE np_comm_id = ?')
+        .bind(searchKey(g.title), g.np_comm_id),
+    ),
+  );
+
+  return after;
 }
 
 /**
@@ -634,11 +659,21 @@ export const myGamesForPin = (env, accountId, query = '', limit = 25) =>
        JOIN games g ON g.np_comm_id = mg.np_comm_id
       WHERE mg.psn_account_id = ?
         AND TRIM(COALESCE(g.title, '')) <> ''
-        AND (? = '' OR g.title LIKE ? COLLATE NOCASE)
-      ORDER BY CASE WHEN g.title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+        AND (? = '' OR ${titleMatchSql('g.')})
+      ORDER BY CASE WHEN ${titleMatchSql('g.')} THEN 0 ELSE 1 END,
                COALESCE(mg.last_played_at, mg.last_earned_at, 0) DESC
       LIMIT ?`,
-    [accountId, query, `%${query}%`, `${query}%`, limit],
+    [
+      accountId,
+      // The EMPTINESS TEST IS ON THE KEY, not on what was typed. A box holding
+      // nothing but punctuation normalises away to nothing, and "no search" is
+      // a truer reading of that than "search for the empty string", which
+      // would match no game at all and look broken.
+      searchKey(query),
+      ...titleContains(query),
+      ...titleStartsWith(query),
+      limit,
+    ],
   );
 
 /**
@@ -661,11 +696,15 @@ export const findGame = (env, query) =>
   first(
     env,
     `SELECT * FROM games
-      WHERE title = ? COLLATE NOCASE
-         OR title LIKE ? COLLATE NOCASE
+      WHERE (title_search = ? AND title_search IS NOT NULL)
+         OR title = ? COLLATE NOCASE
+         OR ${titleMatchSql()}
       ORDER BY LENGTH(title) ASC
       LIMIT 1`,
-    [query, `%${query}%`],
+    // The exact arm stays first and is now an exact match on the KEY, so
+    // "far cry 6" resolves straight to `Far Cry(R) 6` instead of falling
+    // through to the contains arm and being ordered by title length.
+    [searchKey(query), query, ...titleContains(query)],
   );
 
 /**
@@ -708,13 +747,13 @@ export const searchGames = (env, query, limit = 25) =>
     env,
     `SELECT title, MAX(local_started) AS owners FROM games
       WHERE local_started > 0
-        AND title LIKE ? COLLATE NOCASE
+        AND ${titleMatchSql()}
         AND TRIM(COALESCE(title, '')) <> ''
       GROUP BY title COLLATE NOCASE
-      ORDER BY CASE WHEN title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+      ORDER BY CASE WHEN ${titleMatchSql()} THEN 0 ELSE 1 END,
                owners DESC, LENGTH(title) ASC, title ASC
       LIMIT ?`,
-    [`%${query}%`, `${query}%`, limit],
+    [...titleContains(query), ...titleStartsWith(query), limit],
   );
 
 /**
@@ -936,11 +975,11 @@ export const searchGamesForWish = (env, query = '', limit = 25) =>
        FROM games
       WHERE local_started > 0
         AND TRIM(COALESCE(title, '')) <> ''
-        AND (? = '' OR title LIKE ? COLLATE NOCASE)
-      ORDER BY CASE WHEN title LIKE ? COLLATE NOCASE THEN 0 ELSE 1 END,
+        AND (? = '' OR ${titleMatchSql()})
+      ORDER BY CASE WHEN ${titleMatchSql()} THEN 0 ELSE 1 END,
                local_started DESC, max_points DESC
       LIMIT ?`,
-    [query, `%${query}%`, `${query}%`, limit],
+    [searchKey(query), ...titleContains(query), ...titleStartsWith(query), limit],
   );
 
 /**

@@ -51,6 +51,13 @@ const d1 = (db) => ({
         run: async () => db.prepare(sql).run(...params),
       }),
     }),
+    /*
+     * `batch` arrives with migration 043 (14 November 2026): renameGame now
+     * rewrites title_search from the titles that actually landed, in one batch
+     * rather than a round trip per edition. D1 really does have this method;
+     * the shim simply had no reason to carry it until now.
+     */
+    batch: async (stmts) => Promise.all(stmts.map((st) => st.run())),
   },
 });
 
@@ -60,7 +67,8 @@ const fixture = () => {
     CREATE TABLE games(
       np_comm_id TEXT PRIMARY KEY, np_service_name TEXT, title TEXT, platform TEXT,
       icon_url TEXT, trophy_count INTEGER, has_platinum INTEGER, max_points INTEGER,
-      estimated INTEGER, completion_weight INTEGER, refreshed_at INTEGER);
+      estimated INTEGER, completion_weight INTEGER, refreshed_at INTEGER,
+      title_search TEXT);
     INSERT INTO games (np_comm_id, title, platform) VALUES
       ('NPWR001', 'MARVEL S SPIDER-MAN', 'PS4'),
       ('NPWR002', 'MARVEL S SPIDER-MAN', 'PS5'),

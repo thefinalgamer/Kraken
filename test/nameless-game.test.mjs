@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { searchKey } from '../shared/search.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
@@ -48,11 +49,17 @@ test('the stand-in never overwrites a title we already hold', { skip: !DatabaseS
     CREATE TABLE games (np_comm_id TEXT PRIMARY KEY, np_service_name TEXT, title TEXT NOT NULL,
       title_psn TEXT, title_locked INTEGER DEFAULT 0, platform TEXT, icon_url TEXT,
       trophy_count INTEGER, has_platinum INTEGER, max_points INTEGER, estimated INTEGER,
-      completion_weight INTEGER, refreshed_at INTEGER);
+      completion_weight INTEGER, refreshed_at INTEGER, title_search TEXT);
   `);
   const sql = upsert();
   const run = (id, title) =>
-    d.prepare(sql).run(id, 'NPWR_S', title, 'PS4', null, 10, 1, 100, 0, 100, Date.now());
+    d.prepare(sql).run(
+      id, 'NPWR_S', title, 'PS4', null, 10, 1, 100, 0, 100, Date.now(),
+      // title_search joins the upsert in migration 043 (14 November 2026) and
+      // follows the title through the same CASE, so the stand-in rule this
+      // test is about has to hold for the key too.
+      searchKey(title),
+    );
 
   // First sight of a nameless game: it lands under its id rather than failing.
   run('NPWR123', 'NPWR123');
@@ -75,11 +82,24 @@ test('a locked title still wins over everything', { skip: !DatabaseSync }, () =>
     CREATE TABLE games (np_comm_id TEXT PRIMARY KEY, np_service_name TEXT, title TEXT NOT NULL,
       title_psn TEXT, title_locked INTEGER DEFAULT 0, platform TEXT, icon_url TEXT,
       trophy_count INTEGER, has_platinum INTEGER, max_points INTEGER, estimated INTEGER,
-      completion_weight INTEGER, refreshed_at INTEGER);
+      completion_weight INTEGER, refreshed_at INTEGER, title_search TEXT);
   `);
   const sql = upsert();
-  d.prepare(sql).run('NPWR9', 'NPWR_S', 'Sony Abbrev', 'PS4', null, 10, 1, 100, 0, 100, Date.now());
-  d.prepare('UPDATE games SET title = ?, title_locked = 1').run('The Name Martin Set');
-  d.prepare(sql).run('NPWR9', 'NPWR_S', 'Sony Abbrev', 'PS4', null, 10, 1, 100, 0, 100, Date.now());
-  assert.equal(d.prepare('SELECT title FROM games').get().title, 'The Name Martin Set');
+  const sony = (title) =>
+    d.prepare(sql).run(
+      'NPWR9', 'NPWR_S', title, 'PS4', null, 10, 1, 100, 0, 100, Date.now(), searchKey(title),
+    );
+  sony('Sony Abbrev');
+  d.prepare('UPDATE games SET title = ?, title_search = ?, title_locked = 1')
+    .run('The Name Martin Set', searchKey('The Name Martin Set'));
+  sony('Sony Abbrev');
+
+  const row = d.prepare('SELECT title, title_search FROM games').get();
+  assert.equal(row.title, 'The Name Martin Set');
+  /*
+   * AND THE KEY IS LOCKED WITH IT (migration 043, 14 November 2026). The two
+   * CASE branches have to agree or a renamed game shows one name and is found
+   * under another: the mod sees the fix land and then nobody can search for it.
+   */
+  assert.equal(row.title_search, 'the name martin set', 'the search key held the lock too');
 });

@@ -1,0 +1,65 @@
+-- A typeable copy of every game title, so search stops needing special characters.
+--
+-- THE REPORT, from PrimalxFear on 14 November: "I noticed that you need to type
+-- special characters when searching a game like Far Cry 6. if you search Far
+-- Cry 6 you cannot find the game. is there a way to fix this so it searches
+-- without special characters?"
+--
+-- He is right, and it is wider than the one symbol. Search was
+-- `title LIKE '%far cry 6%'` against a stored `Far Cry(R) 6`. The (R) sits
+-- between "Cry" and " 6" so the substring never matches. The query was never
+-- wrong; the title just holds a character nobody types.
+--
+-- HOW WIDE, measured before building, across 26,504 games:
+--
+--     3,899  a colon              979  a straight apostrophe
+--       565  (TM)                 386  (R)
+--       348  a full stop          283  an ampersand
+--       129  a comma               66  fullwidth digits or letters
+--        48  a curly apostrophe    32  an en or em dash
+--
+-- 3,030 of the 9,787 games on the index page carry at least one. A third of
+-- what a member can browse could not be found by typing its name.
+--
+-- WHAT THIS COLUMN HOLDS. The output of searchKey() in shared/search.mjs: the
+-- title lowercased, with the decoration turned into single spaces and the
+-- apostrophes and full stops removed outright. `Far Cry(R) 6` stores as
+-- "far cry 6", `F.E.A.R. 2` as "fear 2", `Marvel's Spider-Man` as "marvels
+-- spider man". The member's typed term goes through the same function before
+-- it is bound, so the two meet in the middle.
+--
+-- WHY A COLUMN rather than cleaning the title inside the query. D1's SQLite has
+-- no Unicode case folding, no accent handling and no regex. The query version
+-- is a ten-deep stack of nested REPLACE repeated at all eight places that
+-- search a title, and it still could not handle accents (Ghost of Yotei),
+-- fullwidth digits, or the single-character Roman numerals that 17 games use
+-- (DARK SOULS II is stored with U+2161, not two capital i's, which is why
+-- searching "dark souls ii" has never worked either).
+--
+-- IT IS NOT AN INDEX, and there is deliberately no index on it. A leading-%
+-- LIKE cannot use one, so this reads the table exactly as the old query did.
+-- The change buys correctness at no cost in either direction.
+--
+-- WHO WRITES IT: the games upsert in jobs/scan.mjs (mirroring the title CASE
+-- line for line, so a locked title keeps its locked key), and the two rename
+-- statements in worker/src/db.mjs behind /flag namechange. Both must move
+-- together with the title or a renamed game drops out of search.
+--
+-- THE EXISTING 26,504 ROWS need `npm run backfill-search`, once:
+--
+--   Actions -> Admin -> Run workflow -> task: backfill-search
+--
+-- Until that has run the column is NULL, and every query falls back to the old
+-- `title LIKE ?` behaviour, so the site keeps working exactly as it does today
+-- while the backfill is pending. Nothing half-migrates.
+--
+-- TO CHECK IT AFTERWARDS, in the D1 console:
+--
+--   SELECT COUNT(*) AS total,
+--          SUM(title_search IS NULL) AS unfilled
+--     FROM games;
+--
+--   SELECT title, title_search FROM games
+--    WHERE title LIKE '%Far Cry%' ORDER BY title LIMIT 10;
+
+ALTER TABLE games ADD COLUMN title_search TEXT;

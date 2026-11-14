@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS games (
   -- that reads a game has to know this exists.
   title_psn         TEXT,                 -- what PSN last called it
   title_locked      INTEGER,              -- 1 = the owner named it, leave it alone
+  -- The title with its decoration taken off, which is what every search box
+  -- actually compares against. `Far Cry(R) 6` stores as "far cry 6" and
+  -- `Marvel's Spider-Man` as "marvels spider man", so a member never has to
+  -- know which symbols Sony put in a name. Written by searchKey() in
+  -- shared/search.mjs, never by SQL. See migrations/043-title-search.sql.
+  title_search      TEXT,
   refreshed_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_games_title     ON games(title);

@@ -39,6 +39,7 @@ import {
 import { settleLocalRarity } from './lib/settle.mjs';
 import { settleGoals } from './lib/goals.mjs';
 import { titleProgress } from './lib/progress.mjs';
+import { searchKey } from '../shared/search.mjs';
 import {
   postUpdateResult,
   postProjects,
@@ -1330,8 +1331,8 @@ async function scanGame(
       `INSERT INTO games
          (np_comm_id, np_service_name, title, platform, icon_url,
           trophy_count, has_platinum, max_points, estimated, completion_weight,
-          refreshed_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+          refreshed_at, title_search)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(np_comm_id) DO UPDATE SET
          np_service_name = excluded.np_service_name,
          /*
@@ -1362,6 +1363,25 @@ async function scanGame(
                       WHEN excluded.title = games.np_comm_id AND TRIM(COALESCE(games.title, '')) <> ''
                         THEN games.title
                       ELSE excluded.title END,
+         /*
+          * THE SEARCH KEY FOLLOWS THE TITLE, CONDITION FOR CONDITION.
+          *
+          * This is the same CASE as the line above with title_search in place
+          * of title, and it has to stay that way: the key is what /games and
+          * every autocomplete actually match on, so a branch where the two
+          * disagree is a game that is displayed under one name and findable
+          * under another. Keeping a locked title while taking Sony's key would
+          * mean /flag namechange appeared to work and quietly broke search for
+          * that game.
+          *
+          * EDIT THEM TOGETHER. If you add a condition to the title CASE above,
+          * add it here. test/search.test.mjs asserts the two carry the same
+          * number of WHEN branches for exactly this reason.
+          */
+         title_search = CASE WHEN games.title_locked = 1 THEN games.title_search
+                             WHEN excluded.title = games.np_comm_id AND TRIM(COALESCE(games.title, '')) <> ''
+                               THEN games.title_search
+                             ELSE excluded.title_search END,
          platform = excluded.platform,
          icon_url = excluded.icon_url,
          /*
@@ -1427,6 +1447,9 @@ async function scanGame(
         // database — before this, only a full rescan could move the number.
         rated.reduce((n, t) => n + completionWeight({ [t.type]: 1 }), 0),
         Date.now(),
+        // The typeable copy of the title, written in the same statement so the
+        // two can never drift apart. See shared/search.mjs and migration 043.
+        searchKey(titleOrId(title)),
       ],
     );
 

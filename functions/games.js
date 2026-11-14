@@ -22,6 +22,7 @@ import {
   page, html, esc, n, crumb, closingState, closingLabel, isUrgent, deadTitle,
   secureUrl, numberedPager, paysPill, PLATFORMS, PLATFORM_SQL, platformPills,
 } from './_lib/page.js';
+import { titleMatchSql, titleContains } from '../shared/search.mjs';
 
 const PER_PAGE = 50;
 
@@ -84,11 +85,17 @@ const listSql = (order, search, payOnly, plat) => `
    WHERE g.local_started > 0
      ${payOnly ? 'AND g.max_points > 0' : ''}
      ${plat ? PLATFORM_SQL : ''}
-     ${search ? `AND g.title LIKE ? ESCAPE '\\'` : ''}
+     ${search ? `AND ${titleMatchSql('g.')}` : ''}
    ORDER BY ${order}
    LIMIT ? OFFSET ?`;
 
-const likeTerm = (q) => `%${String(q).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+/*
+ * SEARCH NO LONGER NEEDS THE SPECIAL CHARACTERS TYPED. PrimalxFear, 14
+ * November: "if you search Far Cry 6 you cannot find the game". The term and
+ * the stored title now go through the same normaliser, so the (R) in
+ * `Far Cry(R) 6` stops being something a member has to know about. The
+ * fragment and its two arguments live in shared/search.mjs.
+ */
 
 /**
  * The mark beside a title, and the sentence under it. Same shape as the hunter
@@ -259,7 +266,7 @@ export async function onRequestGet({ env, request }) {
   // Bound in the order the fragments appear: the search LIKE, then the
   // platform LIKE, then the window.
   const args = [
-    ...(q ? [likeTerm(q)] : []),
+    ...(q ? titleContains(q) : []),
     ...(plat ? [plat] : []),
     PER_PAGE + 1,
     offset,

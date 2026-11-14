@@ -135,10 +135,21 @@ test('the sort whitelist is a whitelist', async () => {
 });
 
 test('search escapes LIKE wildcards', async () => {
+  /*
+   * REWRITTEN 14 NOVEMBER 2026, migration 043. Search now compares the
+   * normalised key rather than the raw title, so there are two bound terms:
+   * the key, and the raw title for the fallback arm that only fires on a
+   * database where the backfill has not run yet.
+   *
+   * The rule being protected is unchanged. Somebody searching "100%" must not
+   * match every game in the index, and now it cannot happen on either arm: the
+   * key has no percent sign left in it at all, and the raw arm still escapes.
+   */
   await render(ROWS, '?q=100%25');
-  // Somebody searching "100%" must not match every game in the index.
-  assert.equal(lastBind[0], '%100\\%%');
+  assert.equal(lastBind[0], '%100%', 'the key keeps no wildcard to escape');
+  assert.equal(lastBind[1], '%100\\%%', 'and the raw fallback still escapes it');
   assert.match(lastSql, /LIKE \? ESCAPE/);
+  assert.match(lastSql, /title_search LIKE/, 'the key is what is matched');
 });
 
 test('search is capped and trimmed', async () => {

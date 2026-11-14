@@ -10,6 +10,7 @@
     "scan": "node jobs/scan.mjs",
     "rescore": "node jobs/rescore.mjs",
     "backfill-names": "node jobs/names.mjs",
+    "backfill-search": "node jobs/search-keys.mjs",
     "import-unobtainable": "node jobs/unobtainable.mjs",
     "fallback": "node jobs/fallback.mjs",
     "register-commands": "node jobs/register-commands.mjs",

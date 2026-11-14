@@ -23,6 +23,7 @@ on:
           - migrate
           - rescore
           - backfill-names
+          - backfill-search
           - import-unobtainable
 
 jobs:
@@ -82,6 +83,22 @@ jobs:
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: npm run backfill-names
+
+      # Fills in games.title_search for every game already in the database.
+      # Migration 043 adds the column; only this can fill it, because the key
+      # needs Unicode normalisation and a regex and D1's SQLite has neither.
+      #
+      # No PSN calls, so it needs no rate limit and no free scan lane. It is
+      # idempotent: it writes only the rows whose key is missing or stale, so
+      # running it twice is one read pass and no writes. Run it again after
+      # any change to searchKey() in shared/search.mjs.
+      - name: Backfill game search keys
+        if: inputs.task == 'backfill-search'
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: npm run backfill-search
 
       # Imports the PSNP+ community list of games with unobtainable trophies.
       # DRY RUN by default: it prints what it would flag and writes nothing.
